@@ -1,0 +1,322 @@
+import { getGenbaDb } from './genbaDb'
+import type {
+  GenbaEvent,
+  GenbaEventDetail,
+  GenbaEventInput,
+  GenbaItem,
+  GenbaSummaryRow
+} from '../../shared/types/genba'
+
+type EventRow = {
+  id: number
+  event_name: string
+  event_date: string | null
+  venue_name: string | null
+  ticket_price: number
+  drink_fee: number
+  transport_fee: number
+  memo: string | null
+  created_at: string
+  cheki_total: number
+  cheki_count: number
+  goods_total: number
+  member_names: string | null
+  group_names: string | null
+}
+
+type ItemRow = {
+  id: number
+  category: 'cheki' | 'goods'
+  label: string
+  unit_price: number
+  quantity: number
+  member_name: string | null
+  group_name: string | null
+}
+
+/**
+カンマ区切りの集約結果を配列に変換する（空文字は除外）
+ */
+function splitNames(value: string | null): string[] {
+  if (!value) return []
+  return [...new Set(value.split(',').map(v => v.trim()).filter(Boolean))]
+}
+
+/**
+イベント1行をレスポンス用の形式に変換する
+ */
+function toGenbaEvent(row: EventRow): GenbaEvent {
+  return {
+    id: row.id,
+    eventName: row.event_name,
+    eventDate: row.event_date,
+    venueName: row.venue_name,
+    memberNames: splitNames(row.member_names),
+    groupNames: splitNames(row.group_names),
+    ticketPrice: row.ticket_price,
+    drinkFee: row.drink_fee,
+    transportFee: row.transport_fee,
+    memo: row.memo,
+    createdAt: row.created_at,
+    chekiTotal: row.cheki_total,
+    chekiCount: row.cheki_count,
+    goodsTotal: row.goods_total,
+    totalAmount: row.ticket_price + row.drink_fee + row.transport_fee + row.cheki_total + row.goods_total
+  }
+}
+
+// グループはアイドルマスタに紐づく所属を常に正とするため、明細のmember_nameからgenba_idolsを参照して導出する
+const EVENT_SELECT = `
+  SELECT
+    e.id, e.event_name, e.event_date, e.venue_name,
+    e.ticket_price, e.drink_fee, e.transport_fee, e.memo, e.created_at,
+    COALESCE(SUM(CASE WHEN i.category = 'cheki' THEN i.unit_price * i.quantity ELSE 0 END), 0) AS cheki_total,
+    COALESCE(SUM(CASE WHEN i.category = 'cheki' THEN i.quantity ELSE 0 END), 0) AS cheki_count,
+    COALESCE(SUM(CASE WHEN i.category = 'goods' THEN i.unit_price * i.quantity ELSE 0 END), 0) AS goods_total,
+    GROUP_CONCAT(DISTINCT NULLIF(i.member_name, '')) AS member_names,
+    GROUP_CONCAT(DISTINCT NULLIF(gi.group_name, '')) AS group_names
+  FROM genba_events e
+  LEFT JOIN genba_items i ON i.event_id = e.id
+  LEFT JOIN genba_idols gi ON gi.name = i.member_name
+`
+
+type ListFilter = {
+  memberName?: string
+  groupName?: string
+}
+
+/**
+現場一覧を取得する（端末ごとに分離、推し名・グループ名の明細を含む現場のみで絞り込み可能）
+ */
+export function listGenbaEvents(deviceId: string, filter: ListFilter = {}): GenbaEvent[] {
+  const db = getGenbaDb()
+
+  const conditions: string[] = ['e.device_id = ?']
+  const params: string[] = [deviceId]
+
+  if (filter.memberName) {
+    conditions.push('e.id IN (SELECT event_id FROM genba_items WHERE member_name = ?)')
+    params.push(filter.memberName)
+  }
+
+  if (filter.groupName) {
+    conditions.push(`
+      e.id IN (
+        SELECT i2.event_id FROM genba_items i2
+        INNER JOIN genba_idols gi2 ON gi2.name = i2.member_name
+        WHERE gi2.group_name = ?
+      )
+    `)
+    params.push(filter.groupName)
+  }
+
+  const rows = db.prepare(`
+    ${EVENT_SELECT}
+    WHERE ${conditions.join(' AND ')}
+    GROUP BY e.id
+    ORDER BY e.event_date DESC, e.id DESC
+  `).all(...params) as unknown as EventRow[]
+
+  return rows.map(toGenbaEvent)
+}
+
+/**
+現場の詳細（チェキ・グッズの内訳を含む）を取得する。指定端末の記録のみ取得可能
+ */
+export function getGenbaEventDetail(deviceId: string, id: number): GenbaEventDetail | undefined {
+  const db = getGenbaDb()
+
+  const eventRow = db.prepare(`
+    ${EVENT_SELECT}
+    WHERE e.id = ? AND e.device_id = ?
+    GROUP BY e.id
+  `).get(id, deviceId) as unknown as EventRow | undefined
+
+  if (!eventRow) {
+    return undefined
+  }
+
+  const itemRows = db.prepare(`
+    SELECT i.id, i.category, i.label, i.unit_price, i.quantity, i.member_name,
+      gi.group_name AS group_name
+    FROM genba_items i
+    LEFT JOIN genba_idols gi ON gi.name = i.member_name
+    WHERE i.event_id = ?
+    ORDER BY i.id ASC
+  `).all(id) as unknown as ItemRow[]
+
+  const items: GenbaItem[] = itemRows.map(row => ({
+    id: row.id,
+    category: row.category,
+    label: row.label,
+    unitPrice: row.unit_price,
+    quantity: row.quantity,
+    memberName: row.member_name,
+    groupName: row.group_name
+  }))
+
+  return {
+    ...toGenbaEvent(eventRow),
+    items
+  }
+}
+
+/**
+チェキ・グッズの明細行をイベントに紐づけて登録する
+ */
+function insertItems(eventId: number, input: GenbaEventInput): void {
+  const db = getGenbaDb()
+
+  const insert = db.prepare(`
+    INSERT INTO genba_items (event_id, category, label, unit_price, quantity, member_name)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `)
+
+  for (const item of input.chekiItems) {
+    insert.run(eventId, 'cheki', item.label, item.unitPrice, item.quantity, item.memberName)
+  }
+
+  for (const item of input.goodsItems) {
+    insert.run(eventId, 'goods', item.label, item.unitPrice, item.quantity, item.memberName)
+  }
+}
+
+/**
+現場を新規登録する
+ */
+export function createGenbaEvent(deviceId: string, input: GenbaEventInput): GenbaEventDetail {
+  const db = getGenbaDb()
+
+  db.exec('BEGIN')
+
+  try {
+    const result = db.prepare(`
+      INSERT INTO genba_events (device_id, event_name, event_date, venue_name, ticket_price, drink_fee, transport_fee, memo)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      deviceId,
+      input.eventName,
+      input.eventDate,
+      input.venueName,
+      input.ticketPrice,
+      input.drinkFee,
+      input.transportFee,
+      input.memo
+    )
+
+    const eventId = Number(result.lastInsertRowid)
+    insertItems(eventId, input)
+
+    db.exec('COMMIT')
+
+    return getGenbaEventDetail(deviceId, eventId)!
+  } catch (e) {
+    db.exec('ROLLBACK')
+    throw e
+  }
+}
+
+/**
+現場の内容を更新する（明細は一旦削除して入れ直す）。指定端末の記録のみ更新可能
+ */
+export function updateGenbaEvent(deviceId: string, id: number, input: GenbaEventInput): GenbaEventDetail | undefined {
+  const db = getGenbaDb()
+
+  db.exec('BEGIN')
+
+  try {
+    const result = db.prepare(`
+      UPDATE genba_events
+      SET event_name = ?, event_date = ?, venue_name = ?,
+          ticket_price = ?, drink_fee = ?, transport_fee = ?, memo = ?
+      WHERE id = ? AND device_id = ?
+    `).run(
+      input.eventName,
+      input.eventDate,
+      input.venueName,
+      input.ticketPrice,
+      input.drinkFee,
+      input.transportFee,
+      input.memo,
+      id,
+      deviceId
+    )
+
+    if (result.changes === 0) {
+      db.exec('ROLLBACK')
+      return undefined
+    }
+
+    db.prepare('DELETE FROM genba_items WHERE event_id = ?').run(id)
+    insertItems(id, input)
+
+    db.exec('COMMIT')
+
+    return getGenbaEventDetail(deviceId, id)
+  } catch (e) {
+    db.exec('ROLLBACK')
+    throw e
+  }
+}
+
+/**
+現場を削除する。指定端末の記録のみ削除可能
+ */
+export function deleteGenbaEvent(deviceId: string, id: number): boolean {
+  const db = getGenbaDb()
+  const result = db.prepare('DELETE FROM genba_events WHERE id = ? AND device_id = ?').run(id, deviceId)
+  return result.changes > 0
+}
+
+export type GenbaSummaryMonthFilter = {
+  year: number
+  month: number // 1始まり
+}
+
+/**
+推し・グループ別の支出集計を取得する（指定端末の記録のみ。チケット代・ドリンク代は含まずチェキ・グッズの明細金額のみ集計。チェキ枚数は単価0円の特典分も含めて集計）
+ *
+monthFilterを指定すると、その月に開催された現場の明細だけに絞り込む
+ */
+export function getGenbaSummary(deviceId: string, monthFilter?: GenbaSummaryMonthFilter): GenbaSummaryRow[] {
+  const db = getGenbaDb()
+
+  const conditions = ['e.device_id = ?']
+  const params: (string | number)[] = [deviceId]
+
+  if (monthFilter) {
+    const monthPrefix = `${monthFilter.year}-${String(monthFilter.month).padStart(2, '0')}-`
+    conditions.push('e.event_date LIKE ?')
+    params.push(`${monthPrefix}%`)
+  }
+
+  const rows = db.prepare(`
+    SELECT
+      COALESCE(i.member_name, '') AS member_name,
+      COALESCE(gi.group_name, '') AS group_name,
+      COUNT(DISTINCT i.event_id) AS event_count,
+      COALESCE(SUM(CASE WHEN i.category = 'cheki' THEN i.quantity ELSE 0 END), 0) AS cheki_count,
+      COALESCE(SUM(i.unit_price * i.quantity), 0) AS total_amount
+    FROM genba_items i
+    INNER JOIN genba_events e ON e.id = i.event_id
+    LEFT JOIN genba_idols gi ON gi.name = i.member_name
+    WHERE ${conditions.join(' AND ')}
+    GROUP BY i.member_name, gi.group_name
+    ORDER BY total_amount DESC
+  `).all(...params) as unknown as {
+    member_name: string
+    group_name: string
+    event_count: number
+    cheki_count: number
+    total_amount: number
+  }[]
+
+  return rows.map(row => ({
+    key: `${row.member_name}__${row.group_name}`,
+    memberName: row.member_name || null,
+    groupName: row.group_name || null,
+    eventCount: row.event_count,
+    chekiCount: row.cheki_count,
+    totalAmount: row.total_amount
+  }))
+}
