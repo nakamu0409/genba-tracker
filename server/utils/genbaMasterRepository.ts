@@ -54,31 +54,34 @@ function toGenbaMasterEntry(row: MasterRow, requestDeviceId: string): GenbaMaste
 /**
 マスタ一覧を取得する。全員共有のデータと、自分の端末が登録したデータのみを返す
  */
-export function listGenbaMasterEntries(type: string, deviceId: string): GenbaMasterEntry[] {
-  const db = getGenbaDb()
+export async function listGenbaMasterEntries(type: string, deviceId: string): Promise<GenbaMasterEntry[]> {
+  const db = await getGenbaDb()
   const tableName = resolveTableName(type)
 
-  const rows = db.prepare(`
-    SELECT * FROM ${tableName}
-    WHERE device_id = ? OR device_id = ?
-    ORDER BY name ASC
-  `).all(SHARED_DEVICE_ID, deviceId) as unknown as MasterRow[]
+  const result = await db.execute({
+    sql: `
+      SELECT * FROM ${tableName}
+      WHERE device_id = ? OR device_id = ?
+      ORDER BY name ASC
+    `,
+    args: [SHARED_DEVICE_ID, deviceId]
+  })
 
-  return rows.map(row => toGenbaMasterEntry(row, deviceId))
+  return (result.rows as unknown as MasterRow[]).map(row => toGenbaMasterEntry(row, deviceId))
 }
 
 /**
 マスタを新規登録する。管理者なら共有データ、それ以外は自分の端末専用データとして登録する
  */
-export function createGenbaMasterEntry(type: string, input: GenbaMasterEntryInput, deviceId: string, isAdmin: boolean): GenbaMasterEntry {
-  const db = getGenbaDb()
+export async function createGenbaMasterEntry(type: string, input: GenbaMasterEntryInput, deviceId: string, isAdmin: boolean): Promise<GenbaMasterEntry> {
+  const db = await getGenbaDb()
   const tableName = resolveTableName(type)
   const ownerDeviceId = resolveOwnerDeviceId(deviceId, isAdmin)
 
   try {
     const result = type === 'idols'
-      ? db.prepare(`INSERT INTO ${tableName} (name, group_name, device_id) VALUES (?, ?, ?)`).run(input.name, input.groupName, ownerDeviceId)
-      : db.prepare(`INSERT INTO ${tableName} (name, device_id) VALUES (?, ?)`).run(input.name, ownerDeviceId)
+      ? await db.execute({ sql: `INSERT INTO ${tableName} (name, group_name, device_id) VALUES (?, ?, ?)`, args: [input.name, input.groupName, ownerDeviceId] })
+      : await db.execute({ sql: `INSERT INTO ${tableName} (name, device_id) VALUES (?, ?)`, args: [input.name, ownerDeviceId] })
 
     const id = Number(result.lastInsertRowid)
     return {
@@ -99,8 +102,9 @@ export function createGenbaMasterEntry(type: string, input: GenbaMasterEntryInpu
 /**
 指定したマスタ行の所有権を確認する。共有データは管理者のみ、個人データは登録した端末のみ編集できる
  */
-function assertCanModify(db: ReturnType<typeof getGenbaDb>, tableName: string, id: number, deviceId: string, isAdmin: boolean): void {
-  const row = db.prepare(`SELECT device_id FROM ${tableName} WHERE id = ?`).get(id) as { device_id: string } | undefined
+async function assertCanModify(db: Awaited<ReturnType<typeof getGenbaDb>>, tableName: string, id: number, deviceId: string, isAdmin: boolean): Promise<void> {
+  const result = await db.execute({ sql: `SELECT device_id FROM ${tableName} WHERE id = ?`, args: [id] })
+  const row = result.rows[0] as unknown as { device_id: string } | undefined
 
   if (!row) {
     throw createError({
@@ -124,25 +128,25 @@ function assertCanModify(db: ReturnType<typeof getGenbaDb>, tableName: string, i
 /**
 マスタを更新する
  */
-export function updateGenbaMasterEntry(type: string, id: number, input: GenbaMasterEntryInput, deviceId: string, isAdmin: boolean): GenbaMasterEntry {
-  const db = getGenbaDb()
+export async function updateGenbaMasterEntry(type: string, id: number, input: GenbaMasterEntryInput, deviceId: string, isAdmin: boolean): Promise<GenbaMasterEntry> {
+  const db = await getGenbaDb()
   const tableName = resolveTableName(type)
 
-  assertCanModify(db, tableName, id, deviceId, isAdmin)
+  await assertCanModify(db, tableName, id, deviceId, isAdmin)
 
   try {
     const result = type === 'idols'
-      ? db.prepare(`UPDATE ${tableName} SET name = ?, group_name = ? WHERE id = ?`).run(input.name, input.groupName, id)
-      : db.prepare(`UPDATE ${tableName} SET name = ? WHERE id = ?`).run(input.name, id)
+      ? await db.execute({ sql: `UPDATE ${tableName} SET name = ?, group_name = ? WHERE id = ?`, args: [input.name, input.groupName, id] })
+      : await db.execute({ sql: `UPDATE ${tableName} SET name = ? WHERE id = ?`, args: [input.name, id] })
 
-    if (result.changes === 0) {
+    if (result.rowsAffected === 0) {
       throw createError({
         statusCode: 404,
         message: '指定したデータは見つかりませんでした'
       })
     }
 
-    const row = db.prepare(`SELECT * FROM ${tableName} WHERE id = ?`).get(id) as unknown as MasterRow
+    const row = (await db.execute({ sql: `SELECT * FROM ${tableName} WHERE id = ?`, args: [id] })).rows[0] as unknown as MasterRow
     return toGenbaMasterEntry(row, deviceId)
   } catch (e) {
     if ((e as { statusCode?: number }).statusCode) {
@@ -159,26 +163,26 @@ export function updateGenbaMasterEntry(type: string, id: number, input: GenbaMas
 /**
 マスタを削除する
  */
-export function deleteGenbaMasterEntry(type: string, id: number, deviceId: string, isAdmin: boolean): boolean {
-  const db = getGenbaDb()
+export async function deleteGenbaMasterEntry(type: string, id: number, deviceId: string, isAdmin: boolean): Promise<boolean> {
+  const db = await getGenbaDb()
   const tableName = resolveTableName(type)
 
-  assertCanModify(db, tableName, id, deviceId, isAdmin)
+  await assertCanModify(db, tableName, id, deviceId, isAdmin)
 
-  const result = db.prepare(`DELETE FROM ${tableName} WHERE id = ?`).run(id)
-  return result.changes > 0
+  const result = await db.execute({ sql: `DELETE FROM ${tableName} WHERE id = ?`, args: [id] })
+  return result.rowsAffected > 0
 }
 
 /**
 マスタをまとめて登録する。同名などで失敗した行はスキップして件数を返す
  */
-export function createGenbaMasterEntriesBulk(type: string, inputs: GenbaMasterEntryInput[], deviceId: string, isAdmin: boolean): { created: number, skipped: number } {
+export async function createGenbaMasterEntriesBulk(type: string, inputs: GenbaMasterEntryInput[], deviceId: string, isAdmin: boolean): Promise<{ created: number, skipped: number }> {
   let created = 0
   let skipped = 0
 
   for (const input of inputs) {
     try {
-      createGenbaMasterEntry(type, input, deviceId, isAdmin)
+      await createGenbaMasterEntry(type, input, deviceId, isAdmin)
       created += 1
     } catch {
       skipped += 1
@@ -191,29 +195,30 @@ export function createGenbaMasterEntriesBulk(type: string, inputs: GenbaMasterEn
 /**
 アイドルの写真URLを取得する（差し替え・削除時に旧ファイルをR2から消すために使う）
  */
-export function getGenbaIdolPhotoUrl(id: number): string | null {
-  const db = getGenbaDb()
-  const row = db.prepare('SELECT photo_url FROM genba_idols WHERE id = ?').get(id) as { photo_url: string | null } | undefined
+export async function getGenbaIdolPhotoUrl(id: number): Promise<string | null> {
+  const db = await getGenbaDb()
+  const result = await db.execute({ sql: 'SELECT photo_url FROM genba_idols WHERE id = ?', args: [id] })
+  const row = result.rows[0] as unknown as { photo_url: string | null } | undefined
   return row?.photo_url ?? null
 }
 
 /**
 アイドルの写真URLを更新する（null を渡すと削除）。所有権チェックは共有マスタ更新と同じ規則
  */
-export function setGenbaIdolPhoto(id: number, photoUrl: string | null, deviceId: string, isAdmin: boolean): GenbaMasterEntry {
-  const db = getGenbaDb()
+export async function setGenbaIdolPhoto(id: number, photoUrl: string | null, deviceId: string, isAdmin: boolean): Promise<GenbaMasterEntry> {
+  const db = await getGenbaDb()
 
-  assertCanModify(db, 'genba_idols', id, deviceId, isAdmin)
+  await assertCanModify(db, 'genba_idols', id, deviceId, isAdmin)
 
-  const result = db.prepare('UPDATE genba_idols SET photo_url = ? WHERE id = ?').run(photoUrl, id)
+  const result = await db.execute({ sql: 'UPDATE genba_idols SET photo_url = ? WHERE id = ?', args: [photoUrl, id] })
 
-  if (result.changes === 0) {
+  if (result.rowsAffected === 0) {
     throw createError({
       statusCode: 404,
       message: '指定したデータは見つかりませんでした'
     })
   }
 
-  const row = db.prepare('SELECT * FROM genba_idols WHERE id = ?').get(id) as unknown as MasterRow
+  const row = (await db.execute({ sql: 'SELECT * FROM genba_idols WHERE id = ?', args: [id] })).rows[0] as unknown as MasterRow
   return toGenbaMasterEntry(row, deviceId)
 }

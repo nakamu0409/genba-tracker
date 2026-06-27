@@ -12,6 +12,10 @@ export default defineNuxtConfig({
 
   runtimeConfig: {
     genbaAdminKey: process.env.GENBA_ADMIN_KEY || '',
+    turso: {
+      databaseUrl: process.env.TURSO_DATABASE_URL || '',
+      authToken: process.env.TURSO_AUTH_TOKEN || ''
+    },
     r2: {
       accountId: process.env.R2_ACCOUNT_ID || '',
       accessKeyId: process.env.R2_ACCESS_KEY_ID || '',

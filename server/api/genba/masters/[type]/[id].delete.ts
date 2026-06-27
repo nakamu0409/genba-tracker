@@ -5,10 +5,10 @@ import { isGenbaAdmin } from '../../../../utils/genbaAuth'
 /**
 マスタ削除 API（会場・アイドル・グループ共通）。共有データは管理者のみ、個人データは登録した端末のみ削除できる
  */
-export default defineEventHandler((event) => {
+export default defineEventHandler(async (event) => {
   const type = String(event.context.params?.type)
   const id = Number(event.context.params?.id)
-  const deleted = deleteGenbaMasterEntry(type, id, event.context.deviceId!, isGenbaAdmin(event))
+  const deleted = await deleteGenbaMasterEntry(type, id, event.context.deviceId!, isGenbaAdmin(event))
 
   if (!deleted) {
     throw createError({

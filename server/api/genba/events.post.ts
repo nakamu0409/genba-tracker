@@ -9,5 +9,5 @@ export default defineEventHandler(async (event) => {
   const body = await readBody(event)
   const input = parseGenbaEventInput(body)
 
-  return createGenbaEvent(event.context.deviceId!, input)
+  return await createGenbaEvent(event.context.deviceId!, input)
 })

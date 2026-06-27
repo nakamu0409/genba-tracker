@@ -1,24 +1,44 @@
-import { mkdirSync } from 'node:fs'
-import { join } from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
+import { createClient, type Client } from '@libsql/client'
+import { createError } from 'h3'
+import { useRuntimeConfig } from '#imports'
 
-let db: DatabaseSync | undefined
+let clientPromise: Promise<Client> | null = null
 
 /**
-genba用SQLiteの接続を取得する（プロセス内シングルトン）
+Turso(libSQL)クライアントを取得する（プロセス内シングルトン）。初回呼び出し時にスキーマを用意する
  */
-export function getGenbaDb(): DatabaseSync {
-  if (db) {
-    return db
+export function getGenbaDb(): Promise<Client> {
+  if (!clientPromise) {
+    clientPromise = initClient()
+  }
+  return clientPromise
+}
+
+async function initClient(): Promise<Client> {
+  const config = useRuntimeConfig()
+
+  if (!config.turso.databaseUrl || !config.turso.authToken) {
+    throw createError({
+      statusCode: 500,
+      message: 'データベース接続(Turso)が設定されていません。TURSO_DATABASE_URL/TURSO_AUTH_TOKENを設定してください'
+    })
   }
 
-  const dataDir = join(process.cwd(), '.data')
-  mkdirSync(dataDir, { recursive: true })
+  const client = createClient({
+    url: config.turso.databaseUrl,
+    authToken: config.turso.authToken
+  })
 
-  db = new DatabaseSync(join(dataDir, 'genba.db'))
-  db.exec('PRAGMA foreign_keys = ON')
+  await ensureSchema(client)
 
-  db.exec(`
+  return client
+}
+
+/**
+テーブル・インデックスを用意し、既存DBには後方互換のマイグレーションを適用する
+ */
+async function ensureSchema(client: Client): Promise<void> {
+  await client.execute(`
     CREATE TABLE IF NOT EXISTS genba_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       device_id TEXT NOT NULL DEFAULT '',
@@ -35,7 +55,7 @@ export function getGenbaDb(): DatabaseSync {
     )
   `)
 
-  db.exec(`
+  await client.execute(`
     CREATE TABLE IF NOT EXISTS genba_items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       event_id INTEGER NOT NULL REFERENCES genba_events(id) ON DELETE CASCADE,
@@ -48,49 +68,47 @@ export function getGenbaDb(): DatabaseSync {
     )
   `)
 
-  migrateGenbaColumns(db)
+  await migrateGenbaColumns(client)
 
   // マスタは device_id = '' が全員共有、それ以外は端末ごとの個人用データを表す
-  ensureMasterTable(db, 'genba_venues', false)
-  ensureMasterTable(db, 'genba_groups', false)
-  ensureMasterTable(db, 'genba_idols', true)
+  await ensureMasterTable(client, 'genba_venues', false)
+  await ensureMasterTable(client, 'genba_groups', false)
+  await ensureMasterTable(client, 'genba_idols', true)
 
-  const idolColumns = db.prepare('PRAGMA table_info(genba_idols)').all() as { name: string }[]
+  const idolColumns = (await client.execute('PRAGMA table_info(genba_idols)')).rows as unknown as { name: string }[]
   if (!idolColumns.some(c => c.name === 'photo_url')) {
-    db.exec('ALTER TABLE genba_idols ADD COLUMN photo_url TEXT')
+    await client.execute('ALTER TABLE genba_idols ADD COLUMN photo_url TEXT')
   }
-
-  return db
 }
 
 /**
 既存DBに後から追加したカラムを補う
  */
-function migrateGenbaColumns(db: DatabaseSync): void {
-  const eventColumns = db.prepare('PRAGMA table_info(genba_events)').all() as { name: string }[]
+async function migrateGenbaColumns(client: Client): Promise<void> {
+  const eventColumns = (await client.execute('PRAGMA table_info(genba_events)')).rows as unknown as { name: string }[]
   const eventColumnNames = new Set(eventColumns.map(c => c.name))
 
   if (!eventColumnNames.has('device_id')) {
-    db.exec('ALTER TABLE genba_events ADD COLUMN device_id TEXT NOT NULL DEFAULT \'\'')
+    await client.execute('ALTER TABLE genba_events ADD COLUMN device_id TEXT NOT NULL DEFAULT \'\'')
   }
 
   if (!eventColumnNames.has('venue_name')) {
-    db.exec('ALTER TABLE genba_events ADD COLUMN venue_name TEXT')
+    await client.execute('ALTER TABLE genba_events ADD COLUMN venue_name TEXT')
   }
 
   if (!eventColumnNames.has('transport_fee')) {
-    db.exec('ALTER TABLE genba_events ADD COLUMN transport_fee INTEGER NOT NULL DEFAULT 0')
+    await client.execute('ALTER TABLE genba_events ADD COLUMN transport_fee INTEGER NOT NULL DEFAULT 0')
   }
 
-  const itemColumns = db.prepare('PRAGMA table_info(genba_items)').all() as { name: string }[]
+  const itemColumns = (await client.execute('PRAGMA table_info(genba_items)')).rows as unknown as { name: string }[]
   const itemColumnNames = new Set(itemColumns.map(c => c.name))
 
   if (!itemColumnNames.has('member_name')) {
-    db.exec('ALTER TABLE genba_items ADD COLUMN member_name TEXT')
+    await client.execute('ALTER TABLE genba_items ADD COLUMN member_name TEXT')
   }
 
   if (!itemColumnNames.has('group_name')) {
-    db.exec('ALTER TABLE genba_items ADD COLUMN group_name TEXT')
+    await client.execute('ALTER TABLE genba_items ADD COLUMN group_name TEXT')
   }
 }
 
@@ -98,13 +116,13 @@ function migrateGenbaColumns(db: DatabaseSync): void {
 マスタテーブルを最新スキーマ（device_id列・(name, device_id)のユニーク索引）で用意する。
 未作成なら新規作成し、旧スキーマ（nameに単独UNIQUE）であれば作り直して既存データを共有データとして引き継ぐ
  */
-function ensureMasterTable(db: DatabaseSync, tableName: string, hasGroupName: boolean): void {
-  const columns = db.prepare(`PRAGMA table_info(${tableName})`).all() as { name: string }[]
+async function ensureMasterTable(client: Client, tableName: string, hasGroupName: boolean): Promise<void> {
+  const columns = (await client.execute(`PRAGMA table_info(${tableName})`)).rows as unknown as { name: string }[]
   const tableExists = columns.length > 0
   const hasDeviceId = columns.some(c => c.name === 'device_id')
 
   if (!tableExists) {
-    db.exec(hasGroupName
+    await client.execute(hasGroupName
       ? `CREATE TABLE ${tableName} (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           name TEXT NOT NULL,
@@ -116,23 +134,21 @@ function ensureMasterTable(db: DatabaseSync, tableName: string, hasGroupName: bo
           name TEXT NOT NULL,
           device_id TEXT NOT NULL DEFAULT ''
         )`)
-    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_${tableName}_name_device ON ${tableName}(name, device_id)`)
+    await client.execute(`CREATE UNIQUE INDEX IF NOT EXISTS idx_${tableName}_name_device ON ${tableName}(name, device_id)`)
     return
   }
 
   if (hasDeviceId) {
-    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_${tableName}_name_device ON ${tableName}(name, device_id)`)
+    await client.execute(`CREATE UNIQUE INDEX IF NOT EXISTS idx_${tableName}_name_device ON ${tableName}(name, device_id)`)
     return
   }
 
   // 旧スキーマ（device_id列なし・nameに単独UNIQUE）からの移行: 既存データは共有データ(device_id='')として引き継ぐ
-  db.exec('BEGIN')
+  const tmpName = `${tableName}_legacy`
 
-  try {
-    const tmpName = `${tableName}_legacy`
-    db.exec(`ALTER TABLE ${tableName} RENAME TO ${tmpName}`)
-
-    db.exec(hasGroupName
+  await client.batch([
+    `ALTER TABLE ${tableName} RENAME TO ${tmpName}`,
+    hasGroupName
       ? `CREATE TABLE ${tableName} (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           name TEXT NOT NULL,
@@ -143,18 +159,11 @@ function ensureMasterTable(db: DatabaseSync, tableName: string, hasGroupName: bo
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           name TEXT NOT NULL,
           device_id TEXT NOT NULL DEFAULT ''
-        )`)
-
-    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_${tableName}_name_device ON ${tableName}(name, device_id)`)
-
-    db.exec(hasGroupName
+        )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_${tableName}_name_device ON ${tableName}(name, device_id)`,
+    hasGroupName
       ? `INSERT INTO ${tableName} (id, name, group_name, device_id) SELECT id, name, group_name, '' FROM ${tmpName}`
-      : `INSERT INTO ${tableName} (id, name, device_id) SELECT id, name, '' FROM ${tmpName}`)
-
-    db.exec(`DROP TABLE ${tmpName}`)
-    db.exec('COMMIT')
-  } catch (e) {
-    db.exec('ROLLBACK')
-    throw e
-  }
+      : `INSERT INTO ${tableName} (id, name, device_id) SELECT id, name, '' FROM ${tmpName}`,
+    `DROP TABLE ${tmpName}`
+  ], 'write')
 }

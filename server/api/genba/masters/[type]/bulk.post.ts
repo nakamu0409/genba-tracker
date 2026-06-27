@@ -11,5 +11,5 @@ export default defineEventHandler(async (event) => {
   const body = await readBody(event)
   const entries = parseGenbaMasterBulkInput(body)
 
-  return createGenbaMasterEntriesBulk(type, entries, event.context.deviceId!, isGenbaAdmin(event))
+  return await createGenbaMasterEntriesBulk(type, entries, event.context.deviceId!, isGenbaAdmin(event))
 })

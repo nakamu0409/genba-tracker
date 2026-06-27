@@ -38,9 +38,9 @@ export default defineEventHandler(async (event) => {
     })
   }
 
-  const previousPhotoUrl = getGenbaIdolPhotoUrl(id)
+  const previousPhotoUrl = await getGenbaIdolPhotoUrl(id)
   const photoUrl = await uploadGenbaPhoto(file.data, file.type)
-  const entry = setGenbaIdolPhoto(id, photoUrl, deviceId, isAdmin)
+  const entry = await setGenbaIdolPhoto(id, photoUrl, deviceId, isAdmin)
 
   if (previousPhotoUrl) {
     await deleteGenbaPhoto(previousPhotoUrl)

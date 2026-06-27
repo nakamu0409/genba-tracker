@@ -1,3 +1,4 @@
+import type { Transaction } from '@libsql/client'
 import { getGenbaDb } from './genbaDb'
 import type {
   GenbaEvent,
@@ -88,8 +89,8 @@ type ListFilter = {
 /**
 現場一覧を取得する（端末ごとに分離、推し名・グループ名の明細を含む現場のみで絞り込み可能）
  */
-export function listGenbaEvents(deviceId: string, filter: ListFilter = {}): GenbaEvent[] {
-  const db = getGenbaDb()
+export async function listGenbaEvents(deviceId: string, filter: ListFilter = {}): Promise<GenbaEvent[]> {
+  const db = await getGenbaDb()
 
   const conditions: string[] = ['e.device_id = ?']
   const params: string[] = [deviceId]
@@ -110,42 +111,53 @@ export function listGenbaEvents(deviceId: string, filter: ListFilter = {}): Genb
     params.push(filter.groupName)
   }
 
-  const rows = db.prepare(`
-    ${EVENT_SELECT}
-    WHERE ${conditions.join(' AND ')}
-    GROUP BY e.id
-    ORDER BY e.event_date DESC, e.id DESC
-  `).all(...params) as unknown as EventRow[]
+  const result = await db.execute({
+    sql: `
+      ${EVENT_SELECT}
+      WHERE ${conditions.join(' AND ')}
+      GROUP BY e.id
+      ORDER BY e.event_date DESC, e.id DESC
+    `,
+    args: params
+  })
 
-  return rows.map(toGenbaEvent)
+  return (result.rows as unknown as EventRow[]).map(toGenbaEvent)
 }
 
 /**
 現場の詳細（チェキ・グッズの内訳を含む）を取得する。指定端末の記録のみ取得可能
  */
-export function getGenbaEventDetail(deviceId: string, id: number): GenbaEventDetail | undefined {
-  const db = getGenbaDb()
+export async function getGenbaEventDetail(deviceId: string, id: number): Promise<GenbaEventDetail | undefined> {
+  const db = await getGenbaDb()
 
-  const eventRow = db.prepare(`
-    ${EVENT_SELECT}
-    WHERE e.id = ? AND e.device_id = ?
-    GROUP BY e.id
-  `).get(id, deviceId) as unknown as EventRow | undefined
+  const eventResult = await db.execute({
+    sql: `
+      ${EVENT_SELECT}
+      WHERE e.id = ? AND e.device_id = ?
+      GROUP BY e.id
+    `,
+    args: [id, deviceId]
+  })
+
+  const eventRow = eventResult.rows[0] as unknown as EventRow | undefined
 
   if (!eventRow) {
     return undefined
   }
 
-  const itemRows = db.prepare(`
-    SELECT i.id, i.category, i.label, i.unit_price, i.quantity, i.member_name,
-      gi.group_name AS group_name
-    FROM genba_items i
-    LEFT JOIN genba_idols gi ON gi.name = i.member_name
-    WHERE i.event_id = ?
-    ORDER BY i.id ASC
-  `).all(id) as unknown as ItemRow[]
+  const itemResult = await db.execute({
+    sql: `
+      SELECT i.id, i.category, i.label, i.unit_price, i.quantity, i.member_name,
+        gi.group_name AS group_name
+      FROM genba_items i
+      LEFT JOIN genba_idols gi ON gi.name = i.member_name
+      WHERE i.event_id = ?
+      ORDER BY i.id ASC
+    `,
+    args: [id]
+  })
 
-  const items: GenbaItem[] = itemRows.map(row => ({
+  const items: GenbaItem[] = (itemResult.rows as unknown as ItemRow[]).map(row => ({
     id: row.id,
     category: row.category,
     label: row.label,
@@ -164,108 +176,129 @@ export function getGenbaEventDetail(deviceId: string, id: number): GenbaEventDet
 /**
 チェキ・グッズの明細行をイベントに紐づけて登録する
  */
-function insertItems(eventId: number, input: GenbaEventInput): void {
-  const db = getGenbaDb()
-
-  const insert = db.prepare(`
+async function insertItems(tx: Transaction, eventId: number, input: GenbaEventInput): Promise<void> {
+  const insertSql = `
     INSERT INTO genba_items (event_id, category, label, unit_price, quantity, member_name)
     VALUES (?, ?, ?, ?, ?, ?)
-  `)
+  `
 
   for (const item of input.chekiItems) {
-    insert.run(eventId, 'cheki', item.label, item.unitPrice, item.quantity, item.memberName)
+    await tx.execute({ sql: insertSql, args: [eventId, 'cheki', item.label, item.unitPrice, item.quantity, item.memberName] })
   }
 
   for (const item of input.goodsItems) {
-    insert.run(eventId, 'goods', item.label, item.unitPrice, item.quantity, item.memberName)
+    await tx.execute({ sql: insertSql, args: [eventId, 'goods', item.label, item.unitPrice, item.quantity, item.memberName] })
   }
 }
 
 /**
 現場を新規登録する
  */
-export function createGenbaEvent(deviceId: string, input: GenbaEventInput): GenbaEventDetail {
-  const db = getGenbaDb()
-
-  db.exec('BEGIN')
+export async function createGenbaEvent(deviceId: string, input: GenbaEventInput): Promise<GenbaEventDetail> {
+  const db = await getGenbaDb()
+  const tx = await db.transaction('write')
 
   try {
-    const result = db.prepare(`
-      INSERT INTO genba_events (device_id, event_name, event_date, venue_name, ticket_price, drink_fee, transport_fee, memo)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      deviceId,
-      input.eventName,
-      input.eventDate,
-      input.venueName,
-      input.ticketPrice,
-      input.drinkFee,
-      input.transportFee,
-      input.memo
-    )
+    const result = await tx.execute({
+      sql: `
+        INSERT INTO genba_events (device_id, event_name, event_date, venue_name, ticket_price, drink_fee, transport_fee, memo)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+      args: [
+        deviceId,
+        input.eventName,
+        input.eventDate,
+        input.venueName,
+        input.ticketPrice,
+        input.drinkFee,
+        input.transportFee,
+        input.memo
+      ]
+    })
 
     const eventId = Number(result.lastInsertRowid)
-    insertItems(eventId, input)
+    await insertItems(tx, eventId, input)
 
-    db.exec('COMMIT')
+    await tx.commit()
 
-    return getGenbaEventDetail(deviceId, eventId)!
+    return (await getGenbaEventDetail(deviceId, eventId))!
   } catch (e) {
-    db.exec('ROLLBACK')
+    await tx.rollback()
     throw e
+  } finally {
+    tx.close()
   }
 }
 
 /**
 現場の内容を更新する（明細は一旦削除して入れ直す）。指定端末の記録のみ更新可能
  */
-export function updateGenbaEvent(deviceId: string, id: number, input: GenbaEventInput): GenbaEventDetail | undefined {
-  const db = getGenbaDb()
-
-  db.exec('BEGIN')
+export async function updateGenbaEvent(deviceId: string, id: number, input: GenbaEventInput): Promise<GenbaEventDetail | undefined> {
+  const db = await getGenbaDb()
+  const tx = await db.transaction('write')
 
   try {
-    const result = db.prepare(`
-      UPDATE genba_events
-      SET event_name = ?, event_date = ?, venue_name = ?,
-          ticket_price = ?, drink_fee = ?, transport_fee = ?, memo = ?
-      WHERE id = ? AND device_id = ?
-    `).run(
-      input.eventName,
-      input.eventDate,
-      input.venueName,
-      input.ticketPrice,
-      input.drinkFee,
-      input.transportFee,
-      input.memo,
-      id,
-      deviceId
-    )
+    const result = await tx.execute({
+      sql: `
+        UPDATE genba_events
+        SET event_name = ?, event_date = ?, venue_name = ?,
+            ticket_price = ?, drink_fee = ?, transport_fee = ?, memo = ?
+        WHERE id = ? AND device_id = ?
+      `,
+      args: [
+        input.eventName,
+        input.eventDate,
+        input.venueName,
+        input.ticketPrice,
+        input.drinkFee,
+        input.transportFee,
+        input.memo,
+        id,
+        deviceId
+      ]
+    })
 
-    if (result.changes === 0) {
-      db.exec('ROLLBACK')
+    if (result.rowsAffected === 0) {
+      await tx.rollback()
       return undefined
     }
 
-    db.prepare('DELETE FROM genba_items WHERE event_id = ?').run(id)
-    insertItems(id, input)
+    await tx.execute({ sql: 'DELETE FROM genba_items WHERE event_id = ?', args: [id] })
+    await insertItems(tx, id, input)
 
-    db.exec('COMMIT')
+    await tx.commit()
 
-    return getGenbaEventDetail(deviceId, id)
+    return await getGenbaEventDetail(deviceId, id)
   } catch (e) {
-    db.exec('ROLLBACK')
+    await tx.rollback()
     throw e
+  } finally {
+    tx.close()
   }
 }
 
 /**
-現場を削除する。指定端末の記録のみ削除可能
+現場を削除する。指定端末の記録のみ削除可能（明細は外部キーのCASCADEに依存せず明示的に削除する）
  */
-export function deleteGenbaEvent(deviceId: string, id: number): boolean {
-  const db = getGenbaDb()
-  const result = db.prepare('DELETE FROM genba_events WHERE id = ? AND device_id = ?').run(id, deviceId)
-  return result.changes > 0
+export async function deleteGenbaEvent(deviceId: string, id: number): Promise<boolean> {
+  const db = await getGenbaDb()
+  const tx = await db.transaction('write')
+
+  try {
+    const result = await tx.execute({ sql: 'DELETE FROM genba_events WHERE id = ? AND device_id = ?', args: [id, deviceId] })
+
+    if (result.rowsAffected > 0) {
+      await tx.execute({ sql: 'DELETE FROM genba_items WHERE event_id = ?', args: [id] })
+    }
+
+    await tx.commit()
+    return result.rowsAffected > 0
+  } catch (e) {
+    await tx.rollback()
+    throw e
+  } finally {
+    tx.close()
+  }
 }
 
 export type GenbaSummaryMonthFilter = {
@@ -274,12 +307,12 @@ export type GenbaSummaryMonthFilter = {
 }
 
 /**
-推し・グループ別の支出集計を取得する（指定端末の記録のみ。チケット代・ドリンク代は含まずチェキ・グッズの明細金額のみ集計。チェキ枚数は単価0円の特典分も含めて集計）
+推し・グループ別の支出集計を取得する（指定端末の記録のみ。チケット代・ドリンク代・交通費は含まずチェキ・グッズの明細金額のみ集計。チェキ枚数は単価0円の特典分も含めて集計）
  *
 monthFilterを指定すると、その月に開催された現場の明細だけに絞り込む
  */
-export function getGenbaSummary(deviceId: string, monthFilter?: GenbaSummaryMonthFilter): GenbaSummaryRow[] {
-  const db = getGenbaDb()
+export async function getGenbaSummary(deviceId: string, monthFilter?: GenbaSummaryMonthFilter): Promise<GenbaSummaryRow[]> {
+  const db = await getGenbaDb()
 
   const conditions = ['e.device_id = ?']
   const params: (string | number)[] = [deviceId]
@@ -290,20 +323,25 @@ export function getGenbaSummary(deviceId: string, monthFilter?: GenbaSummaryMont
     params.push(`${monthPrefix}%`)
   }
 
-  const rows = db.prepare(`
-    SELECT
-      COALESCE(i.member_name, '') AS member_name,
-      COALESCE(gi.group_name, '') AS group_name,
-      COUNT(DISTINCT i.event_id) AS event_count,
-      COALESCE(SUM(CASE WHEN i.category = 'cheki' THEN i.quantity ELSE 0 END), 0) AS cheki_count,
-      COALESCE(SUM(i.unit_price * i.quantity), 0) AS total_amount
-    FROM genba_items i
-    INNER JOIN genba_events e ON e.id = i.event_id
-    LEFT JOIN genba_idols gi ON gi.name = i.member_name
-    WHERE ${conditions.join(' AND ')}
-    GROUP BY i.member_name, gi.group_name
-    ORDER BY total_amount DESC
-  `).all(...params) as unknown as {
+  const result = await db.execute({
+    sql: `
+      SELECT
+        COALESCE(i.member_name, '') AS member_name,
+        COALESCE(gi.group_name, '') AS group_name,
+        COUNT(DISTINCT i.event_id) AS event_count,
+        COALESCE(SUM(CASE WHEN i.category = 'cheki' THEN i.quantity ELSE 0 END), 0) AS cheki_count,
+        COALESCE(SUM(i.unit_price * i.quantity), 0) AS total_amount
+      FROM genba_items i
+      INNER JOIN genba_events e ON e.id = i.event_id
+      LEFT JOIN genba_idols gi ON gi.name = i.member_name
+      WHERE ${conditions.join(' AND ')}
+      GROUP BY i.member_name, gi.group_name
+      ORDER BY total_amount DESC
+    `,
+    args: params
+  })
+
+  const rows = result.rows as unknown as {
     member_name: string
     group_name: string
     event_count: number

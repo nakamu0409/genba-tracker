@@ -4,9 +4,9 @@ import { getGenbaEventDetail } from '../../../utils/genbaRepository'
 /**
 現場詳細取得 API
  */
-export default defineEventHandler((event) => {
+export default defineEventHandler(async (event) => {
   const id = Number(event.context.params?.id)
-  const detail = getGenbaEventDetail(event.context.deviceId!, id)
+  const detail = await getGenbaEventDetail(event.context.deviceId!, id)
 
   if (!detail) {
     throw createError({

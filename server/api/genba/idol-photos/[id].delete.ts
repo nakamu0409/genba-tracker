@@ -10,8 +10,8 @@ export default defineEventHandler(async (event) => {
   const deviceId = event.context.deviceId!
   const isAdmin = isGenbaAdmin(event)
 
-  const previousPhotoUrl = getGenbaIdolPhotoUrl(id)
-  const entry = setGenbaIdolPhoto(id, null, deviceId, isAdmin)
+  const previousPhotoUrl = await getGenbaIdolPhotoUrl(id)
+  const entry = await setGenbaIdolPhoto(id, null, deviceId, isAdmin)
 
   if (previousPhotoUrl) {
     await deleteGenbaPhoto(previousPhotoUrl)

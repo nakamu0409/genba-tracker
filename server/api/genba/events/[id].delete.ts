@@ -4,9 +4,9 @@ import { deleteGenbaEvent } from '../../../utils/genbaRepository'
 /**
 現場削除 API
  */
-export default defineEventHandler((event) => {
+export default defineEventHandler(async (event) => {
   const id = Number(event.context.params?.id)
-  const deleted = deleteGenbaEvent(event.context.deviceId!, id)
+  const deleted = await deleteGenbaEvent(event.context.deviceId!, id)
 
   if (!deleted) {
     throw createError({

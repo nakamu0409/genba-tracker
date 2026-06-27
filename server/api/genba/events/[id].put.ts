@@ -10,7 +10,7 @@ export default defineEventHandler(async (event) => {
   const body = await readBody(event)
   const input = parseGenbaEventInput(body)
 
-  const detail = updateGenbaEvent(event.context.deviceId!, id, input)
+  const detail = await updateGenbaEvent(event.context.deviceId!, id, input)
 
   if (!detail) {
     throw createError({

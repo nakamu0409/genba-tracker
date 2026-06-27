@@ -23,5 +23,5 @@ logs
 .env.*
 !.env.example
 
-# Local Claude Code settings
-.claude/settings.local.json
+# Local Claude Code settings/session state
+.claude/
