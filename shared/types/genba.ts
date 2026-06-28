@@ -24,6 +24,7 @@ export type GenbaEvent = {
   venueName: string | null
   memberNames: string[]
   groupNames: string[]
+  budgetAmount: number | null
   ticketPrice: number
   drinkFee: number
   transportFee: number
@@ -43,6 +44,7 @@ export type GenbaEventInput = {
   eventName: string
   eventDate: string | null
   venueName: string | null
+  budgetAmount: number | null
   ticketPrice: number
   drinkFee: number
   transportFee: number

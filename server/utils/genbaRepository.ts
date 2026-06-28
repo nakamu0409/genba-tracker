@@ -13,6 +13,7 @@ type EventRow = {
   event_name: string
   event_date: string | null
   venue_name: string | null
+  budget_amount: number | null
   ticket_price: number
   drink_fee: number
   transport_fee: number
@@ -54,6 +55,7 @@ function toGenbaEvent(row: EventRow): GenbaEvent {
     venueName: row.venue_name,
     memberNames: splitNames(row.member_names),
     groupNames: splitNames(row.group_names),
+    budgetAmount: row.budget_amount,
     ticketPrice: row.ticket_price,
     drinkFee: row.drink_fee,
     transportFee: row.transport_fee,
@@ -69,7 +71,7 @@ function toGenbaEvent(row: EventRow): GenbaEvent {
 // グループはアイドルマスタに紐づく所属を常に正とするため、明細のmember_nameからgenba_idolsを参照して導出する
 const EVENT_SELECT = `
   SELECT
-    e.id, e.event_name, e.event_date, e.venue_name,
+    e.id, e.event_name, e.event_date, e.venue_name, e.budget_amount,
     e.ticket_price, e.drink_fee, e.transport_fee, e.memo, e.created_at,
     COALESCE(SUM(CASE WHEN i.category = 'cheki' THEN i.unit_price * i.quantity ELSE 0 END), 0) AS cheki_total,
     COALESCE(SUM(CASE WHEN i.category = 'cheki' THEN i.quantity ELSE 0 END), 0) AS cheki_count,
@@ -201,14 +203,15 @@ export async function createGenbaEvent(deviceId: string, input: GenbaEventInput)
   try {
     const result = await tx.execute({
       sql: `
-        INSERT INTO genba_events (device_id, event_name, event_date, venue_name, ticket_price, drink_fee, transport_fee, memo)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO genba_events (device_id, event_name, event_date, venue_name, budget_amount, ticket_price, drink_fee, transport_fee, memo)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
         deviceId,
         input.eventName,
         input.eventDate,
         input.venueName,
+        input.budgetAmount,
         input.ticketPrice,
         input.drinkFee,
         input.transportFee,
@@ -241,7 +244,7 @@ export async function updateGenbaEvent(deviceId: string, id: number, input: Genb
     const result = await tx.execute({
       sql: `
         UPDATE genba_events
-        SET event_name = ?, event_date = ?, venue_name = ?,
+        SET event_name = ?, event_date = ?, venue_name = ?, budget_amount = ?,
             ticket_price = ?, drink_fee = ?, transport_fee = ?, memo = ?
         WHERE id = ? AND device_id = ?
       `,
@@ -249,6 +252,7 @@ export async function updateGenbaEvent(deviceId: string, id: number, input: Genb
         input.eventName,
         input.eventDate,
         input.venueName,
+        input.budgetAmount,
         input.ticketPrice,
         input.drinkFee,
         input.transportFee,

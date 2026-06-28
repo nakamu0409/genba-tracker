@@ -309,9 +309,25 @@ const deleteEvent = async () => {
           <span>チェキ枚数</span>
           <span>{{ data.chekiCount }}枚</span>
         </div>
+        <div
+          v-if="data.budgetAmount !== null"
+          class="flex items-center justify-between text-sm text-muted"
+        >
+          <span>予算（予想額）</span>
+          <span>¥{{ data.budgetAmount.toLocaleString() }}</span>
+        </div>
         <div class="flex items-center justify-between">
-          <span class="font-semibold">合計支出</span>
+          <span class="font-semibold">合計支出（結果額）</span>
           <span class="text-xl font-bold text-primary">¥{{ data.totalAmount.toLocaleString() }}</span>
+        </div>
+        <div
+          v-if="data.budgetAmount !== null"
+          class="flex items-center justify-between text-sm"
+        >
+          <span class="text-muted">予算との差額</span>
+          <span :class="data.totalAmount - data.budgetAmount > 0 ? 'text-error font-semibold' : 'text-primary font-semibold'">
+            {{ data.totalAmount - data.budgetAmount > 0 ? '+' : '' }}¥{{ (data.totalAmount - data.budgetAmount).toLocaleString() }}
+          </span>
         </div>
       </UCard>
     </div>

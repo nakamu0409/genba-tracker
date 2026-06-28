@@ -82,11 +82,15 @@ export function parseGenbaEventInput(body: unknown): GenbaEventInput {
   const eventDate = data.eventDate ? String(data.eventDate) : null
   const venueName = data.venueName ? String(data.venueName).trim() : null
   const memo = data.memo ? String(data.memo) : null
+  const budgetAmount = data.budgetAmount !== null && data.budgetAmount !== undefined && data.budgetAmount !== ''
+    ? toNonNegativeInt(data.budgetAmount, '予算')
+    : null
 
   return {
     eventName,
     eventDate,
     venueName,
+    budgetAmount,
     ticketPrice: toNonNegativeInt(data.ticketPrice ?? 0, 'チケット代'),
     drinkFee: toNonNegativeInt(data.drinkFee ?? 0, 'ドリンク代'),
     transportFee: toNonNegativeInt(data.transportFee ?? 0, '交通費'),

@@ -24,6 +24,7 @@ const initialValue = computed(() => {
     eventName: data.value.eventName,
     eventDate: data.value.eventDate,
     venueName: data.value.venueName,
+    budgetAmount: data.value.budgetAmount,
     ticketPrice: data.value.ticketPrice,
     drinkFee: data.value.drinkFee,
     transportFee: data.value.transportFee,
