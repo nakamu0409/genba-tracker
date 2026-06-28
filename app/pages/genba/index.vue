@@ -368,6 +368,7 @@ onMounted(async () => {
                 {{ e.eventDate || '日付未設定' }}
                 <template v-if="e.venueName"> ・ {{ e.venueName }}</template>
                 <template v-if="e.chekiCount > 0"> ・ チェキ{{ e.chekiCount }}枚</template>
+                <template v-if="e.rating !== null"> ・ {{ '★'.repeat(e.rating) }}{{ '☆'.repeat(5 - e.rating) }}</template>
               </span>
               <div
                 v-if="e.memberNames.length > 0 || e.groupNames.length > 0"

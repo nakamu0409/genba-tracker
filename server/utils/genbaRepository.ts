@@ -19,6 +19,7 @@ type EventRow = {
   drink_fee: number
   transport_fee: number
   memo: string | null
+  rating: number | null
   created_at: string
   cheki_total: number
   cheki_count: number
@@ -60,6 +61,7 @@ function toGenbaEvent(row: EventRow): GenbaEvent {
     drinkFee: row.drink_fee,
     transportFee: row.transport_fee,
     memo: row.memo,
+    rating: row.rating,
     createdAt: row.created_at,
     chekiTotal: row.cheki_total,
     chekiCount: row.cheki_count,
@@ -72,7 +74,7 @@ function toGenbaEvent(row: EventRow): GenbaEvent {
 const EVENT_SELECT = `
   SELECT
     e.id, e.event_name, e.event_date, e.venue_name,
-    e.ticket_price, e.drink_fee, e.transport_fee, e.memo, e.created_at,
+    e.ticket_price, e.drink_fee, e.transport_fee, e.memo, e.rating, e.created_at,
     COALESCE(SUM(CASE WHEN i.category = 'cheki' THEN i.unit_price * i.quantity ELSE 0 END), 0) AS cheki_total,
     COALESCE(SUM(CASE WHEN i.category = 'cheki' THEN i.quantity ELSE 0 END), 0) AS cheki_count,
     COALESCE(SUM(CASE WHEN i.category = 'goods' THEN i.unit_price * i.quantity ELSE 0 END), 0) AS goods_total,
@@ -205,8 +207,8 @@ export async function createGenbaEvent(deviceId: string, input: GenbaEventInput)
   try {
     const result = await tx.execute({
       sql: `
-        INSERT INTO genba_events (device_id, event_name, event_date, venue_name, ticket_price, drink_fee, transport_fee, memo)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO genba_events (device_id, event_name, event_date, venue_name, ticket_price, drink_fee, transport_fee, memo, rating)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
         deviceId,
@@ -216,7 +218,8 @@ export async function createGenbaEvent(deviceId: string, input: GenbaEventInput)
         input.ticketPrice,
         input.drinkFee,
         input.transportFee,
-        input.memo
+        input.memo,
+        input.rating
       ]
     })
 
@@ -246,7 +249,7 @@ export async function updateGenbaEvent(deviceId: string, id: number, input: Genb
       sql: `
         UPDATE genba_events
         SET event_name = ?, event_date = ?, venue_name = ?,
-            ticket_price = ?, drink_fee = ?, transport_fee = ?, memo = ?
+            ticket_price = ?, drink_fee = ?, transport_fee = ?, memo = ?, rating = ?
         WHERE id = ? AND device_id = ?
       `,
       args: [
@@ -257,6 +260,7 @@ export async function updateGenbaEvent(deviceId: string, id: number, input: Genb
         input.drinkFee,
         input.transportFee,
         input.memo,
+        input.rating,
         id,
         deviceId
       ]
@@ -395,6 +399,22 @@ export async function getYearlyOverview(deviceId: string, year: number): Promise
     totalAmount: monthlyTotalsMap.get(i + 1) ?? 0
   }))
 
+  const monthlyRatingsMap = new Map<number, number[]>()
+  for (const e of events) {
+    if (!e.eventDate || e.rating === null) continue
+    const month = Number(e.eventDate.slice(5, 7))
+    const list = monthlyRatingsMap.get(month) ?? []
+    list.push(e.rating)
+    monthlyRatingsMap.set(month, list)
+  }
+  const monthlyAverageRatings = Array.from({ length: 12 }, (_, i) => {
+    const ratings = monthlyRatingsMap.get(i + 1)
+    return {
+      month: i + 1,
+      averageRating: ratings && ratings.length > 0 ? ratings.reduce((sum, r) => sum + r, 0) / ratings.length : null
+    }
+  })
+
   const topEventByAmount = events.length > 0
     ? events.reduce((top, e) => (e.totalAmount > top.totalAmount ? e : top))
     : null
@@ -404,14 +424,25 @@ export async function getYearlyOverview(deviceId: string, year: number): Promise
     ? chekiEvents.reduce((top, e) => (e.chekiCount > top.chekiCount ? e : top))
     : null
 
+  const ratedEvents = events.filter((e): e is GenbaEvent & { rating: number } => e.rating !== null)
+  const topEventByRating = ratedEvents.length > 0
+    ? ratedEvents.reduce((top, e) => (e.rating > top.rating ? e : top))
+    : null
+  const averageRating = ratedEvents.length > 0
+    ? ratedEvents.reduce((sum, e) => sum + e.rating, 0) / ratedEvents.length
+    : null
+
   return {
     year,
     totalAmount,
     eventCount: events.length,
     chekiCount,
     monthlyTotals,
+    monthlyAverageRatings,
+    averageRating,
     topEventByAmount,
     topEventByChekiCount,
+    topEventByRating,
     ranking
   }
 }

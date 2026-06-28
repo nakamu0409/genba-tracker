@@ -34,6 +34,7 @@ const ticketPrice = ref(props.initialValue.ticketPrice)
 const drinkFee = ref(props.initialValue.drinkFee)
 const transportFee = ref(props.initialValue.transportFee)
 const memo = ref(props.initialValue.memo ?? '')
+const rating = ref<number | null>(props.initialValue.rating ?? null)
 const chekiItems = ref<GenbaItemFormState[]>(props.initialValue.chekiItems.map(toFormState))
 const goodsItems = ref<GenbaItemFormState[]>(props.initialValue.goodsItems.map(toFormState))
 
@@ -101,6 +102,10 @@ const budgetOverAmount = computed(() => {
   return (otherEventsMonthTotal.value + grandTotal.value) - monthBudget.value
 })
 
+const setRating = (value: number) => {
+  rating.value = rating.value === value ? null : value
+}
+
 const handleSubmit = async () => {
   errorMessage.value = ''
 
@@ -136,6 +141,7 @@ const handleSubmit = async () => {
     drinkFee: drinkFee.value || 0,
     transportFee: transportFee.value || 0,
     memo: memo.value || null,
+    rating: rating.value,
     chekiItems: chekiItems.value.map(stripGroupDraft),
     goodsItems: goodsItems.value.map(stripGroupDraft)
   })
@@ -251,6 +257,33 @@ const handleSubmit = async () => {
       :groups="groups"
       show-label
     />
+
+    <UCard :ui="{ body: 'p-3 sm:p-4' }">
+      <template #header>
+        <div class="flex items-center gap-2 font-semibold">
+          <UIcon
+            name="i-lucide-star"
+            class="text-lg"
+          />
+          満足度
+        </div>
+      </template>
+
+      <div class="flex items-center gap-1">
+        <button
+          v-for="star in 5"
+          :key="star"
+          type="button"
+          @click="setRating(star)"
+        >
+          <UIcon
+            name="i-lucide-star"
+            class="text-2xl"
+            :class="rating !== null && star <= rating ? 'text-warning' : 'text-muted'"
+          />
+        </button>
+      </div>
+    </UCard>
 
     <UCard :ui="{ body: 'p-3 sm:p-4' }">
       <template #header>

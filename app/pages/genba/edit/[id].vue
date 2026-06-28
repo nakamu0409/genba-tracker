@@ -28,6 +28,7 @@ const initialValue = computed(() => {
     drinkFee: data.value.drinkFee,
     transportFee: data.value.transportFee,
     memo: data.value.memo,
+    rating: data.value.rating,
     chekiItems: data.value.items
       .filter(item => item.category === 'cheki')
       .map(item => ({

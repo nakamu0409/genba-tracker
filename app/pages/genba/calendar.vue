@@ -80,6 +80,16 @@ const budgetOverAmount = computed(() => {
   return monthTotal.value - monthlyBudget.value
 })
 
+const monthAverageRating = computed(() => {
+  const prefix = `${calendarYear.value}-${pad2(calendarMonth.value + 1)}-`
+  const ratings = calendarFilteredEvents.value
+    .filter(e => e.eventDate?.startsWith(prefix) && e.rating !== null)
+    .map(e => e.rating as number)
+
+  if (ratings.length === 0) return null
+  return ratings.reduce((sum, r) => sum + r, 0) / ratings.length
+})
+
 const selectedDate = ref<string | null>(null)
 
 const eventsByDate = computed(() => {
@@ -173,7 +183,7 @@ onMounted(async () => {
       class="mb-4"
     />
 
-    <div class="mb-4 flex flex-wrap gap-2">
+    <div class="mb-4 flex flex-wrap items-center gap-2">
       <USelectMenu
         v-model="memberFilter"
         :items="memberOptions"
@@ -190,6 +200,19 @@ onMounted(async () => {
         class="w-40"
         clear
       />
+      <div
+        v-if="monthAverageRating !== null"
+        class="ml-auto flex items-center gap-0.5"
+      >
+        <UIcon
+          v-for="star in 5"
+          :key="star"
+          name="i-lucide-star"
+          class="text-sm"
+          :class="star <= Math.round(monthAverageRating) ? 'text-warning' : 'text-muted'"
+        />
+        <span class="ml-1 text-xs font-semibold text-muted">{{ monthAverageRating.toFixed(1) }}</span>
+      </div>
     </div>
 
     <UAlert
@@ -317,6 +340,7 @@ onMounted(async () => {
             <span class="text-xs text-muted">
               <template v-if="e.venueName">{{ e.venueName }}</template>
               <template v-if="e.chekiCount > 0"> ・ チェキ{{ e.chekiCount }}枚</template>
+              <template v-if="e.rating !== null"> ・ {{ '★'.repeat(e.rating) }}{{ '☆'.repeat(5 - e.rating) }}</template>
             </span>
           </div>
           <span class="font-bold text-primary">¥{{ e.totalAmount.toLocaleString() }}</span>

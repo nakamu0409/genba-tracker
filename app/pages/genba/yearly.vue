@@ -268,6 +268,34 @@ const shareImage = async () => {
         </div>
         <span class="font-bold text-primary">{{ overview.topEventByChekiCount.chekiCount }}枚</span>
       </UCard>
+
+      <UCard
+        v-if="overview.averageRating !== null"
+        :ui="{ body: 'p-4' }"
+      >
+        <div class="mb-2 flex items-center justify-between">
+          <p class="text-sm text-muted">
+            満足度の平均
+          </p>
+          <div class="flex items-center gap-1">
+            <UIcon
+              v-for="star in 5"
+              :key="star"
+              name="i-lucide-star"
+              :class="star <= Math.round(overview.averageRating) ? 'text-warning' : 'text-muted'"
+            />
+            <span class="ml-1 text-sm font-semibold">{{ overview.averageRating.toFixed(1) }}</span>
+          </div>
+        </div>
+
+        <div
+          v-if="overview.topEventByRating"
+          class="flex items-center justify-between border-t border-default pt-2 text-sm"
+        >
+          <span class="text-muted">一番満足度が高かった現場</span>
+          <span class="font-semibold">{{ overview.topEventByRating.eventName }}（{{ overview.topEventByRating.rating }}）</span>
+        </div>
+      </UCard>
     </div>
 
     <UCard

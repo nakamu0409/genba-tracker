@@ -83,6 +83,18 @@ export function parseGenbaEventInput(body: unknown): GenbaEventInput {
   const venueName = data.venueName ? String(data.venueName).trim() : null
   const memo = data.memo ? String(data.memo) : null
 
+  let rating: number | null = null
+  if (data.rating !== null && data.rating !== undefined && data.rating !== '') {
+    const ratingNum = Math.round(Number(data.rating))
+    if (!Number.isFinite(ratingNum) || ratingNum < 1 || ratingNum > 5) {
+      throw createError({
+        statusCode: 400,
+        message: '評価は1〜5で指定してください'
+      })
+    }
+    rating = ratingNum
+  }
+
   return {
     eventName,
     eventDate,
@@ -91,6 +103,7 @@ export function parseGenbaEventInput(body: unknown): GenbaEventInput {
     drinkFee: toNonNegativeInt(data.drinkFee ?? 0, 'ドリンク代'),
     transportFee: toNonNegativeInt(data.transportFee ?? 0, '交通費'),
     memo,
+    rating,
     chekiItems: parseItems(data.chekiItems, 'チェキ', true),
     goodsItems: parseItems(data.goodsItems, 'グッズ', false)
   }

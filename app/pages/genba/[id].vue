@@ -110,7 +110,21 @@ const deleteEvent = async () => {
     >
       <UCard>
         <div class="flex flex-col gap-1">
-          <span class="text-lg font-bold">{{ data.eventName }}</span>
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-lg font-bold">{{ data.eventName }}</span>
+            <div
+              v-if="data.rating !== null"
+              class="flex shrink-0 items-center"
+            >
+              <UIcon
+                v-for="star in 5"
+                :key="star"
+                name="i-lucide-star"
+                class="text-base"
+                :class="star <= data.rating ? 'text-warning' : 'text-muted'"
+              />
+            </div>
+          </div>
           <span class="text-sm text-muted">
             {{ data.eventDate || '開催日未設定' }}
             <template v-if="data.venueName"> ・ {{ data.venueName }}</template>

@@ -52,6 +52,7 @@ async function ensureSchema(client: Client): Promise<void> {
       drink_fee INTEGER NOT NULL DEFAULT 0,
       transport_fee INTEGER NOT NULL DEFAULT 0,
       memo TEXT,
+      rating INTEGER,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
   `)
@@ -134,6 +135,10 @@ async function migrateGenbaColumns(client: Client): Promise<void> {
 
   if (!eventColumnNames.has('budget_amount')) {
     await client.execute('ALTER TABLE genba_events ADD COLUMN budget_amount INTEGER')
+  }
+
+  if (!eventColumnNames.has('rating')) {
+    await client.execute('ALTER TABLE genba_events ADD COLUMN rating INTEGER')
   }
 
   const itemColumns = (await client.execute('PRAGMA table_info(genba_items)')).rows as unknown as { name: string }[]

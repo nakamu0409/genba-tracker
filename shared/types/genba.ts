@@ -28,6 +28,7 @@ export type GenbaEvent = {
   drinkFee: number
   transportFee: number
   memo: string | null
+  rating: number | null
   createdAt: string
   chekiTotal: number
   chekiCount: number
@@ -47,6 +48,7 @@ export type GenbaEventInput = {
   drinkFee: number
   transportFee: number
   memo: string | null
+  rating: number | null
   chekiItems: GenbaItemInput[]
   goodsItems: GenbaItemInput[]
 }
@@ -70,8 +72,11 @@ export type GenbaYearlyOverview = {
   eventCount: number
   chekiCount: number
   monthlyTotals: { month: number, totalAmount: number }[]
+  monthlyAverageRatings: { month: number, averageRating: number | null }[]
+  averageRating: number | null
   topEventByAmount: GenbaEvent | null
   topEventByChekiCount: GenbaEvent | null
+  topEventByRating: GenbaEvent | null
   ranking: GenbaSummaryRow[]
 }
 
