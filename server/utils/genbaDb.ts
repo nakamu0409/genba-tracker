@@ -108,6 +108,9 @@ async function ensureSchema(client: Client): Promise<void> {
   if (!idolColumns.some(c => c.name === 'photo_url')) {
     await client.execute('ALTER TABLE genba_idols ADD COLUMN photo_url TEXT')
   }
+  if (!idolColumns.some(c => c.name === 'last_unit_price')) {
+    await client.execute('ALTER TABLE genba_idols ADD COLUMN last_unit_price INTEGER')
+  }
 }
 
 /**

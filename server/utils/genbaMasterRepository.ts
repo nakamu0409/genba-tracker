@@ -31,13 +31,18 @@ type MasterRow = {
   name: string
   group_name?: string | null
   photo_url?: string | null
+  last_unit_price?: number | null
   device_id: string
 }
 
 /**
-登録者が共有(管理者)か自分の端末かに応じて、保存先となるdevice_idを決める
+登録者が共有(管理者)か自分の端末かに応じて、保存先となるdevice_idを決める。
+アイドル・グループは各人ごとの興味が異なるため、管理者でも常に自分専用データとして保存する（会場のみ共有可）
  */
-function resolveOwnerDeviceId(deviceId: string, isAdmin: boolean): string {
+function resolveOwnerDeviceId(type: string, deviceId: string, isAdmin: boolean): string {
+  if (type !== 'venues') {
+    return deviceId
+  }
   return isAdmin ? SHARED_DEVICE_ID : deviceId
 }
 
@@ -47,6 +52,7 @@ function toGenbaMasterEntry(row: MasterRow, requestDeviceId: string): GenbaMaste
     name: row.name,
     groupName: row.group_name ?? null,
     photoUrl: row.photo_url ?? null,
+    lastUnitPrice: row.last_unit_price ?? null,
     scope: row.device_id === SHARED_DEVICE_ID ? 'shared' : (row.device_id === requestDeviceId ? 'mine' : 'shared')
   }
 }
@@ -76,7 +82,7 @@ export async function listGenbaMasterEntries(type: string, deviceId: string): Pr
 export async function createGenbaMasterEntry(type: string, input: GenbaMasterEntryInput, deviceId: string, isAdmin: boolean): Promise<GenbaMasterEntry> {
   const db = await getGenbaDb()
   const tableName = resolveTableName(type)
-  const ownerDeviceId = resolveOwnerDeviceId(deviceId, isAdmin)
+  const ownerDeviceId = resolveOwnerDeviceId(type, deviceId, isAdmin)
 
   try {
     const result = type === 'idols'
@@ -89,6 +95,7 @@ export async function createGenbaMasterEntry(type: string, input: GenbaMasterEnt
       name: input.name,
       groupName: type === 'idols' ? input.groupName : null,
       photoUrl: null,
+      lastUnitPrice: null,
       scope: ownerDeviceId === SHARED_DEVICE_ID ? 'shared' : 'mine'
     }
   } catch {

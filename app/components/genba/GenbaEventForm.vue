@@ -144,7 +144,7 @@ const handleSubmit = async () => {
 
 <template>
   <form
-    class="flex flex-col gap-4"
+    class="flex flex-col gap-5"
     @submit.prevent="handleSubmit"
   >
     <UAlert
@@ -155,7 +155,17 @@ const handleSubmit = async () => {
     />
 
     <UCard :ui="{ body: 'p-3 sm:p-4' }">
-      <div class="flex flex-col gap-3">
+      <template #header>
+        <div class="flex items-center gap-2 font-semibold">
+          <UIcon
+            name="i-lucide-calendar-days"
+            class="text-lg"
+          />
+          イベント情報
+        </div>
+      </template>
+
+      <div class="flex flex-col gap-4">
         <UFormField label="イベント名">
           <UInput
             v-model="eventName"
@@ -185,36 +195,41 @@ const handleSubmit = async () => {
           </UFormField>
         </div>
 
-        <div class="grid grid-cols-3 gap-3">
-          <UFormField label="チケット代">
-            <UInput
-              v-model.number="ticketPrice"
-              type="number"
-              min="0"
-              step="100"
-              class="w-full"
-            />
-          </UFormField>
+        <div>
+          <p class="mb-2 text-xs font-semibold text-muted">
+            費用
+          </p>
+          <div class="grid grid-cols-3 gap-3">
+            <UFormField label="チケット代">
+              <UInput
+                v-model.number="ticketPrice"
+                type="number"
+                min="0"
+                step="100"
+                class="w-full"
+              />
+            </UFormField>
 
-          <UFormField label="ドリンク代">
-            <UInput
-              v-model.number="drinkFee"
-              type="number"
-              min="0"
-              step="100"
-              class="w-full"
-            />
-          </UFormField>
+            <UFormField label="ドリンク代">
+              <UInput
+                v-model.number="drinkFee"
+                type="number"
+                min="0"
+                step="100"
+                class="w-full"
+              />
+            </UFormField>
 
-          <UFormField label="交通費">
-            <UInput
-              v-model.number="transportFee"
-              type="number"
-              min="0"
-              step="100"
-              class="w-full"
-            />
-          </UFormField>
+            <UFormField label="交通費">
+              <UInput
+                v-model.number="transportFee"
+                type="number"
+                min="0"
+                step="100"
+                class="w-full"
+              />
+            </UFormField>
+          </div>
         </div>
       </div>
     </UCard>
@@ -238,13 +253,21 @@ const handleSubmit = async () => {
     />
 
     <UCard :ui="{ body: 'p-3 sm:p-4' }">
-      <UFormField label="メモ">
-        <UTextarea
-          v-model="memo"
-          placeholder="任意"
-          class="w-full"
-        />
-      </UFormField>
+      <template #header>
+        <div class="flex items-center gap-2 font-semibold">
+          <UIcon
+            name="i-lucide-sticky-note"
+            class="text-lg"
+          />
+          メモ
+        </div>
+      </template>
+
+      <UTextarea
+        v-model="memo"
+        placeholder="任意"
+        class="w-full"
+      />
     </UCard>
 
     <UAlert
@@ -255,7 +278,7 @@ const handleSubmit = async () => {
       :title="`この内容だと${targetYearMonth.month}月の予算を¥${budgetOverAmount.toLocaleString()}超えます`"
     />
 
-    <UCard :ui="{ body: 'p-4 flex items-center justify-between' }">
+    <UCard :ui="{ body: 'p-4 flex items-center justify-between', root: 'border-2 border-primary' }">
       <span class="font-semibold">合計支出</span>
       <span class="text-xl font-bold text-primary">¥{{ grandTotal.toLocaleString() }}</span>
     </UCard>

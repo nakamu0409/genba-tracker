@@ -48,15 +48,43 @@ const updateRow = (index: number, patch: Partial<GenbaItemFormState>) => {
 }
 
 /**
-推しを選択・新規作成したときに、マスタに登録済みの所属グループがあれば一緒に反映する
+推しを選択・新規作成したときに、マスタに登録済みの所属グループ・前回の単価があれば一緒に反映する
  */
 const applyIdolSelection = (index: number, name: string) => {
   const matched = props.idols.find(idol => idol.name === name)
+  const current = props.modelValue[index]
 
   updateRow(index, {
     memberName: name || null,
-    ...(matched?.groupName ? { groupDraft: matched.groupName } : {})
+    ...(matched?.groupName ? { groupDraft: matched.groupName } : {}),
+    ...(matched?.lastUnitPrice && current?.unitPrice === 0 ? { unitPrice: matched.lastUnitPrice } : {})
   })
+}
+
+const incrementQuantity = (index: number) => {
+  const current = props.modelValue[index]
+  if (!current) return
+  updateRow(index, { quantity: current.quantity + 1 })
+}
+
+const decrementQuantity = (index: number) => {
+  const current = props.modelValue[index]
+  if (!current) return
+  updateRow(index, { quantity: Math.max(1, current.quantity - 1) })
+}
+
+// 前回単価が分かっている(=使ったことがある)推しを優先して、ワンタップ追加の候補にする
+const quickAddIdols = computed(() => {
+  return [...props.idols]
+    .sort((a, b) => (b.lastUnitPrice !== null ? 1 : 0) - (a.lastUnitPrice !== null ? 1 : 0))
+    .slice(0, 8)
+})
+
+const quickAddIdol = (idol: GenbaMasterEntry) => {
+  emit('update:modelValue', [
+    ...props.modelValue,
+    { label: '', unitPrice: idol.lastUnitPrice ?? 0, quantity: 1, memberName: idol.name, groupDraft: idol.groupName }
+  ])
 }
 
 const handleCreateIdol = (index: number, name: string) => {
@@ -88,6 +116,26 @@ const handleCreateGroup = (index: number, name: string) => {
         <span class="text-sm text-muted">小計 ¥{{ subtotal.toLocaleString() }}</span>
       </div>
     </template>
+
+    <div
+      v-if="quickAddIdols.length > 0"
+      class="mb-3 flex gap-3 overflow-x-auto pb-1"
+    >
+      <button
+        v-for="idol in quickAddIdols"
+        :key="idol.id"
+        type="button"
+        class="flex flex-shrink-0 flex-col items-center gap-1"
+        @click="quickAddIdol(idol)"
+      >
+        <UAvatar
+          :src="idol.photoUrl ?? undefined"
+          icon="i-lucide-star"
+          size="md"
+        />
+        <span class="max-w-14 truncate text-[11px] text-muted">{{ idol.name }}</span>
+      </button>
+    </div>
 
     <div class="flex flex-col gap-3">
       <div
@@ -175,13 +223,29 @@ const handleCreateGroup = (index: number, name: string) => {
           </UFormField>
 
           <UFormField label="数量">
-            <UInput
-              :model-value="item.quantity"
-              type="number"
-              min="1"
-              class="w-full"
-              @update:model-value="(v) => updateRow(index, { quantity: Number(v) })"
-            />
+            <div class="flex items-center gap-1">
+              <UButton
+                icon="i-lucide-minus"
+                variant="soft"
+                color="neutral"
+                size="sm"
+                @click="decrementQuantity(index)"
+              />
+              <UInput
+                :model-value="item.quantity"
+                type="number"
+                min="1"
+                class="noSpinner w-full text-center"
+                @update:model-value="(v) => updateRow(index, { quantity: Number(v) })"
+              />
+              <UButton
+                icon="i-lucide-plus"
+                variant="soft"
+                color="neutral"
+                size="sm"
+                @click="incrementQuantity(index)"
+              />
+            </div>
           </UFormField>
 
           <span class="pb-2 text-right text-sm font-semibold text-highlighted">
@@ -201,3 +265,15 @@ const handleCreateGroup = (index: number, name: string) => {
     </div>
   </UCard>
 </template>
+
+<style scoped>
+.noSpinner :deep(input[type='number'])::-webkit-outer-spin-button,
+.noSpinner :deep(input[type='number'])::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.noSpinner :deep(input[type='number']) {
+  -moz-appearance: textfield;
+}
+</style>

@@ -92,6 +92,7 @@ export type GenbaMasterEntry = {
   name: string
   groupName: string | null
   photoUrl: string | null
+  lastUnitPrice: number | null
   scope: GenbaMasterScope
 }
 

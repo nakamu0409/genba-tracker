@@ -212,9 +212,11 @@ onMounted(fetchEvents)
         >
           <span class="calendarCellDay">{{ cell.date.getDate() }}</span>
           <span
-            v-if="cell.dayEvents.length > 0"
-            class="calendarCellDot"
-          />
+            v-if="cell.dayEvents[0]"
+            class="calendarCellLabel"
+          >
+            {{ cell.dayEvents[0].eventName }}<template v-if="cell.dayEvents.length > 1"> +{{ cell.dayEvents.length - 1 }}</template>
+          </span>
         </button>
       </div>
     </UCard>
@@ -273,8 +275,9 @@ onMounted(fetchEvents)
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  aspect-ratio: 1;
+  justify-content: flex-start;
+  min-height: 52px;
+  padding-top: 4px;
   border-radius: 8px;
   background: transparent;
   cursor: pointer;
@@ -299,16 +302,21 @@ onMounted(fetchEvents)
   color: white;
 }
 
-.calendarCellDot {
-  position: absolute;
-  bottom: 4px;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--ui-primary);
+.calendarCellLabel {
+  margin-top: 2px;
+  width: 100%;
+  max-width: 100%;
+  padding: 0 2px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 9px;
+  line-height: 1.2;
+  color: var(--ui-primary);
+  text-align: center;
 }
 
-.calendarCellSelected .calendarCellDot {
-  background: white;
+.calendarCellSelected .calendarCellLabel {
+  color: white;
 }
 </style>

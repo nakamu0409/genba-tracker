@@ -183,13 +183,15 @@ async function insertItems(tx: Transaction, eventId: number, input: GenbaEventIn
     INSERT INTO genba_items (event_id, category, label, unit_price, quantity, member_name)
     VALUES (?, ?, ?, ?, ?, ?)
   `
+  const updateLastPriceSql = 'UPDATE genba_idols SET last_unit_price = ? WHERE name = ?'
 
-  for (const item of input.chekiItems) {
-    await tx.execute({ sql: insertSql, args: [eventId, 'cheki', item.label, item.unitPrice, item.quantity, item.memberName] })
-  }
+  for (const item of [...input.chekiItems, ...input.goodsItems]) {
+    const category = input.chekiItems.includes(item) ? 'cheki' : 'goods'
+    await tx.execute({ sql: insertSql, args: [eventId, category, item.label, item.unitPrice, item.quantity, item.memberName] })
 
-  for (const item of input.goodsItems) {
-    await tx.execute({ sql: insertSql, args: [eventId, 'goods', item.label, item.unitPrice, item.quantity, item.memberName] })
+    if (item.memberName && item.unitPrice > 0) {
+      await tx.execute({ sql: updateLastPriceSql, args: [item.unitPrice, item.memberName] })
+    }
   }
 }
 

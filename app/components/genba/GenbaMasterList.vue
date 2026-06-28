@@ -203,7 +203,10 @@ const submitBulkImport = async () => {
     />
 
     <p class="text-xs text-muted">
-      <template v-if="isAdmin">
+      <template v-if="type !== 'venues'">
+        ここで追加した名前は自分専用のデータとして保存され、他の人には共有されません。
+      </template>
+      <template v-else-if="isAdmin">
         管理者として登録すると全員共有のデータになります。
       </template>
       <template v-else>
