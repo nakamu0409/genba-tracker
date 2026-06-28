@@ -24,7 +24,6 @@ const initialValue = computed(() => {
     eventName: data.value.eventName,
     eventDate: data.value.eventDate,
     venueName: data.value.venueName,
-    budgetAmount: data.value.budgetAmount,
     ticketPrice: data.value.ticketPrice,
     drinkFee: data.value.drinkFee,
     transportFee: data.value.transportFee,
@@ -108,6 +107,7 @@ const handleSubmit = async (value: GenbaEventInput) => {
     <GenbaEventForm
       v-else-if="initialValue"
       :initial-value="initialValue"
+      :event-id="Number(id)"
       submit-label="更新"
       :loading="loading"
       @submit="handleSubmit"

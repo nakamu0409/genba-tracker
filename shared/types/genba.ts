@@ -24,7 +24,6 @@ export type GenbaEvent = {
   venueName: string | null
   memberNames: string[]
   groupNames: string[]
-  budgetAmount: number | null
   ticketPrice: number
   drinkFee: number
   transportFee: number
@@ -44,13 +43,16 @@ export type GenbaEventInput = {
   eventName: string
   eventDate: string | null
   venueName: string | null
-  budgetAmount: number | null
   ticketPrice: number
   drinkFee: number
   transportFee: number
   memo: string | null
   chekiItems: GenbaItemInput[]
   goodsItems: GenbaItemInput[]
+}
+
+export type GenbaBudget = {
+  monthlyAmount: number | null
 }
 
 export type GenbaSummaryRow = {
@@ -60,6 +62,25 @@ export type GenbaSummaryRow = {
   eventCount: number
   chekiCount: number
   totalAmount: number
+}
+
+export type GenbaYearlyOverview = {
+  year: number
+  totalAmount: number
+  eventCount: number
+  chekiCount: number
+  monthlyTotals: { month: number, totalAmount: number }[]
+  topEventByAmount: GenbaEvent | null
+  topEventByChekiCount: GenbaEvent | null
+  ranking: GenbaSummaryRow[]
+}
+
+export type GenbaMemberTrend = {
+  year: number
+  memberName: string
+  totalAmount: number
+  chekiCount: number
+  monthlyTotals: { month: number, totalAmount: number, chekiCount: number }[]
 }
 
 export type GenbaMasterType = 'venues' | 'idols' | 'groups'

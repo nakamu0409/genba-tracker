@@ -15,7 +15,6 @@ const initialValue: GenbaEventInput = {
   eventName: '',
   eventDate: typeof route.query.date === 'string' ? route.query.date : null,
   venueName: null,
-  budgetAmount: null,
   ticketPrice: 0,
   drinkFee: 0,
   transportFee: 0,

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { GenbaEventInput, GenbaItemInput } from '../../../shared/types/genba'
+import type { GenbaEvent, GenbaEventInput, GenbaItemInput } from '../../../shared/types/genba'
 import GenbaItemEditor, { type GenbaItemFormState } from './GenbaItemEditor.vue'
 import { useGenbaMasters } from '../../composables/useGenbaMasters'
 
@@ -12,6 +12,7 @@ const props = defineProps<{
   }
   submitLabel: string
   loading: boolean
+  eventId?: number
 }>()
 
 const emit = defineEmits<{
@@ -29,7 +30,6 @@ const toFormState = (item: InitialItemInput): GenbaItemFormState => ({
 const eventName = ref(props.initialValue.eventName)
 const eventDate = ref(props.initialValue.eventDate ?? '')
 const venueName = ref(props.initialValue.venueName ?? '')
-const budgetAmountInput = ref<number | ''>(props.initialValue.budgetAmount ?? '')
 const ticketPrice = ref(props.initialValue.ticketPrice)
 const drinkFee = ref(props.initialValue.drinkFee)
 const transportFee = ref(props.initialValue.transportFee)
@@ -63,9 +63,42 @@ const grandTotal = computed(() => {
   return (ticketPrice.value || 0) + (drinkFee.value || 0) + (transportFee.value || 0) + itemsTotal.value
 })
 
-const budgetDiff = computed(() => {
-  if (budgetAmountInput.value === '') return null
-  return grandTotal.value - Number(budgetAmountInput.value)
+const allEvents = ref<GenbaEvent[]>([])
+const monthBudget = ref<number | null>(null)
+
+const targetYearMonth = computed(() => {
+  const today = new Date()
+  if (!eventDate.value) {
+    return { year: today.getFullYear(), month: today.getMonth() + 1 }
+  }
+  const [y, m] = eventDate.value.split('-').map(Number)
+  return { year: y, month: m }
+})
+
+const fetchMonthBudget = async () => {
+  const res = await $fetch<{ monthlyAmount: number | null }>('/api/genba/budget', {
+    query: { year: targetYearMonth.value.year, month: targetYearMonth.value.month }
+  })
+  monthBudget.value = res.monthlyAmount
+}
+
+onMounted(async () => {
+  allEvents.value = await $fetch<GenbaEvent[]>('/api/genba/events')
+  await fetchMonthBudget()
+})
+
+watch(targetYearMonth, fetchMonthBudget)
+
+const otherEventsMonthTotal = computed(() => {
+  const prefix = `${targetYearMonth.value.year}-${String(targetYearMonth.value.month).padStart(2, '0')}-`
+  return allEvents.value
+    .filter(e => e.id !== props.eventId && e.eventDate?.startsWith(prefix))
+    .reduce((sum, e) => sum + e.totalAmount, 0)
+})
+
+const budgetOverAmount = computed(() => {
+  if (monthBudget.value === null) return 0
+  return (otherEventsMonthTotal.value + grandTotal.value) - monthBudget.value
 })
 
 const handleSubmit = async () => {
@@ -99,7 +132,6 @@ const handleSubmit = async () => {
     eventName: eventName.value.trim(),
     eventDate: eventDate.value || null,
     venueName: venueName.value.trim() || null,
-    budgetAmount: budgetAmountInput.value === '' ? null : Number(budgetAmountInput.value),
     ticketPrice: ticketPrice.value || 0,
     drinkFee: drinkFee.value || 0,
     transportFee: transportFee.value || 0,
@@ -153,22 +185,13 @@ const handleSubmit = async () => {
           </UFormField>
         </div>
 
-        <UFormField label="予算（任意）">
-          <UInput
-            v-model.number="budgetAmountInput"
-            type="number"
-            min="0"
-            placeholder="行く前の予想額"
-            class="w-full"
-          />
-        </UFormField>
-
         <div class="grid grid-cols-3 gap-3">
           <UFormField label="チケット代">
             <UInput
               v-model.number="ticketPrice"
               type="number"
               min="0"
+              step="100"
               class="w-full"
             />
           </UFormField>
@@ -178,6 +201,7 @@ const handleSubmit = async () => {
               v-model.number="drinkFee"
               type="number"
               min="0"
+              step="100"
               class="w-full"
             />
           </UFormField>
@@ -187,6 +211,7 @@ const handleSubmit = async () => {
               v-model.number="transportFee"
               type="number"
               min="0"
+              step="100"
               class="w-full"
             />
           </UFormField>
@@ -222,20 +247,17 @@ const handleSubmit = async () => {
       </UFormField>
     </UCard>
 
-    <UCard :ui="{ body: 'p-4 flex flex-col gap-2' }">
-      <div
-        v-if="budgetDiff !== null"
-        class="flex items-center justify-between text-sm"
-      >
-        <span class="text-muted">予算との差額</span>
-        <span :class="budgetDiff > 0 ? 'text-error' : 'text-primary'">
-          {{ budgetDiff > 0 ? '+' : '' }}¥{{ budgetDiff.toLocaleString() }}
-        </span>
-      </div>
-      <div class="flex items-center justify-between">
-        <span class="font-semibold">合計支出</span>
-        <span class="text-xl font-bold text-primary">¥{{ grandTotal.toLocaleString() }}</span>
-      </div>
+    <UAlert
+      v-if="budgetOverAmount > 0"
+      color="error"
+      variant="soft"
+      icon="i-lucide-triangle-alert"
+      :title="`この内容だと${targetYearMonth.month}月の予算を¥${budgetOverAmount.toLocaleString()}超えます`"
+    />
+
+    <UCard :ui="{ body: 'p-4 flex items-center justify-between' }">
+      <span class="font-semibold">合計支出</span>
+      <span class="text-xl font-bold text-primary">¥{{ grandTotal.toLocaleString() }}</span>
     </UCard>
 
     <UButton

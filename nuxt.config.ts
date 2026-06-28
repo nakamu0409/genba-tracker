@@ -10,6 +10,8 @@ export default defineNuxtConfig({
     enabled: true
   },
 
+  css: ['~/assets/css/main.css'],
+
   runtimeConfig: {
     genbaAdminKey: process.env.GENBA_ADMIN_KEY || '',
     turso: {
@@ -22,10 +24,11 @@ export default defineNuxtConfig({
       secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || '',
       bucket: process.env.R2_BUCKET_NAME || '',
       publicUrlBase: process.env.R2_PUBLIC_URL_BASE || ''
+    },
+    resend: {
+      apiKey: process.env.RESEND_API_KEY || ''
     }
   },
-
-  css: ['~/assets/css/main.css'],
 
   routeRules: {
     '/': { prerender: true },

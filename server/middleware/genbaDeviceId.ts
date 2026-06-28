@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { getCookie, setCookie } from 'h3'
 
-const COOKIE_NAME = 'genba_device_id'
+export const GENBA_DEVICE_COOKIE_NAME = 'genba_device_id'
+const COOKIE_NAME = GENBA_DEVICE_COOKIE_NAME
 const ONE_YEAR_IN_SECONDS = 60 * 60 * 24 * 365
 
 /**

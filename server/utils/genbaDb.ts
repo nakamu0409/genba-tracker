@@ -71,6 +71,34 @@ async function ensureSchema(client: Client): Promise<void> {
 
   await migrateGenbaColumns(client)
 
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS genba_users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      email TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `)
+
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS genba_login_tokens (
+      token TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES genba_users(id) ON DELETE CASCADE,
+      expires_at TEXT NOT NULL,
+      used_at TEXT
+    )
+  `)
+
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS genba_budgets (
+      device_id TEXT NOT NULL,
+      year_month TEXT NOT NULL,
+      monthly_amount INTEGER NOT NULL,
+      PRIMARY KEY (device_id, year_month)
+    )
+  `)
+
+  await migrateGenbaBudgetsTable(client)
+
   // マスタは device_id = '' が全員共有、それ以外は端末ごとの個人用データを表す
   await ensureMasterTable(client, 'genba_venues', false)
   await ensureMasterTable(client, 'genba_groups', false)
@@ -115,6 +143,28 @@ async function migrateGenbaColumns(client: Client): Promise<void> {
   if (!itemColumnNames.has('group_name')) {
     await client.execute('ALTER TABLE genba_items ADD COLUMN group_name TEXT')
   }
+}
+
+/**
+genba_budgetsを月別キー（device_id, year_month）のスキーマに揃える。
+旧スキーマ（device_id単独PK、月の区別なし）が残っていた場合は作り直す
+ */
+async function migrateGenbaBudgetsTable(client: Client): Promise<void> {
+  const columns = (await client.execute('PRAGMA table_info(genba_budgets)')).rows as unknown as { name: string }[]
+
+  if (columns.some(c => c.name === 'year_month')) {
+    return
+  }
+
+  await client.batch([
+    'DROP TABLE genba_budgets',
+    `CREATE TABLE genba_budgets (
+      device_id TEXT NOT NULL,
+      year_month TEXT NOT NULL,
+      monthly_amount INTEGER NOT NULL,
+      PRIMARY KEY (device_id, year_month)
+    )`
+  ], 'write')
 }
 
 /**

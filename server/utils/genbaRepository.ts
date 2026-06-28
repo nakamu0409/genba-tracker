@@ -5,7 +5,9 @@ import type {
   GenbaEventDetail,
   GenbaEventInput,
   GenbaItem,
-  GenbaSummaryRow
+  GenbaMemberTrend,
+  GenbaSummaryRow,
+  GenbaYearlyOverview
 } from '../../shared/types/genba'
 
 type EventRow = {
@@ -13,7 +15,6 @@ type EventRow = {
   event_name: string
   event_date: string | null
   venue_name: string | null
-  budget_amount: number | null
   ticket_price: number
   drink_fee: number
   transport_fee: number
@@ -55,7 +56,6 @@ function toGenbaEvent(row: EventRow): GenbaEvent {
     venueName: row.venue_name,
     memberNames: splitNames(row.member_names),
     groupNames: splitNames(row.group_names),
-    budgetAmount: row.budget_amount,
     ticketPrice: row.ticket_price,
     drinkFee: row.drink_fee,
     transportFee: row.transport_fee,
@@ -71,7 +71,7 @@ function toGenbaEvent(row: EventRow): GenbaEvent {
 // グループはアイドルマスタに紐づく所属を常に正とするため、明細のmember_nameからgenba_idolsを参照して導出する
 const EVENT_SELECT = `
   SELECT
-    e.id, e.event_name, e.event_date, e.venue_name, e.budget_amount,
+    e.id, e.event_name, e.event_date, e.venue_name,
     e.ticket_price, e.drink_fee, e.transport_fee, e.memo, e.created_at,
     COALESCE(SUM(CASE WHEN i.category = 'cheki' THEN i.unit_price * i.quantity ELSE 0 END), 0) AS cheki_total,
     COALESCE(SUM(CASE WHEN i.category = 'cheki' THEN i.quantity ELSE 0 END), 0) AS cheki_count,
@@ -203,15 +203,14 @@ export async function createGenbaEvent(deviceId: string, input: GenbaEventInput)
   try {
     const result = await tx.execute({
       sql: `
-        INSERT INTO genba_events (device_id, event_name, event_date, venue_name, budget_amount, ticket_price, drink_fee, transport_fee, memo)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO genba_events (device_id, event_name, event_date, venue_name, ticket_price, drink_fee, transport_fee, memo)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
         deviceId,
         input.eventName,
         input.eventDate,
         input.venueName,
-        input.budgetAmount,
         input.ticketPrice,
         input.drinkFee,
         input.transportFee,
@@ -244,7 +243,7 @@ export async function updateGenbaEvent(deviceId: string, id: number, input: Genb
     const result = await tx.execute({
       sql: `
         UPDATE genba_events
-        SET event_name = ?, event_date = ?, venue_name = ?, budget_amount = ?,
+        SET event_name = ?, event_date = ?, venue_name = ?,
             ticket_price = ?, drink_fee = ?, transport_fee = ?, memo = ?
         WHERE id = ? AND device_id = ?
       `,
@@ -252,7 +251,6 @@ export async function updateGenbaEvent(deviceId: string, id: number, input: Genb
         input.eventName,
         input.eventDate,
         input.venueName,
-        input.budgetAmount,
         input.ticketPrice,
         input.drinkFee,
         input.transportFee,
@@ -305,26 +303,26 @@ export async function deleteGenbaEvent(deviceId: string, id: number): Promise<bo
   }
 }
 
-export type GenbaSummaryMonthFilter = {
+export type GenbaSummaryFilter = {
   year: number
-  month: number // 1始まり
+  month?: number // 1始まり、省略時は年間全体
 }
 
 /**
 推し・グループ別の支出集計を取得する（指定端末の記録のみ。チケット代・ドリンク代・交通費は含まずチェキ・グッズの明細金額のみ集計。チェキ枚数は単価0円の特典分も含めて集計）
  *
-monthFilterを指定すると、その月に開催された現場の明細だけに絞り込む
+filterを指定すると、その月（またはmonth省略時はその年全体）に開催された現場の明細だけに絞り込む
  */
-export async function getGenbaSummary(deviceId: string, monthFilter?: GenbaSummaryMonthFilter): Promise<GenbaSummaryRow[]> {
+export async function getGenbaSummary(deviceId: string, filter?: GenbaSummaryFilter): Promise<GenbaSummaryRow[]> {
   const db = await getGenbaDb()
 
   const conditions = ['e.device_id = ?']
   const params: (string | number)[] = [deviceId]
 
-  if (monthFilter) {
-    const monthPrefix = `${monthFilter.year}-${String(monthFilter.month).padStart(2, '0')}-`
+  if (filter) {
+    const datePrefix = filter.month ? `${filter.year}-${String(filter.month).padStart(2, '0')}-` : `${filter.year}-`
     conditions.push('e.event_date LIKE ?')
-    params.push(`${monthPrefix}%`)
+    params.push(`${datePrefix}%`)
   }
 
   const result = await db.execute({
@@ -361,4 +359,98 @@ export async function getGenbaSummary(deviceId: string, monthFilter?: GenbaSumma
     chekiCount: row.cheki_count,
     totalAmount: row.total_amount
   }))
+}
+
+/**
+指定年の年間まとめ（総額・現場回数・チェキ枚数・月別支出・最高額/最多チェキの現場・推し別ランキング）を取得する
+ */
+export async function getYearlyOverview(deviceId: string, year: number): Promise<GenbaYearlyOverview> {
+  const db = await getGenbaDb()
+
+  const result = await db.execute({
+    sql: `
+      ${EVENT_SELECT}
+      WHERE e.device_id = ? AND e.event_date LIKE ?
+      GROUP BY e.id
+    `,
+    args: [deviceId, `${year}-%`]
+  })
+
+  const events = (result.rows as unknown as EventRow[]).map(toGenbaEvent)
+  const ranking = await getGenbaSummary(deviceId, { year })
+
+  const totalAmount = events.reduce((sum, e) => sum + e.totalAmount, 0)
+  const chekiCount = events.reduce((sum, e) => sum + e.chekiCount, 0)
+
+  const monthlyTotalsMap = new Map<number, number>()
+  for (const e of events) {
+    if (!e.eventDate) continue
+    const month = Number(e.eventDate.slice(5, 7))
+    monthlyTotalsMap.set(month, (monthlyTotalsMap.get(month) ?? 0) + e.totalAmount)
+  }
+  const monthlyTotals = Array.from({ length: 12 }, (_, i) => ({
+    month: i + 1,
+    totalAmount: monthlyTotalsMap.get(i + 1) ?? 0
+  }))
+
+  const topEventByAmount = events.length > 0
+    ? events.reduce((top, e) => (e.totalAmount > top.totalAmount ? e : top))
+    : null
+
+  const chekiEvents = events.filter(e => e.chekiCount > 0)
+  const topEventByChekiCount = chekiEvents.length > 0
+    ? chekiEvents.reduce((top, e) => (e.chekiCount > top.chekiCount ? e : top))
+    : null
+
+  return {
+    year,
+    totalAmount,
+    eventCount: events.length,
+    chekiCount,
+    monthlyTotals,
+    topEventByAmount,
+    topEventByChekiCount,
+    ranking
+  }
+}
+
+/**
+指定した推しの、指定年における月別支出トレンドを取得する（チケット代等は含まずチェキ・グッズの明細金額のみ集計）
+ */
+export async function getMemberTrend(deviceId: string, year: number, memberName: string): Promise<GenbaMemberTrend> {
+  const db = await getGenbaDb()
+
+  const result = await db.execute({
+    sql: `
+      SELECT
+        CAST(strftime('%m', e.event_date) AS INTEGER) AS month,
+        COALESCE(SUM(i.unit_price * i.quantity), 0) AS total_amount,
+        COALESCE(SUM(CASE WHEN i.category = 'cheki' THEN i.quantity ELSE 0 END), 0) AS cheki_count
+      FROM genba_items i
+      INNER JOIN genba_events e ON e.id = i.event_id
+      WHERE e.device_id = ? AND i.member_name = ? AND e.event_date LIKE ?
+      GROUP BY month
+    `,
+    args: [deviceId, memberName, `${year}-%`]
+  })
+
+  const rows = result.rows as unknown as { month: number, total_amount: number, cheki_count: number }[]
+  const rowByMonth = new Map(rows.map(r => [r.month, r]))
+
+  const monthlyTotals = Array.from({ length: 12 }, (_, i) => {
+    const row = rowByMonth.get(i + 1)
+    return {
+      month: i + 1,
+      totalAmount: row?.total_amount ?? 0,
+      chekiCount: row?.cheki_count ?? 0
+    }
+  })
+
+  return {
+    year,
+    memberName,
+    totalAmount: monthlyTotals.reduce((sum, m) => sum + m.totalAmount, 0),
+    chekiCount: monthlyTotals.reduce((sum, m) => sum + m.chekiCount, 0),
+    monthlyTotals
+  }
 }

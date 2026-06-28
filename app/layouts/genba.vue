@@ -1,11 +1,20 @@
 <script setup lang="ts">
 const route = useRoute()
 
-const tabs = [
+const isAdmin = ref(false)
+
+onMounted(async () => {
+  const res = await $fetch<{ isAdmin: boolean }>('/api/genba/admin/status')
+  isAdmin.value = res.isAdmin
+})
+
+const tabs = computed(() => [
   { to: '/genba', icon: 'i-lucide-receipt', label: '記録' },
+  { to: '/genba/calendar', icon: 'i-lucide-calendar', label: 'カレンダー' },
   { to: '/genba/new', icon: 'i-lucide-circle-plus', label: '登録' },
-  { to: '/genba/masters', icon: 'i-lucide-settings-2', label: 'マスタ' }
-]
+  ...(isAdmin.value ? [{ to: '/genba/masters', icon: 'i-lucide-settings-2', label: 'マスタ' }] : []),
+  { to: '/genba/account', icon: 'i-lucide-user', label: 'アカウント' }
+])
 
 const isActive = (to: string) => {
   if (to === '/genba') {

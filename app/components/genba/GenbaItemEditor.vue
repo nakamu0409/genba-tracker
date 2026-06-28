@@ -168,6 +168,7 @@ const handleCreateGroup = (index: number, name: string) => {
               :model-value="item.unitPrice"
               type="number"
               min="0"
+              step="100"
               class="w-full"
               @update:model-value="(v) => updateRow(index, { unitPrice: Number(v) })"
             />

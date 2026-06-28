@@ -12,19 +12,18 @@ const summary = ref<GenbaSummaryRow[]>([])
 const errorMessage = ref('')
 const deletingId = ref<number | null>(null)
 
-type ViewMode = 'list' | 'calendar' | 'summary'
+type ViewMode = 'list' | 'summary'
 const viewMode = ref<ViewMode>('list')
 
 const viewModeOptions: { value: ViewMode, label: string, icon: string }[] = [
   { value: 'list', label: 'リスト', icon: 'i-lucide-list' },
-  { value: 'calendar', label: 'カレンダー', icon: 'i-lucide-calendar' },
   { value: 'summary', label: '集計', icon: 'i-lucide-bar-chart-3' }
 ]
 
 const memberFilter = ref('')
 const groupFilter = ref('')
 
-// 月表示・全体表示の切り替え用の状態（リスト・カレンダーで共通利用）
+// 月表示・全体表示の切り替え用の状態
 const today = new Date()
 const calendarYear = ref(today.getFullYear())
 const calendarMonth = ref(today.getMonth()) // 0始まり
@@ -33,8 +32,39 @@ type ListScope = 'all' | 'month'
 const listScope = ref<ListScope>('all')
 const summaryScope = ref<ListScope>('all')
 
-const pad2 = (n: number) => String(n).padStart(2, '0')
-const toDateStr = (date: Date) => `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
+const monthlyBudget = ref<number | null>(null)
+const editingBudget = ref(false)
+const budgetInput = ref<number | ''>('')
+
+const fetchBudget = async () => {
+  const res = await $fetch<{ monthlyAmount: number | null }>('/api/genba/budget', {
+    query: { year: calendarYear.value, month: calendarMonth.value + 1 }
+  })
+  monthlyBudget.value = res.monthlyAmount
+}
+
+const startEditBudget = () => {
+  budgetInput.value = monthlyBudget.value ?? ''
+  editingBudget.value = true
+}
+
+const saveBudget = async () => {
+  const monthlyAmount = budgetInput.value === '' ? null : Number(budgetInput.value)
+  await $fetch('/api/genba/budget', {
+    method: 'put',
+    body: { year: calendarYear.value, month: calendarMonth.value + 1, monthlyAmount }
+  })
+  monthlyBudget.value = monthlyAmount
+  editingBudget.value = false
+}
+
+watch([listScope, calendarYear, calendarMonth], () => {
+  if (listScope.value === 'month') {
+    editingBudget.value = false
+    fetchBudget()
+  }
+})
+
 const monthLabel = computed(() => `${calendarYear.value}年${calendarMonth.value + 1}月`)
 
 const goPrevMonth = () => {
@@ -88,76 +118,10 @@ const filteredChekiCount = computed(() => {
   return filteredEvents.value.reduce((sum, e) => sum + e.chekiCount, 0)
 })
 
-// カレンダー表示用の算出値（フィルタは月で絞らず、推し・グループの絞り込みのみ反映する）
-const calendarFilteredEvents = computed(() => {
-  return events.value.filter((e) => {
-    if (memberFilter.value && !e.memberNames.includes(memberFilter.value)) return false
-    if (groupFilter.value && !e.groupNames.includes(groupFilter.value)) return false
-    return true
-  })
+const budgetOverAmount = computed(() => {
+  if (monthlyBudget.value === null) return 0
+  return filteredTotal.value - monthlyBudget.value
 })
-
-const selectedDate = ref<string | null>(null)
-
-const eventsByDate = computed(() => {
-  const map = new Map<string, GenbaEvent[]>()
-
-  for (const e of calendarFilteredEvents.value) {
-    if (!e.eventDate) continue
-    const list = map.get(e.eventDate) ?? []
-    list.push(e)
-    map.set(e.eventDate, list)
-  }
-
-  return map
-})
-
-const calendarWeeks = computed(() => {
-  const year = calendarYear.value
-  const month = calendarMonth.value
-
-  const firstDay = new Date(year, month, 1)
-  const startOffset = firstDay.getDay()
-  const daysInMonth = new Date(year, month + 1, 0).getDate()
-  const totalCells = Math.ceil((startOffset + daysInMonth) / 7) * 7
-
-  const cells = []
-
-  for (let i = 0; i < totalCells; i++) {
-    const date = new Date(year, month, i - startOffset + 1)
-    const dateStr = toDateStr(date)
-
-    cells.push({
-      date,
-      dateStr,
-      inCurrentMonth: date.getMonth() === month,
-      isToday: dateStr === toDateStr(today),
-      dayEvents: eventsByDate.value.get(dateStr) ?? []
-    })
-  }
-
-  const weeks = []
-  for (let i = 0; i < cells.length; i += 7) {
-    weeks.push(cells.slice(i, i + 7))
-  }
-
-  return weeks
-})
-
-const selectedDateEvents = computed(() => {
-  if (!selectedDate.value) return []
-  return eventsByDate.value.get(selectedDate.value) ?? []
-})
-
-const selectedDateChekiCount = computed(() => {
-  return selectedDateEvents.value.reduce((sum, e) => sum + e.chekiCount, 0)
-})
-
-const selectDate = (dateStr: string) => {
-  selectedDate.value = selectedDate.value === dateStr ? null : dateStr
-}
-
-const goNewWithDate = (dateStr: string) => router.push(`/genba/new?date=${dateStr}`)
 
 const fetchEvents = async () => {
   errorMessage.value = ''
@@ -232,6 +196,15 @@ onMounted(async () => {
         >
           {{ option.label }}
         </UButton>
+        <UButton
+          icon="i-lucide-sparkles"
+          variant="soft"
+          color="neutral"
+          size="sm"
+          to="/genba/yearly"
+        >
+          年間まとめ
+        </UButton>
       </div>
     </div>
 
@@ -305,6 +278,15 @@ onMounted(async () => {
         </div>
       </div>
 
+      <UAlert
+        v-if="listScope === 'month' && budgetOverAmount > 0"
+        color="error"
+        variant="soft"
+        icon="i-lucide-triangle-alert"
+        :title="`今月の予算を¥${budgetOverAmount.toLocaleString()}超えています`"
+        class="mb-4"
+      />
+
       <UCard
         class="mb-4"
         :ui="{ body: 'p-4 flex flex-col gap-1' }"
@@ -317,6 +299,48 @@ onMounted(async () => {
           <span class="font-semibold">{{ listScope === 'month' ? `${monthLabel}の合計` : '全体の合計' }}</span>
           <span class="text-lg font-bold text-primary">¥{{ filteredTotal.toLocaleString() }}</span>
         </div>
+
+        <template v-if="listScope === 'month'">
+          <div
+            v-if="editingBudget"
+            class="mt-2 flex items-center gap-2"
+          >
+            <UInput
+              v-model.number="budgetInput"
+              type="number"
+              min="0"
+              step="100"
+              placeholder="月予算"
+              size="sm"
+              class="flex-1"
+            />
+            <UButton
+              size="sm"
+              @click="saveBudget"
+            >
+              保存
+            </UButton>
+          </div>
+          <template v-else>
+            <div
+              v-if="monthlyBudget !== null"
+              class="flex items-center justify-between text-sm text-muted"
+            >
+              <span>月予算 ¥{{ monthlyBudget.toLocaleString() }}（残り）</span>
+              <span :class="(monthlyBudget - filteredTotal) < 0 ? 'text-error font-semibold' : 'text-primary font-semibold'">
+                ¥{{ (monthlyBudget - filteredTotal).toLocaleString() }}
+              </span>
+            </div>
+            <UButton
+              variant="link"
+              size="xs"
+              class="mt-1 self-start px-0"
+              @click="startEditBudget"
+            >
+              {{ monthlyBudget === null ? '月予算を設定' : '月予算を編集' }}
+            </UButton>
+          </template>
+        </template>
       </UCard>
 
       <div
@@ -381,107 +405,6 @@ onMounted(async () => {
                 @click.stop="deleteEvent(e.id)"
               />
             </div>
-          </div>
-        </UCard>
-      </div>
-    </template>
-
-    <template v-else-if="viewMode === 'calendar'">
-      <UCard :ui="{ body: 'p-3 sm:p-4' }">
-        <div class="mb-3 flex items-center justify-between">
-          <UButton
-            icon="i-lucide-chevron-left"
-            variant="ghost"
-            color="neutral"
-            size="sm"
-            @click="goPrevMonth"
-          />
-          <span class="font-semibold">{{ monthLabel }}</span>
-          <UButton
-            icon="i-lucide-chevron-right"
-            variant="ghost"
-            color="neutral"
-            size="sm"
-            @click="goNextMonth"
-          />
-        </div>
-
-        <div class="grid grid-cols-7 gap-1 text-center text-xs text-muted">
-          <span
-            v-for="w in ['日', '月', '火', '水', '木', '金', '土']"
-            :key="w"
-          >{{ w }}</span>
-        </div>
-
-        <div
-          v-for="(week, wi) in calendarWeeks"
-          :key="wi"
-          class="grid grid-cols-7 gap-1"
-        >
-          <button
-            v-for="cell in week"
-            :key="cell.dateStr"
-            type="button"
-            class="calendarCell"
-            :class="{
-              calendarCellOutside: !cell.inCurrentMonth,
-              calendarCellToday: cell.isToday,
-              calendarCellSelected: selectedDate === cell.dateStr,
-              calendarCellHasEvents: cell.dayEvents.length > 0
-            }"
-            @click="selectDate(cell.dateStr)"
-          >
-            <span class="calendarCellDay">{{ cell.date.getDate() }}</span>
-            <span
-              v-if="cell.dayEvents.length > 0"
-              class="calendarCellDot"
-            />
-          </button>
-        </div>
-      </UCard>
-
-      <div
-        v-if="selectedDate"
-        class="mt-4 flex flex-col gap-3"
-      >
-        <div class="flex items-center justify-between">
-          <span class="text-sm font-semibold text-muted">
-            {{ selectedDate }}
-            <template v-if="selectedDateChekiCount > 0"> ・ チェキ{{ selectedDateChekiCount }}枚</template>
-          </span>
-          <UButton
-            icon="i-lucide-plus"
-            variant="soft"
-            size="xs"
-            @click="goNewWithDate(selectedDate)"
-          >
-            この日に登録
-          </UButton>
-        </div>
-
-        <p
-          v-if="selectedDateEvents.length === 0"
-          class="text-sm text-muted"
-        >
-          この日の記録はありません
-        </p>
-
-        <UCard
-          v-for="e in selectedDateEvents"
-          :key="e.id"
-          class="cursor-pointer transition hover:shadow-md"
-          :ui="{ body: 'p-4' }"
-          @click="goDetail(e.id)"
-        >
-          <div class="flex items-center justify-between gap-2">
-            <div class="flex flex-col gap-1">
-              <span class="font-semibold">{{ e.eventName }}</span>
-              <span class="text-xs text-muted">
-                <template v-if="e.venueName">{{ e.venueName }}</template>
-                <template v-if="e.chekiCount > 0"> ・ チェキ{{ e.chekiCount }}枚</template>
-              </span>
-            </div>
-            <span class="font-bold text-primary">¥{{ e.totalAmount.toLocaleString() }}</span>
           </div>
         </UCard>
       </div>
@@ -559,49 +482,3 @@ onMounted(async () => {
     </template>
   </div>
 </template>
-
-<style scoped>
-.calendarCell {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  aspect-ratio: 1;
-  border-radius: 8px;
-  background: transparent;
-  cursor: pointer;
-  font-size: 13px;
-}
-
-.calendarCell:hover {
-  background: var(--ui-bg-elevated);
-}
-
-.calendarCellOutside {
-  color: var(--ui-text-dimmed);
-}
-
-.calendarCellToday {
-  font-weight: 700;
-  color: var(--ui-primary);
-}
-
-.calendarCellSelected {
-  background: var(--ui-primary);
-  color: white;
-}
-
-.calendarCellDot {
-  position: absolute;
-  bottom: 4px;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--ui-primary);
-}
-
-.calendarCellSelected .calendarCellDot {
-  background: white;
-}
-</style>
