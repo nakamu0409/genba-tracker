@@ -231,7 +231,7 @@ const handleSubmit = async () => {
                 v-model.number="transportFee"
                 type="number"
                 min="0"
-                step="100"
+                step="1"
                 class="w-full"
               />
             </UFormField>
