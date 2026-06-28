@@ -57,6 +57,29 @@ const calendarFilteredEvents = computed(() => {
   })
 })
 
+const monthlyBudget = ref<number | null>(null)
+
+const fetchBudget = async () => {
+  const res = await $fetch<{ monthlyAmount: number | null }>('/api/genba/budget', {
+    query: { year: calendarYear.value, month: calendarMonth.value + 1 }
+  })
+  monthlyBudget.value = res.monthlyAmount
+}
+
+watch([calendarYear, calendarMonth], fetchBudget)
+
+const monthTotal = computed(() => {
+  const prefix = `${calendarYear.value}-${pad2(calendarMonth.value + 1)}-`
+  return calendarFilteredEvents.value
+    .filter(e => e.eventDate?.startsWith(prefix))
+    .reduce((sum, e) => sum + e.totalAmount, 0)
+})
+
+const budgetOverAmount = computed(() => {
+  if (monthlyBudget.value === null) return 0
+  return monthTotal.value - monthlyBudget.value
+})
+
 const selectedDate = ref<string | null>(null)
 
 const eventsByDate = computed(() => {
@@ -130,7 +153,10 @@ const fetchEvents = async () => {
   }
 }
 
-onMounted(fetchEvents)
+onMounted(async () => {
+  await fetchEvents()
+  await fetchBudget()
+})
 </script>
 
 <template>
@@ -165,6 +191,37 @@ onMounted(fetchEvents)
         clear
       />
     </div>
+
+    <UAlert
+      v-if="budgetOverAmount > 0"
+      color="error"
+      variant="soft"
+      icon="i-lucide-triangle-alert"
+      :title="`今月の予算を¥${budgetOverAmount.toLocaleString()}超えています`"
+      class="mb-4"
+    />
+
+    <UCard
+      v-if="monthlyBudget !== null"
+      class="mb-4"
+      :ui="{ body: 'p-4 flex flex-col gap-1' }"
+    >
+      <div class="flex items-center justify-between text-sm text-muted">
+        <span>{{ monthLabel }}の予算</span>
+        <span>¥{{ monthlyBudget.toLocaleString() }}</span>
+      </div>
+      <div class="flex items-center justify-between text-sm text-muted">
+        <span>使用金額</span>
+        <span>¥{{ monthTotal.toLocaleString() }}</span>
+      </div>
+      <div class="flex items-center justify-between">
+        <span class="font-semibold">残り</span>
+        <span
+          class="text-lg font-bold"
+          :class="budgetOverAmount > 0 ? 'text-error' : 'text-primary'"
+        >¥{{ (monthlyBudget - monthTotal).toLocaleString() }}</span>
+      </div>
+    </UCard>
 
     <UCard :ui="{ body: 'p-3 sm:p-4' }">
       <div class="mb-3 flex items-center justify-between">
