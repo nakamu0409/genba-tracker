@@ -74,7 +74,8 @@ function toGenbaEvent(row: EventRow): GenbaEvent {
   }
 }
 
-// グループはアイドルマスタに紐づく所属を常に正とするため、明細のmember_nameからgenba_idolsを参照して導出する
+// グループはアイドルマスタに紐づく所属を常に正とするため、明細のmember_nameからgenba_idolsを参照して導出する。
+// 同じ推し名が複数デバイスに存在するため、JOINは必ずイベント所有者のデバイスに限定する（名前だけで結合すると明細が増幅される）
 const EVENT_SELECT = `
   SELECT
     e.id, e.event_name, e.event_date, e.venue_name,
@@ -86,7 +87,7 @@ const EVENT_SELECT = `
     GROUP_CONCAT(DISTINCT NULLIF(gi.group_name, '')) AS group_names
   FROM genba_events e
   LEFT JOIN genba_items i ON i.event_id = e.id
-  LEFT JOIN genba_idols gi ON gi.name = i.member_name
+  LEFT JOIN genba_idols gi ON gi.name = i.member_name AND gi.device_id = e.device_id
 `
 
 type ListFilter = {
@@ -112,11 +113,11 @@ export async function listGenbaEvents(deviceId: string, filter: ListFilter = {})
     conditions.push(`
       e.id IN (
         SELECT i2.event_id FROM genba_items i2
-        INNER JOIN genba_idols gi2 ON gi2.name = i2.member_name
+        INNER JOIN genba_idols gi2 ON gi2.name = i2.member_name AND gi2.device_id = ?
         WHERE gi2.group_name = ?
       )
     `)
-    params.push(filter.groupName)
+    params.push(deviceId, filter.groupName)
   }
 
   const result = await db.execute({
@@ -158,11 +159,11 @@ export async function getGenbaEventDetail(deviceId: string, id: number): Promise
       SELECT i.id, i.category, i.label, i.unit_price, i.quantity, i.member_name,
         gi.group_name AS group_name
       FROM genba_items i
-      LEFT JOIN genba_idols gi ON gi.name = i.member_name
+      LEFT JOIN genba_idols gi ON gi.name = i.member_name AND gi.device_id = ?
       WHERE i.event_id = ?
       ORDER BY i.id ASC
     `,
-    args: [id]
+    args: [deviceId, id]
   })
 
   const items: GenbaItem[] = (itemResult.rows as unknown as ItemRow[]).map(row => ({
@@ -185,19 +186,19 @@ export async function getGenbaEventDetail(deviceId: string, id: number): Promise
 /**
 チェキ・グッズの明細行をイベントに紐づけて登録する
  */
-async function insertItems(tx: Transaction, eventId: number, input: GenbaEventInput): Promise<void> {
+async function insertItems(tx: Transaction, deviceId: string, eventId: number, input: GenbaEventInput): Promise<void> {
   const insertSql = `
     INSERT INTO genba_items (event_id, category, label, unit_price, quantity, member_name)
     VALUES (?, ?, ?, ?, ?, ?)
   `
-  const updateLastPriceSql = 'UPDATE genba_idols SET last_unit_price = ? WHERE name = ?'
+  const updateLastPriceSql = 'UPDATE genba_idols SET last_unit_price = ? WHERE name = ? AND device_id = ?'
 
   for (const item of [...input.chekiItems, ...input.goodsItems]) {
     const category = input.chekiItems.includes(item) ? 'cheki' : 'goods'
     await tx.execute({ sql: insertSql, args: [eventId, category, item.label, item.unitPrice, item.quantity, item.memberName] })
 
     if (item.memberName && item.unitPrice > 0) {
-      await tx.execute({ sql: updateLastPriceSql, args: [item.unitPrice, item.memberName] })
+      await tx.execute({ sql: updateLastPriceSql, args: [item.unitPrice, item.memberName, deviceId] })
     }
   }
 }
@@ -230,7 +231,7 @@ export async function createGenbaEvent(deviceId: string, input: GenbaEventInput)
     })
 
     const eventId = Number(result.lastInsertRowid)
-    await insertItems(tx, eventId, input)
+    await insertItems(tx, deviceId, eventId, input)
 
     await tx.commit()
 
@@ -279,7 +280,7 @@ export async function updateGenbaEvent(deviceId: string, id: number, input: Genb
     }
 
     await tx.execute({ sql: 'DELETE FROM genba_items WHERE event_id = ?', args: [id] })
-    await insertItems(tx, id, input)
+    await insertItems(tx, deviceId, id, input)
 
     await tx.commit()
 
@@ -350,7 +351,7 @@ export async function getGenbaSummary(deviceId: string, filter?: GenbaSummaryFil
         COALESCE(SUM(i.unit_price * i.quantity), 0) AS total_amount
       FROM genba_items i
       INNER JOIN genba_events e ON e.id = i.event_id
-      LEFT JOIN genba_idols gi ON gi.name = i.member_name
+      LEFT JOIN genba_idols gi ON gi.name = i.member_name AND gi.device_id = e.device_id
       WHERE ${conditions.join(' AND ')}
       GROUP BY i.member_name, gi.group_name
       ORDER BY total_amount DESC
