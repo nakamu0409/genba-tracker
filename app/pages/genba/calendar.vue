@@ -68,10 +68,18 @@ const fetchBudget = async () => {
 
 watch([calendarYear, calendarMonth], fetchBudget)
 
+// 予算との比較なので、推し・グループの絞り込みは無視して月全体の支出で計算する
 const monthTotal = computed(() => {
   const prefix = `${calendarYear.value}-${pad2(calendarMonth.value + 1)}-`
-  return calendarFilteredEvents.value
+  return events.value
     .filter(e => e.eventDate?.startsWith(prefix))
+    .reduce((sum, e) => sum + e.totalAmount, 0)
+})
+
+const monthPlannedTotal = computed(() => {
+  const prefix = `${calendarYear.value}-${pad2(calendarMonth.value + 1)}-`
+  return events.value
+    .filter(e => e.eventDate?.startsWith(prefix) && isPlannedGenbaDate(e.eventDate))
     .reduce((sum, e) => sum + e.totalAmount, 0)
 })
 
@@ -234,8 +242,15 @@ onMounted(async () => {
         <span>¥{{ monthlyBudget.toLocaleString() }}</span>
       </div>
       <div class="flex items-center justify-between text-sm text-muted">
-        <span>使用金額</span>
+        <span>使用金額{{ monthPlannedTotal > 0 ? '（予定含む）' : '' }}</span>
         <span>¥{{ monthTotal.toLocaleString() }}</span>
+      </div>
+      <div
+        v-if="monthPlannedTotal > 0"
+        class="flex items-center justify-between text-sm text-muted"
+      >
+        <span>うち予定</span>
+        <span>¥{{ monthPlannedTotal.toLocaleString() }}</span>
       </div>
       <div class="flex items-center justify-between">
         <span class="font-semibold">残り</span>
@@ -294,6 +309,7 @@ onMounted(async () => {
           <span
             v-if="cell.dayEvents[0]"
             class="calendarCellLabel"
+            :class="{ calendarCellLabelPlanned: isPlannedGenbaDate(cell.dateStr) }"
           >
             {{ cell.dayEvents[0].eventName }}<template v-if="cell.dayEvents.length > 1"> +{{ cell.dayEvents.length - 1 }}</template>
           </span>
@@ -336,7 +352,17 @@ onMounted(async () => {
       >
         <div class="flex items-center justify-between gap-2">
           <div class="flex flex-col gap-1">
-            <span class="font-semibold">{{ e.eventName }}</span>
+            <span class="flex items-center gap-2 font-semibold">
+              {{ e.eventName }}
+              <UBadge
+                v-if="isPlannedGenbaDate(e.eventDate)"
+                color="info"
+                variant="subtle"
+                size="sm"
+              >
+                予定
+              </UBadge>
+            </span>
             <span class="text-xs text-muted">
               <template v-if="e.venueName">{{ e.venueName }}</template>
               <template v-if="e.chekiCount > 0"> ・ チェキ{{ e.chekiCount }}枚</template>
@@ -395,6 +421,10 @@ onMounted(async () => {
   line-height: 1.2;
   color: var(--ui-primary);
   text-align: center;
+}
+
+.calendarCellLabelPlanned {
+  color: var(--ui-info);
 }
 
 .calendarCellSelected .calendarCellLabel {

@@ -17,6 +17,5 @@ export default defineEventHandler(async (event) => {
   }
 
   const yearMonth = `${year}-${String(month).padStart(2, '0')}`
-  const monthlyAmount = await getMonthlyBudget(event.context.deviceId!, yearMonth)
-  return { monthlyAmount }
+  return await getMonthlyBudget(event.context.deviceId!, yearMonth)
 })

@@ -24,7 +24,7 @@ function getR2Client() {
 /**
 画像をR2にアップロードし、公開URLを返す。R2が未設定の場合はエラーにする
  */
-export async function uploadGenbaPhoto(buffer: Buffer, contentType: string): Promise<string> {
+export async function uploadGenbaPhoto(buffer: Buffer, contentType: string, keyPrefix = 'genba-idols'): Promise<string> {
   const config = useRuntimeConfig()
   const client = getR2Client()
 
@@ -36,7 +36,7 @@ export async function uploadGenbaPhoto(buffer: Buffer, contentType: string): Pro
   }
 
   const extension = contentType.split('/')[1] || 'jpg'
-  const key = `genba-idols/${randomUUID()}.${extension}`
+  const key = `${keyPrefix}/${randomUUID()}.${extension}`
 
   await client.send(new PutObjectCommand({
     Bucket: config.r2.bucket,

@@ -102,6 +102,7 @@ export function parseGenbaEventInput(body: unknown): GenbaEventInput {
     ticketPrice: toNonNegativeInt(data.ticketPrice ?? 0, 'チケット代'),
     drinkFee: toNonNegativeInt(data.drinkFee ?? 0, 'ドリンク代'),
     transportFee: toNonNegativeInt(data.transportFee ?? 0, '交通費'),
+    lodgingFee: toNonNegativeInt(data.lodgingFee ?? 0, '宿泊費'),
     memo,
     rating,
     chekiItems: parseItems(data.chekiItems, 'チェキ', true),

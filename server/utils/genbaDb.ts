@@ -51,6 +51,7 @@ async function ensureSchema(client: Client): Promise<void> {
       ticket_price INTEGER NOT NULL DEFAULT 0,
       drink_fee INTEGER NOT NULL DEFAULT 0,
       transport_fee INTEGER NOT NULL DEFAULT 0,
+      lodging_fee INTEGER NOT NULL DEFAULT 0,
       memo TEXT,
       rating INTEGER,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -100,6 +101,17 @@ async function ensureSchema(client: Client): Promise<void> {
 
   await migrateGenbaBudgetsTable(client)
 
+  await client.execute(`
+    CREATE TABLE IF NOT EXISTS genba_photos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_id INTEGER NOT NULL,
+      device_id TEXT NOT NULL,
+      photo_url TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `)
+  await client.execute('CREATE INDEX IF NOT EXISTS idx_genba_photos_event ON genba_photos(event_id)')
+
   // マスタは device_id = '' が全員共有、それ以外は端末ごとの個人用データを表す
   await ensureMasterTable(client, 'genba_venues', false)
   await ensureMasterTable(client, 'genba_groups', false)
@@ -111,6 +123,12 @@ async function ensureSchema(client: Client): Promise<void> {
   }
   if (!idolColumns.some(c => c.name === 'last_unit_price')) {
     await client.execute('ALTER TABLE genba_idols ADD COLUMN last_unit_price INTEGER')
+  }
+
+  // 会場ごとの標準ドリンク代（フォームの自動入力に使う。nullは不明）
+  const venueColumns = (await client.execute('PRAGMA table_info(genba_venues)')).rows as unknown as { name: string }[]
+  if (!venueColumns.some(c => c.name === 'drink_fee')) {
+    await client.execute('ALTER TABLE genba_venues ADD COLUMN drink_fee INTEGER')
   }
 }
 
@@ -139,6 +157,10 @@ async function migrateGenbaColumns(client: Client): Promise<void> {
 
   if (!eventColumnNames.has('rating')) {
     await client.execute('ALTER TABLE genba_events ADD COLUMN rating INTEGER')
+  }
+
+  if (!eventColumnNames.has('lodging_fee')) {
+    await client.execute('ALTER TABLE genba_events ADD COLUMN lodging_fee INTEGER NOT NULL DEFAULT 0')
   }
 
   const itemColumns = (await client.execute('PRAGMA table_info(genba_items)')).rows as unknown as { name: string }[]

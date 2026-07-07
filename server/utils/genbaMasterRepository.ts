@@ -32,6 +32,7 @@ type MasterRow = {
   group_name?: string | null
   photo_url?: string | null
   last_unit_price?: number | null
+  drink_fee?: number | null
   device_id: string
 }
 
@@ -53,6 +54,7 @@ function toGenbaMasterEntry(row: MasterRow, requestDeviceId: string): GenbaMaste
     groupName: row.group_name ?? null,
     photoUrl: row.photo_url ?? null,
     lastUnitPrice: row.last_unit_price ?? null,
+    drinkFee: row.drink_fee ?? null,
     scope: row.device_id === SHARED_DEVICE_ID ? 'shared' : (row.device_id === requestDeviceId ? 'mine' : 'shared')
   }
 }
@@ -96,6 +98,7 @@ export async function createGenbaMasterEntry(type: string, input: GenbaMasterEnt
       groupName: type === 'idols' ? input.groupName : null,
       photoUrl: null,
       lastUnitPrice: null,
+      drinkFee: null,
       scope: ownerDeviceId === SHARED_DEVICE_ID ? 'shared' : 'mine'
     }
   } catch {

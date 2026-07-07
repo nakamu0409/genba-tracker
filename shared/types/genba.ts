@@ -27,6 +27,7 @@ export type GenbaEvent = {
   ticketPrice: number
   drinkFee: number
   transportFee: number
+  lodgingFee: number
   memo: string | null
   rating: number | null
   createdAt: string
@@ -36,8 +37,14 @@ export type GenbaEvent = {
   totalAmount: number
 }
 
+export type GenbaPhoto = {
+  id: number
+  url: string
+}
+
 export type GenbaEventDetail = GenbaEvent & {
   items: GenbaItem[]
+  photos: GenbaPhoto[]
 }
 
 export type GenbaEventInput = {
@@ -47,6 +54,7 @@ export type GenbaEventInput = {
   ticketPrice: number
   drinkFee: number
   transportFee: number
+  lodgingFee: number
   memo: string | null
   rating: number | null
   chekiItems: GenbaItemInput[]
@@ -98,6 +106,7 @@ export type GenbaMasterEntry = {
   groupName: string | null
   photoUrl: string | null
   lastUnitPrice: number | null
+  drinkFee: number | null
   scope: GenbaMasterScope
 }
 

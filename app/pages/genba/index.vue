@@ -33,18 +33,22 @@ const listScope = ref<ListScope>('all')
 const summaryScope = ref<ListScope>('all')
 
 const monthlyBudget = ref<number | null>(null)
+const isDefaultBudget = ref(false)
 const editingBudget = ref(false)
 const budgetInput = ref<number | ''>('')
+const budgetAsDefault = ref(false)
 
 const fetchBudget = async () => {
-  const res = await $fetch<{ monthlyAmount: number | null }>('/api/genba/budget', {
+  const res = await $fetch<{ monthlyAmount: number | null, isDefault: boolean }>('/api/genba/budget', {
     query: { year: calendarYear.value, month: calendarMonth.value + 1 }
   })
   monthlyBudget.value = res.monthlyAmount
+  isDefaultBudget.value = res.isDefault
 }
 
 const startEditBudget = () => {
   budgetInput.value = monthlyBudget.value ?? ''
+  budgetAsDefault.value = isDefaultBudget.value
   editingBudget.value = true
 }
 
@@ -52,9 +56,10 @@ const saveBudget = async () => {
   const monthlyAmount = budgetInput.value === '' ? null : Number(budgetInput.value)
   await $fetch('/api/genba/budget', {
     method: 'put',
-    body: { year: calendarYear.value, month: calendarMonth.value + 1, monthlyAmount }
+    body: { year: calendarYear.value, month: calendarMonth.value + 1, monthlyAmount, asDefault: budgetAsDefault.value }
   })
   monthlyBudget.value = monthlyAmount
+  isDefaultBudget.value = monthlyAmount !== null && budgetAsDefault.value
   editingBudget.value = false
 }
 
@@ -114,6 +119,12 @@ const filteredTotal = computed(() => {
   return filteredEvents.value.reduce((sum, e) => sum + e.totalAmount, 0)
 })
 
+const filteredPlannedTotal = computed(() => {
+  return filteredEvents.value
+    .filter(e => isPlannedGenbaDate(e.eventDate))
+    .reduce((sum, e) => sum + e.totalAmount, 0)
+})
+
 const filteredChekiCount = computed(() => {
   return filteredEvents.value.reduce((sum, e) => sum + e.chekiCount, 0)
 })
@@ -152,6 +163,49 @@ watch([summaryScope, calendarYear, calendarMonth], () => {
 })
 
 const goDetail = (id: number) => router.push(`/genba/${id}`)
+
+const exportCsv = () => {
+  const header = ['日付', 'イベント名', '会場', '推し', 'グループ', 'チケット代', 'ドリンク代', '交通費', '宿泊費', 'チェキ代', 'チェキ枚数', 'グッズ代', '合計', '満足度', '予定', 'メモ']
+
+  const quote = (value: string | number | null) => `"${String(value ?? '').replace(/"/g, '""')}"`
+
+  const rows = events.value.map(e => [
+    e.eventDate ?? '',
+    e.eventName,
+    e.venueName ?? '',
+    e.memberNames.join('、'),
+    e.groupNames.join('、'),
+    e.ticketPrice,
+    e.drinkFee,
+    e.transportFee,
+    e.lodgingFee,
+    e.chekiTotal,
+    e.chekiCount,
+    e.goodsTotal,
+    e.totalAmount,
+    e.rating ?? '',
+    isPlannedGenbaDate(e.eventDate) ? '予定' : '',
+    e.memo ?? ''
+  ])
+
+  const csv = [header, ...rows].map(row => row.map(quote).join(',')).join('\r\n')
+
+  // ExcelでもUTF-8として開けるようにBOMを付ける
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `genba-records-${new Date().toISOString().slice(0, 10)}.csv`
+  link.click()
+
+  URL.revokeObjectURL(url)
+}
+
+const menuItems = computed(() => [
+  { label: '年間まとめ', icon: 'i-lucide-sparkles', to: '/genba/yearly' },
+  { label: 'CSVエクスポート', icon: 'i-lucide-download', disabled: events.value.length === 0, onSelect: () => exportCsv() }
+])
 
 const deleteEvent = async (id: number) => {
   const ok = confirm('この現場の記録を削除しますか？')
@@ -196,15 +250,14 @@ onMounted(async () => {
         >
           {{ option.label }}
         </UButton>
-        <UButton
-          icon="i-lucide-sparkles"
-          variant="soft"
-          color="neutral"
-          size="sm"
-          to="/genba/yearly"
-        >
-          年間まとめ
-        </UButton>
+        <UDropdownMenu :items="menuItems">
+          <UButton
+            icon="i-lucide-ellipsis-vertical"
+            variant="soft"
+            color="neutral"
+            size="sm"
+          />
+        </UDropdownMenu>
       </div>
     </div>
 
@@ -299,34 +352,48 @@ onMounted(async () => {
           <span class="font-semibold">{{ listScope === 'month' ? `${monthLabel}の合計` : '全体の合計' }}</span>
           <span class="text-lg font-bold text-primary">¥{{ filteredTotal.toLocaleString() }}</span>
         </div>
+        <div
+          v-if="filteredPlannedTotal > 0"
+          class="flex items-center justify-between text-sm text-muted"
+        >
+          <span>うち予定</span>
+          <span>¥{{ filteredPlannedTotal.toLocaleString() }}</span>
+        </div>
 
         <template v-if="listScope === 'month'">
           <div
             v-if="editingBudget"
-            class="mt-2 flex items-center gap-2"
+            class="mt-2 flex flex-col gap-2"
           >
-            <UInput
-              v-model.number="budgetInput"
-              type="number"
-              min="0"
-              step="100"
-              placeholder="月予算"
+            <div class="flex items-center gap-2">
+              <UInput
+                v-model.number="budgetInput"
+                type="number"
+                min="0"
+                step="100"
+                placeholder="月予算"
+                size="sm"
+                class="flex-1"
+              />
+              <UButton
+                size="sm"
+                @click="saveBudget"
+              >
+                保存
+              </UButton>
+            </div>
+            <UCheckbox
+              v-model="budgetAsDefault"
+              label="毎月の予算として使う"
               size="sm"
-              class="flex-1"
             />
-            <UButton
-              size="sm"
-              @click="saveBudget"
-            >
-              保存
-            </UButton>
           </div>
           <template v-else>
             <div
               v-if="monthlyBudget !== null"
               class="flex items-center justify-between text-sm text-muted"
             >
-              <span>月予算 ¥{{ monthlyBudget.toLocaleString() }}（残り）</span>
+              <span>月予算{{ isDefaultBudget ? '（毎月）' : '' }} ¥{{ monthlyBudget.toLocaleString() }}（残り）</span>
               <span :class="(monthlyBudget - filteredTotal) < 0 ? 'text-error font-semibold' : 'text-primary font-semibold'">
                 ¥{{ (monthlyBudget - filteredTotal).toLocaleString() }}
               </span>
@@ -345,9 +412,16 @@ onMounted(async () => {
 
       <div
         v-if="filteredEvents.length === 0"
-        class="py-10 text-center text-muted"
+        class="flex flex-col items-center gap-3 py-10 text-center"
       >
-        記録がありません
+        <span class="text-muted">{{ events.length === 0 ? 'まだ記録がありません' : '条件に合う記録がありません' }}</span>
+        <UButton
+          v-if="events.length === 0"
+          icon="i-lucide-plus"
+          to="/genba/new"
+        >
+          最初の現場を登録する
+        </UButton>
       </div>
 
       <div
@@ -363,7 +437,17 @@ onMounted(async () => {
         >
           <div class="flex items-start justify-between gap-2">
             <div class="flex flex-col gap-1">
-              <span class="font-semibold">{{ e.eventName }}</span>
+              <span class="flex items-center gap-2 font-semibold">
+                {{ e.eventName }}
+                <UBadge
+                  v-if="isPlannedGenbaDate(e.eventDate)"
+                  color="info"
+                  variant="subtle"
+                  size="sm"
+                >
+                  予定
+                </UBadge>
+              </span>
               <span class="text-xs text-muted">
                 {{ e.eventDate || '日付未設定' }}
                 <template v-if="e.venueName"> ・ {{ e.venueName }}</template>

@@ -18,6 +18,7 @@ const initialValue: GenbaEventInput = {
   ticketPrice: 0,
   drinkFee: 0,
   transportFee: 0,
+  lodgingFee: 0,
   memo: null,
   rating: null,
   chekiItems: [],

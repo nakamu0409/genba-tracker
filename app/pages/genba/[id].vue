@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { GenbaEventDetail } from '../../../shared/types/genba'
+import type { GenbaEventDetail, GenbaPhoto } from '../../../shared/types/genba'
 import { useGenbaMasters } from '../../composables/useGenbaMasters'
 
 definePageMeta({
@@ -26,8 +26,81 @@ const errorMessage = ref('')
 const chekiItems = computed(() => data.value?.items.filter(item => item.category === 'cheki') ?? [])
 const goodsItems = computed(() => data.value?.items.filter(item => item.category === 'goods') ?? [])
 
+// 0円の費目は表示しない（宿泊費など使わない現場でゼロ行が並ぶのを避ける）
+const baseFees = computed(() => {
+  if (!data.value) return []
+  return [
+    { label: 'チケット代', value: data.value.ticketPrice },
+    { label: 'ドリンク代', value: data.value.drinkFee },
+    { label: '交通費', value: data.value.transportFee },
+    { label: '宿泊費', value: data.value.lodgingFee }
+  ].filter(fee => fee.value > 0)
+})
+
 const goEdit = () => {
   router.push(`/genba/edit/${id}`)
+}
+
+const photos = ref<GenbaPhoto[]>([])
+watch(data, (d) => {
+  photos.value = d?.photos ?? []
+}, { immediate: true })
+
+const uploadingPhotos = ref(false)
+const deletingPhotoId = ref<number | null>(null)
+
+const uploadPhotos = async (ev: Event) => {
+  const input = ev.target as HTMLInputElement
+  const files = Array.from(input.files ?? [])
+  input.value = ''
+
+  if (files.length === 0) return
+
+  errorMessage.value = ''
+  uploadingPhotos.value = true
+
+  try {
+    for (const file of files) {
+      const blob = await resizeGenbaImage(file)
+      const formData = new FormData()
+      formData.append('photo', blob, 'photo.jpg')
+
+      const photo = await $fetch<GenbaPhoto>(`/api/genba/events/${id}/photos`, {
+        method: 'post',
+        body: formData
+      })
+      photos.value = [...photos.value, photo]
+    }
+  } catch (e) {
+    errorMessage.value = (e as { data?: { message?: string } })?.data?.message ?? '写真のアップロードに失敗しました'
+  } finally {
+    uploadingPhotos.value = false
+  }
+}
+
+const deletePhoto = async (photoId: number) => {
+  const ok = confirm('この写真を削除しますか？')
+  if (!ok) return
+
+  errorMessage.value = ''
+  deletingPhotoId.value = photoId
+
+  try {
+    await $fetch(`/api/genba/photos/${photoId}`, { method: 'delete' })
+    photos.value = photos.value.filter(p => p.id !== photoId)
+  } catch (e) {
+    errorMessage.value = (e as { data?: { message?: string } })?.data?.message ?? '写真の削除に失敗しました'
+  } finally {
+    deletingPhotoId.value = null
+  }
+}
+
+const goBack = () => {
+  if (window.history.state?.back) {
+    router.back()
+  } else {
+    router.push('/genba')
+  }
 }
 
 const deleteEvent = async () => {
@@ -53,10 +126,10 @@ const deleteEvent = async () => {
     <div class="mb-4 flex items-center justify-between gap-2">
       <div class="flex items-center gap-2">
         <UButton
-          to="/genba"
           icon="i-lucide-arrow-left"
           variant="ghost"
           color="neutral"
+          @click="goBack"
         />
         <h1 class="text-xl font-bold">
           現場の詳細
@@ -111,7 +184,17 @@ const deleteEvent = async () => {
       <UCard>
         <div class="flex flex-col gap-1">
           <div class="flex items-center justify-between gap-2">
-            <span class="text-lg font-bold">{{ data.eventName }}</span>
+            <span class="flex items-center gap-2 text-lg font-bold">
+              {{ data.eventName }}
+              <UBadge
+                v-if="isPlannedGenbaDate(data.eventDate)"
+                color="info"
+                variant="subtle"
+                size="sm"
+              >
+                予定
+              </UBadge>
+            </span>
             <div
               v-if="data.rating !== null"
               class="flex shrink-0 items-center"
@@ -162,19 +245,15 @@ const deleteEvent = async () => {
         </div>
       </UCard>
 
-      <UCard>
+      <UCard v-if="baseFees.length > 0">
         <div class="flex flex-col gap-2 text-sm">
-          <div class="flex justify-between">
-            <span class="text-muted">チケット代</span>
-            <span>¥{{ data.ticketPrice.toLocaleString() }}</span>
-          </div>
-          <div class="flex justify-between">
-            <span class="text-muted">ドリンク代</span>
-            <span>¥{{ data.drinkFee.toLocaleString() }}</span>
-          </div>
-          <div class="flex justify-between">
-            <span class="text-muted">交通費</span>
-            <span>¥{{ data.transportFee.toLocaleString() }}</span>
+          <div
+            v-for="fee in baseFees"
+            :key="fee.label"
+            class="flex justify-between"
+          >
+            <span class="text-muted">{{ fee.label }}</span>
+            <span>¥{{ fee.value.toLocaleString() }}</span>
           </div>
         </div>
       </UCard>
@@ -307,6 +386,68 @@ const deleteEvent = async () => {
             <span class="shrink-0">¥{{ (item.unitPrice * item.quantity).toLocaleString() }}</span>
           </li>
         </ul>
+      </UCard>
+
+      <UCard>
+        <template #header>
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2 font-semibold">
+              <UIcon name="i-lucide-image" />
+              チェキフォト
+            </div>
+            <span
+              v-if="photos.length > 0"
+              class="text-sm text-muted"
+            >{{ photos.length }}枚</span>
+          </div>
+        </template>
+
+        <div class="grid grid-cols-3 gap-2">
+          <div
+            v-for="p in photos"
+            :key="p.id"
+            class="relative"
+          >
+            <a
+              :href="p.url"
+              target="_blank"
+              rel="noopener"
+            >
+              <img
+                :src="p.url"
+                alt="チェキフォト"
+                loading="lazy"
+                class="aspect-square w-full rounded-lg object-cover"
+              >
+            </a>
+            <UButton
+              icon="i-lucide-x"
+              color="error"
+              variant="solid"
+              size="xs"
+              class="absolute top-1 right-1"
+              :loading="deletingPhotoId === p.id"
+              @click="deletePhoto(p.id)"
+            />
+          </div>
+
+          <label class="flex aspect-square w-full cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-default text-muted transition hover:border-primary hover:text-primary">
+            <UIcon
+              :name="uploadingPhotos ? 'i-lucide-loader-circle' : 'i-lucide-plus'"
+              class="text-2xl"
+              :class="{ 'animate-spin': uploadingPhotos }"
+            />
+            <span class="text-xs">{{ uploadingPhotos ? 'アップロード中' : '写真を追加' }}</span>
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              class="hidden"
+              :disabled="uploadingPhotos"
+              @change="uploadPhotos"
+            >
+          </label>
+        </div>
       </UCard>
 
       <UCard v-if="data.memo">

@@ -49,6 +49,22 @@ export async function createLoginToken(userId: number): Promise<string> {
 }
 
 /**
+指定ユーザーに対して直近withinMs以内に発行された未使用トークンがあるか調べる（メール連投の抑制用）。
+発行時刻カラムは持たないため、expires_at（発行時刻 + TTL）から逆算して判定する
+ */
+export async function hasRecentLoginToken(userId: number, withinMs: number): Promise<boolean> {
+  const db = await getGenbaDb()
+
+  const threshold = new Date(Date.now() + LOGIN_TOKEN_TTL_MS - withinMs).toISOString()
+  const result = await db.execute({
+    sql: 'SELECT COUNT(*) AS count FROM genba_login_tokens WHERE user_id = ? AND used_at IS NULL AND expires_at > ?',
+    args: [userId, threshold]
+  })
+
+  return Number((result.rows[0] as unknown as { count: number }).count) > 0
+}
+
+/**
 ログイントークンを検証し、使用済みにしてユーザーを返す。無効・期限切れ・使用済みならundefined
  */
 export async function consumeLoginToken(token: string): Promise<GenbaUser | undefined> {
@@ -107,7 +123,7 @@ export function userScopeId(userId: number): string {
 }
 
 /**
-ログイン前に端末専用データとして保存されていた現場・マスタ情報を、ログインしたユーザーのスコープへ引き継ぐ
+ログイン前に端末専用データとして保存されていた現場・マスタ・予算情報を、ログインしたユーザーのスコープへ引き継ぐ
  */
 export async function migrateDeviceDataToUser(fromScopeId: string, toScopeId: string): Promise<void> {
   if (fromScopeId === toScopeId || !fromScopeId) {
@@ -116,10 +132,23 @@ export async function migrateDeviceDataToUser(fromScopeId: string, toScopeId: st
 
   const db = await getGenbaDb()
 
-  for (const table of ['genba_events', 'genba_venues', 'genba_groups', 'genba_idols']) {
+  for (const table of ['genba_events', 'genba_photos']) {
     await db.execute({
       sql: `UPDATE ${table} SET device_id = ? WHERE device_id = ?`,
       args: [toScopeId, fromScopeId]
+    })
+  }
+
+  // マスタはUNIQUE(name, device_id)、予算はPRIMARY KEY(device_id, year_month)があるため、
+  // 移行先に同じ行が既にある場合（別端末で同じアカウントに再ログインした場合など）は移行先を優先して移行元を破棄する
+  for (const table of ['genba_venues', 'genba_groups', 'genba_idols', 'genba_budgets']) {
+    await db.execute({
+      sql: `UPDATE OR IGNORE ${table} SET device_id = ? WHERE device_id = ?`,
+      args: [toScopeId, fromScopeId]
+    })
+    await db.execute({
+      sql: `DELETE FROM ${table} WHERE device_id = ?`,
+      args: [fromScopeId]
     })
   }
 }

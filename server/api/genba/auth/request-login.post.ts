@@ -1,8 +1,9 @@
 import { createError, getRequestURL, readBody } from 'h3'
 import { sendMagicLinkEmail } from '../../../utils/genbaEmail'
-import { createLoginToken, findOrCreateUserByEmail } from '../../../utils/genbaUserRepository'
+import { createLoginToken, findOrCreateUserByEmail, hasRecentLoginToken } from '../../../utils/genbaUserRepository'
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const RESEND_INTERVAL_MS = 2 * 60 * 1000
 
 /**
 入力されたメールアドレスにログイン用マジックリンクを送信する
@@ -19,6 +20,14 @@ export default defineEventHandler(async (event) => {
   }
 
   const user = await findOrCreateUserByEmail(email)
+
+  if (await hasRecentLoginToken(user.id, RESEND_INTERVAL_MS)) {
+    throw createError({
+      statusCode: 429,
+      message: 'ログインメールを送信済みです。届かない場合は2分ほど待ってから再度お試しください'
+    })
+  }
+
   const token = await createLoginToken(user.id)
 
   const origin = getRequestURL(event).origin

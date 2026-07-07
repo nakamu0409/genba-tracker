@@ -33,6 +33,7 @@ const venueName = ref(props.initialValue.venueName ?? '')
 const ticketPrice = ref(props.initialValue.ticketPrice)
 const drinkFee = ref(props.initialValue.drinkFee)
 const transportFee = ref(props.initialValue.transportFee)
+const lodgingFee = ref(props.initialValue.lodgingFee)
 const memo = ref(props.initialValue.memo ?? '')
 const rating = ref<number | null>(props.initialValue.rating ?? null)
 const chekiItems = ref<GenbaItemFormState[]>(props.initialValue.chekiItems.map(toFormState))
@@ -61,7 +62,7 @@ const itemsTotal = computed(() => {
 })
 
 const grandTotal = computed(() => {
-  return (ticketPrice.value || 0) + (drinkFee.value || 0) + (transportFee.value || 0) + itemsTotal.value
+  return (ticketPrice.value || 0) + (drinkFee.value || 0) + (transportFee.value || 0) + (lodgingFee.value || 0) + itemsTotal.value
 })
 
 const allEvents = ref<GenbaEvent[]>([])
@@ -106,6 +107,39 @@ const setRating = (value: number) => {
   rating.value = rating.value === value ? null : value
 }
 
+const isPlanned = computed(() => isPlannedGenbaDate(eventDate.value || null))
+
+// 会場選択時のドリンク代自動入力: 自分がその会場で最後に払った額 → 会場マスタの標準額 の順で参照する
+const autoFilledDrinkFee = ref<number | null>(null)
+
+const suggestDrinkFee = (name: string): number | null => {
+  if (!name) return null
+
+  const ownLatest = allEvents.value
+    .filter(e => e.venueName === name && e.eventDate && e.drinkFee > 0)
+    .sort((a, b) => (b.eventDate ?? '').localeCompare(a.eventDate ?? ''))[0]
+  if (ownLatest) return ownLatest.drinkFee
+
+  const master = venues.value.find(v => v.name === name)
+  if (master?.drinkFee) return master.drinkFee
+
+  return null
+}
+
+watch(venueName, (name) => {
+  // 手入力された値は上書きしない（未入力か、直前の自動入力値のままの場合のみ差し替える）
+  if (drinkFee.value !== 0 && drinkFee.value !== autoFilledDrinkFee.value) return
+
+  const suggestion = suggestDrinkFee(name)
+  if (suggestion !== null) {
+    drinkFee.value = suggestion
+    autoFilledDrinkFee.value = suggestion
+  } else if (drinkFee.value === autoFilledDrinkFee.value && autoFilledDrinkFee.value !== null) {
+    drinkFee.value = 0
+    autoFilledDrinkFee.value = null
+  }
+})
+
 const handleSubmit = async () => {
   errorMessage.value = ''
 
@@ -140,6 +174,7 @@ const handleSubmit = async () => {
     ticketPrice: ticketPrice.value || 0,
     drinkFee: drinkFee.value || 0,
     transportFee: transportFee.value || 0,
+    lodgingFee: lodgingFee.value || 0,
     memo: memo.value || null,
     rating: rating.value,
     chekiItems: chekiItems.value.map(stripGroupDraft),
@@ -201,11 +236,19 @@ const handleSubmit = async () => {
           </UFormField>
         </div>
 
+        <p
+          v-if="isPlanned"
+          class="flex items-center gap-1 text-xs text-info"
+        >
+          <UIcon name="i-lucide-calendar-clock" />
+          未来の日付なので「予定」として登録されます。チケット代など分かっている金額を入れておくと予算の先読みに反映されます
+        </p>
+
         <div>
           <p class="mb-2 text-xs font-semibold text-muted">
             費用
           </p>
-          <div class="grid grid-cols-3 gap-3">
+          <div class="grid grid-cols-2 gap-3">
             <UFormField label="チケット代">
               <UInput
                 v-model.number="ticketPrice"
@@ -229,6 +272,16 @@ const handleSubmit = async () => {
             <UFormField label="交通費">
               <UInput
                 v-model.number="transportFee"
+                type="number"
+                min="0"
+                step="1"
+                class="w-full"
+              />
+            </UFormField>
+
+            <UFormField label="宿泊費">
+              <UInput
+                v-model.number="lodgingFee"
                 type="number"
                 min="0"
                 step="1"
