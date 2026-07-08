@@ -5,7 +5,10 @@ services:
     plan: free
     buildCommand: npm install && npm run build
     startCommand: node .output/server/index.mjs
-    healthCheckPath: /genba
+    healthCheckPath: /api/genba/ping
+    domains:
+      - genbalog.com
+      - www.genbalog.com
     envVars:
       - key: NODE_ENV
         value: production

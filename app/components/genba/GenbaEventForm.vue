@@ -55,6 +55,17 @@ const handleCreateVenue = (name: string) => {
   venueName.value = name
 }
 
+// イベント名の候補: 自分の過去のイベント名（新しい順）。定期公演など繰り返す名前の入力を時短する
+const extraEventNames = ref<string[]>([])
+const eventNameItems = computed(() => [...new Set([...allEvents.value.map(e => e.eventName), ...extraEventNames.value])])
+
+const handleCreateEventName = (name: string) => {
+  if (!extraEventNames.value.includes(name)) {
+    extraEventNames.value = [...extraEventNames.value, name]
+  }
+  eventName.value = name
+}
+
 const itemsTotal = computed(() => {
   const chekiTotal = chekiItems.value.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0)
   const goodsTotal = goodsItems.value.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0)
@@ -208,10 +219,13 @@ const handleSubmit = async () => {
 
       <div class="flex flex-col gap-4">
         <UFormField label="イベント名">
-          <UInput
+          <UInputMenu
             v-model="eventName"
+            :items="eventNameItems"
+            create-item="always"
             placeholder="例: ○○ライブ 大阪公演"
             class="w-full"
+            @create="handleCreateEventName"
           />
         </UFormField>
 

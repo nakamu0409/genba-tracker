@@ -1,0 +1,15 @@
+# Render無料プランのスリープ（15分アイドルで停止→起動に30秒以上）を防ぐための定期ping。
+# 注意: リポジトリに60日間コミットがないとGitHubがスケジュール実行を自動停止する
+name: keepalive
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping production
+        run: curl -fsS --max-time 60 --retry 2 https://genba-tracker.onrender.com/api/genba/ping

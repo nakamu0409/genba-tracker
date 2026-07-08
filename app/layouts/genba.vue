@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import GenbaInstallHint from '../components/genba/GenbaInstallHint.vue'
+
 const route = useRoute()
 
 const isAdmin = ref(false)
@@ -28,6 +30,7 @@ const isActive = (to: string) => {
   <UApp>
     <div class="appShell">
       <main class="appMain">
+        <GenbaInstallHint />
         <slot />
       </main>
 
