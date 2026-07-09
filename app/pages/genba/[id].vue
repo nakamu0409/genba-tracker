@@ -41,13 +41,20 @@ const goEdit = () => {
   router.push(`/genba/edit/${id}`)
 }
 
-// 予定の現場に出す楽天トラベルへの導線（アフィリエイトID設定時は成果リンクにする）
+// 予定の現場に出すホテル予約への導線（アフィリエイトID設定時は成果リンクにする）
 const config = useRuntimeConfig()
-const hotelSearchUrl = computed(() => {
+const rakutenHotelUrl = computed(() => {
   const base = 'https://travel.rakuten.co.jp/'
   const affiliateId = config.public.rakutenAffiliateId
   if (!affiliateId) return base
   return `https://hb.afl.rakuten.co.jp/hgc/${affiliateId}/?pc=${encodeURIComponent(base)}`
+})
+
+const tripHotelUrl = computed(() => {
+  const base = 'https://jp.trip.com/hotels/'
+  const { tripAllianceId, tripSid } = config.public
+  if (!tripAllianceId || !tripSid) return base
+  return `${base}?Allianceid=${tripAllianceId}&SID=${tripSid}`
 })
 
 const photos = ref<GenbaPhoto[]>([])
@@ -258,7 +265,7 @@ const deleteEvent = async () => {
         v-if="isPlannedGenbaDate(data.eventDate)"
         :ui="{ body: 'p-4' }"
       >
-        <div class="flex items-center justify-between gap-2">
+        <div class="flex flex-col gap-2">
           <div class="flex flex-col gap-0.5">
             <p class="flex items-center gap-2 text-sm font-semibold">
               遠征の準備
@@ -274,16 +281,28 @@ const deleteEvent = async () => {
               泊まりの現場ならホテルは早めが安い
             </p>
           </div>
-          <UButton
-            :to="hotelSearchUrl"
-            external
-            target="_blank"
-            icon="i-lucide-bed-double"
-            variant="soft"
-            size="sm"
-          >
-            ホテルを探す
-          </UButton>
+          <div class="flex flex-wrap gap-2">
+            <UButton
+              :to="rakutenHotelUrl"
+              external
+              target="_blank"
+              icon="i-lucide-bed-double"
+              variant="soft"
+              size="sm"
+            >
+              楽天トラベル
+            </UButton>
+            <UButton
+              :to="tripHotelUrl"
+              external
+              target="_blank"
+              icon="i-lucide-plane"
+              variant="soft"
+              size="sm"
+            >
+              Trip.com
+            </UButton>
+          </div>
         </div>
       </UCard>
 
