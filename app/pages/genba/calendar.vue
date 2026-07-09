@@ -158,6 +158,14 @@ const selectDate = (dateStr: string) => {
   selectedDate.value = selectedDate.value === dateStr ? null : dateStr
 }
 
+// 日付タップでボトムシートを開く（スクロールせずにその日の現場を見られるように）
+const drawerOpen = computed({
+  get: () => selectedDate.value !== null,
+  set: (open: boolean) => {
+    if (!open) selectedDate.value = null
+  }
+})
+
 const goNewWithDate = (dateStr: string) => router.push(`/genba/new?date=${dateStr}`)
 const goDetail = (id: number) => router.push(`/genba/${id}`)
 
@@ -317,62 +325,64 @@ onMounted(async () => {
       </div>
     </UCard>
 
-    <div
-      v-if="selectedDate"
-      class="mt-4 flex flex-col gap-3"
-    >
-      <div class="flex items-center justify-between">
-        <span class="text-sm font-semibold text-muted">
-          {{ selectedDate }}
-          <template v-if="selectedDateChekiCount > 0"> ・ チェキ{{ selectedDateChekiCount }}枚</template>
-        </span>
-        <UButton
-          icon="i-lucide-plus"
-          variant="soft"
-          size="xs"
-          @click="goNewWithDate(selectedDate)"
-        >
-          この日に登録
-        </UButton>
-      </div>
-
-      <p
-        v-if="selectedDateEvents.length === 0"
-        class="text-sm text-muted"
-      >
-        この日の記録はありません
-      </p>
-
-      <UCard
-        v-for="e in selectedDateEvents"
-        :key="e.id"
-        class="cursor-pointer transition hover:shadow-md"
-        :ui="{ body: 'p-4' }"
-        @click="goDetail(e.id)"
-      >
-        <div class="flex items-center justify-between gap-2">
-          <div class="flex flex-col gap-1">
-            <span class="flex items-center gap-2 font-semibold">
-              {{ e.eventName }}
-              <UBadge
-                v-if="isPlannedGenbaDate(e.eventDate)"
-                color="info"
-                variant="subtle"
-                size="sm"
-              >
-                予定
-              </UBadge>
+    <UDrawer v-model:open="drawerOpen">
+      <template #content>
+        <div class="mx-auto flex w-full max-w-2xl flex-col gap-3 p-4 pb-8">
+          <div class="flex items-center justify-between">
+            <span class="text-sm font-semibold text-muted">
+              {{ selectedDate }}
+              <template v-if="selectedDateChekiCount > 0"> ・ チェキ{{ selectedDateChekiCount }}枚</template>
             </span>
-            <span class="text-xs text-muted">
-              <template v-if="e.venueName">{{ e.venueName }}</template>
-              <template v-if="e.chekiCount > 0"> ・ チェキ{{ e.chekiCount }}枚</template>
-              <template v-if="e.rating !== null"> ・ {{ '★'.repeat(e.rating) }}{{ '☆'.repeat(5 - e.rating) }}</template>
-            </span>
+            <UButton
+              v-if="selectedDate"
+              icon="i-lucide-plus"
+              variant="soft"
+              size="xs"
+              @click="goNewWithDate(selectedDate)"
+            >
+              この日に登録
+            </UButton>
           </div>
-          <span class="font-bold text-primary">¥{{ e.totalAmount.toLocaleString() }}</span>
+
+          <p
+            v-if="selectedDateEvents.length === 0"
+            class="text-sm text-muted"
+          >
+            この日の記録はありません
+          </p>
+
+          <UCard
+            v-for="e in selectedDateEvents"
+            :key="e.id"
+            class="cursor-pointer transition hover:shadow-md"
+            :ui="{ body: 'p-4' }"
+            @click="goDetail(e.id)"
+          >
+            <div class="flex items-center justify-between gap-2">
+              <div class="flex flex-col gap-1">
+                <span class="flex items-center gap-2 font-semibold">
+                  {{ e.eventName }}
+                  <UBadge
+                    v-if="isPlannedGenbaDate(e.eventDate)"
+                    color="info"
+                    variant="subtle"
+                    size="sm"
+                  >
+                    予定
+                  </UBadge>
+                </span>
+                <span class="text-xs text-muted">
+                  <template v-if="e.venueName">{{ e.venueName }}</template>
+                  <template v-if="e.chekiCount > 0"> ・ チェキ{{ e.chekiCount }}枚</template>
+                  <template v-if="e.rating !== null"> ・ {{ '★'.repeat(e.rating) }}{{ '☆'.repeat(5 - e.rating) }}</template>
+                </span>
+              </div>
+              <span class="font-bold text-primary">¥{{ e.totalAmount.toLocaleString() }}</span>
+            </div>
+          </UCard>
         </div>
-      </UCard>
-    </div>
+      </template>
+    </UDrawer>
   </div>
 </template>
 
