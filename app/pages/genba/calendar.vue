@@ -158,14 +158,6 @@ const selectDate = (dateStr: string) => {
   selectedDate.value = selectedDate.value === dateStr ? null : dateStr
 }
 
-// 日付タップでボトムシートを開く（スクロールせずにその日の現場を見られるように）
-const drawerOpen = computed({
-  get: () => selectedDate.value !== null,
-  set: (open: boolean) => {
-    if (!open) selectedDate.value = null
-  }
-})
-
 const goNewWithDate = (dateStr: string) => router.push(`/genba/new?date=${dateStr}`)
 const goDetail = (id: number) => router.push(`/genba/${id}`)
 
@@ -186,20 +178,34 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-2xl px-4 py-5">
-    <h1 class="mb-4 text-xl font-bold">
-      カレンダー
-    </h1>
+  <div class="mx-auto w-full max-w-2xl px-4 py-3">
+    <div class="mb-2 flex items-center justify-between">
+      <UButton
+        icon="i-lucide-chevron-left"
+        variant="ghost"
+        color="neutral"
+        size="sm"
+        @click="goPrevMonth"
+      />
+      <span class="text-lg font-bold">{{ monthLabel }}</span>
+      <UButton
+        icon="i-lucide-chevron-right"
+        variant="ghost"
+        color="neutral"
+        size="sm"
+        @click="goNextMonth"
+      />
+    </div>
 
     <UAlert
       v-if="errorMessage"
       color="error"
       variant="soft"
       :title="errorMessage"
-      class="mb-4"
+      class="mb-3"
     />
 
-    <div class="mb-4 flex flex-wrap items-center gap-2">
+    <div class="mb-2 flex flex-wrap items-center gap-2">
       <USelectMenu
         v-model="memberFilter"
         :items="memberOptions"
@@ -231,63 +237,22 @@ onMounted(async () => {
       </div>
     </div>
 
-    <UAlert
-      v-if="budgetOverAmount > 0"
-      color="error"
-      variant="soft"
-      icon="i-lucide-triangle-alert"
-      :title="`今月の予算を¥${budgetOverAmount.toLocaleString()}超えています`"
-      class="mb-4"
-    />
-
     <UCard
       v-if="monthlyBudget !== null"
-      class="mb-4"
-      :ui="{ body: 'p-4 flex flex-col gap-1' }"
+      class="mb-2"
+      :ui="{ body: 'px-3 py-2' }"
     >
-      <div class="flex items-center justify-between text-sm text-muted">
-        <span>{{ monthLabel }}の予算</span>
-        <span>¥{{ monthlyBudget.toLocaleString() }}</span>
-      </div>
-      <div class="flex items-center justify-between text-sm text-muted">
-        <span>使用金額{{ monthPlannedTotal > 0 ? '（予定含む）' : '' }}</span>
-        <span>¥{{ monthTotal.toLocaleString() }}</span>
-      </div>
-      <div
-        v-if="monthPlannedTotal > 0"
-        class="flex items-center justify-between text-sm text-muted"
-      >
-        <span>うち予定</span>
-        <span>¥{{ monthPlannedTotal.toLocaleString() }}</span>
-      </div>
-      <div class="flex items-center justify-between">
-        <span class="font-semibold">残り</span>
+      <div class="flex items-center justify-between gap-2 text-xs">
+        <span class="text-muted">予算 ¥{{ monthlyBudget.toLocaleString() }}</span>
+        <span class="text-muted">使用{{ monthPlannedTotal > 0 ? '（予定込）' : '' }} ¥{{ monthTotal.toLocaleString() }}</span>
         <span
-          class="text-lg font-bold"
+          class="font-bold"
           :class="budgetOverAmount > 0 ? 'text-error' : 'text-primary'"
-        >¥{{ (monthlyBudget - monthTotal).toLocaleString() }}</span>
+        >残り ¥{{ (monthlyBudget - monthTotal).toLocaleString() }}</span>
       </div>
     </UCard>
 
-    <UCard :ui="{ body: 'p-3 sm:p-4' }">
-      <div class="mb-3 flex items-center justify-between">
-        <UButton
-          icon="i-lucide-chevron-left"
-          variant="ghost"
-          color="neutral"
-          size="sm"
-          @click="goPrevMonth"
-        />
-        <span class="font-semibold">{{ monthLabel }}</span>
-        <UButton
-          icon="i-lucide-chevron-right"
-          variant="ghost"
-          color="neutral"
-          size="sm"
-          @click="goNextMonth"
-        />
-      </div>
-
+    <UCard :ui="{ body: 'p-2 sm:p-3' }">
       <div class="grid grid-cols-7 gap-1 text-center text-xs text-muted">
         <span
           v-for="w in ['日', '月', '火', '水', '木', '金', '土']"
@@ -325,64 +290,62 @@ onMounted(async () => {
       </div>
     </UCard>
 
-    <UDrawer v-model:open="drawerOpen">
-      <template #content>
-        <div class="mx-auto flex w-full max-w-2xl flex-col gap-3 p-4 pb-8">
-          <div class="flex items-center justify-between">
-            <span class="text-sm font-semibold text-muted">
-              {{ selectedDate }}
-              <template v-if="selectedDateChekiCount > 0"> ・ チェキ{{ selectedDateChekiCount }}枚</template>
+    <div
+      v-if="selectedDate"
+      class="mt-3 flex flex-col gap-2"
+    >
+      <div class="flex items-center justify-between">
+        <span class="text-sm font-semibold text-muted">
+          {{ selectedDate }}
+          <template v-if="selectedDateChekiCount > 0"> ・ チェキ{{ selectedDateChekiCount }}枚</template>
+        </span>
+        <UButton
+          icon="i-lucide-plus"
+          variant="soft"
+          size="xs"
+          @click="goNewWithDate(selectedDate)"
+        >
+          この日に登録
+        </UButton>
+      </div>
+
+      <p
+        v-if="selectedDateEvents.length === 0"
+        class="text-sm text-muted"
+      >
+        この日の記録はありません
+      </p>
+
+      <UCard
+        v-for="e in selectedDateEvents"
+        :key="e.id"
+        class="cursor-pointer transition hover:shadow-md"
+        :ui="{ body: 'p-3' }"
+        @click="goDetail(e.id)"
+      >
+        <div class="flex items-center justify-between gap-2">
+          <div class="flex flex-col gap-1">
+            <span class="flex items-center gap-2 font-semibold">
+              {{ e.eventName }}
+              <UBadge
+                v-if="isPlannedGenbaDate(e.eventDate)"
+                color="info"
+                variant="subtle"
+                size="sm"
+              >
+                予定
+              </UBadge>
             </span>
-            <UButton
-              v-if="selectedDate"
-              icon="i-lucide-plus"
-              variant="soft"
-              size="xs"
-              @click="goNewWithDate(selectedDate)"
-            >
-              この日に登録
-            </UButton>
+            <span class="text-xs text-muted">
+              <template v-if="e.venueName">{{ e.venueName }}</template>
+              <template v-if="e.chekiCount > 0"> ・ チェキ{{ e.chekiCount }}枚</template>
+              <template v-if="e.rating !== null"> ・ {{ '★'.repeat(e.rating) }}{{ '☆'.repeat(5 - e.rating) }}</template>
+            </span>
           </div>
-
-          <p
-            v-if="selectedDateEvents.length === 0"
-            class="text-sm text-muted"
-          >
-            この日の記録はありません
-          </p>
-
-          <UCard
-            v-for="e in selectedDateEvents"
-            :key="e.id"
-            class="cursor-pointer transition hover:shadow-md"
-            :ui="{ body: 'p-4' }"
-            @click="goDetail(e.id)"
-          >
-            <div class="flex items-center justify-between gap-2">
-              <div class="flex flex-col gap-1">
-                <span class="flex items-center gap-2 font-semibold">
-                  {{ e.eventName }}
-                  <UBadge
-                    v-if="isPlannedGenbaDate(e.eventDate)"
-                    color="info"
-                    variant="subtle"
-                    size="sm"
-                  >
-                    予定
-                  </UBadge>
-                </span>
-                <span class="text-xs text-muted">
-                  <template v-if="e.venueName">{{ e.venueName }}</template>
-                  <template v-if="e.chekiCount > 0"> ・ チェキ{{ e.chekiCount }}枚</template>
-                  <template v-if="e.rating !== null"> ・ {{ '★'.repeat(e.rating) }}{{ '☆'.repeat(5 - e.rating) }}</template>
-                </span>
-              </div>
-              <span class="font-bold text-primary">¥{{ e.totalAmount.toLocaleString() }}</span>
-            </div>
-          </UCard>
+          <span class="font-bold text-primary">¥{{ e.totalAmount.toLocaleString() }}</span>
         </div>
-      </template>
-    </UDrawer>
+      </UCard>
+    </div>
   </div>
 </template>
 
@@ -393,8 +356,8 @@ onMounted(async () => {
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  min-height: 52px;
-  padding-top: 4px;
+  min-height: 46px;
+  padding-top: 3px;
   border-radius: 8px;
   background: transparent;
   cursor: pointer;
