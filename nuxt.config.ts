@@ -27,6 +27,10 @@ export default defineNuxtConfig({
     },
     resend: {
       apiKey: process.env.RESEND_API_KEY || ''
+    },
+    public: {
+      // 楽天アフィリエイトID（未設定でもリンク自体は表示され、通常リンクになる）
+      rakutenAffiliateId: process.env.NUXT_PUBLIC_RAKUTEN_AFFILIATE_ID || ''
     }
   },
 

@@ -203,6 +203,7 @@ const exportCsv = () => {
 }
 
 const menuItems = computed(() => [
+  { label: '月間まとめ', icon: 'i-lucide-calendar-heart', to: '/genba/monthly' },
   { label: '年間まとめ', icon: 'i-lucide-sparkles', to: '/genba/yearly' },
   { label: 'CSVエクスポート', icon: 'i-lucide-download', disabled: events.value.length === 0, onSelect: () => exportCsv() }
 ])

@@ -296,6 +296,11 @@ const shareImage = async () => {
           <span class="font-semibold">{{ overview.topEventByRating.eventName }}（{{ overview.topEventByRating.rating }}）</span>
         </div>
       </UCard>
+
+      <p class="flex items-center justify-center gap-1 pb-1 text-xs text-muted">
+        <UIcon name="i-lucide-receipt" />
+        現場記録 — genbalog.com
+      </p>
     </div>
 
     <UCard

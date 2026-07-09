@@ -41,6 +41,15 @@ const goEdit = () => {
   router.push(`/genba/edit/${id}`)
 }
 
+// 予定の現場に出す楽天トラベルへの導線（アフィリエイトID設定時は成果リンクにする）
+const config = useRuntimeConfig()
+const hotelSearchUrl = computed(() => {
+  const base = 'https://travel.rakuten.co.jp/'
+  const affiliateId = config.public.rakutenAffiliateId
+  if (!affiliateId) return base
+  return `https://hb.afl.rakuten.co.jp/hgc/${affiliateId}/?pc=${encodeURIComponent(base)}`
+})
+
 const photos = ref<GenbaPhoto[]>([])
 watch(data, (d) => {
   photos.value = d?.photos ?? []
@@ -242,6 +251,39 @@ const deleteEvent = async () => {
               {{ name }}
             </UBadge>
           </div>
+        </div>
+      </UCard>
+
+      <UCard
+        v-if="isPlannedGenbaDate(data.eventDate)"
+        :ui="{ body: 'p-4' }"
+      >
+        <div class="flex items-center justify-between gap-2">
+          <div class="flex flex-col gap-0.5">
+            <p class="flex items-center gap-2 text-sm font-semibold">
+              遠征の準備
+              <UBadge
+                color="neutral"
+                variant="subtle"
+                size="sm"
+              >
+                PR
+              </UBadge>
+            </p>
+            <p class="text-xs text-muted">
+              泊まりの現場ならホテルは早めが安い
+            </p>
+          </div>
+          <UButton
+            :to="hotelSearchUrl"
+            external
+            target="_blank"
+            icon="i-lucide-bed-double"
+            variant="soft"
+            size="sm"
+          >
+            ホテルを探す
+          </UButton>
         </div>
       </UCard>
 
