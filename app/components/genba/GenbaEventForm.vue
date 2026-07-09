@@ -16,7 +16,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  submit: [value: GenbaEventInput]
+  submit: [value: GenbaEventInput, photos: File[]]
 }>()
 
 const toFormState = (item: InitialItemInput): GenbaItemFormState => ({
@@ -120,6 +120,26 @@ const setRating = (value: number) => {
 
 const isPlanned = computed(() => isPlannedGenbaDate(eventDate.value || null))
 
+// 登録と同時にアップロードするチェキフォト（新規登録時のみ。編集時は詳細ページで管理）
+const pendingPhotos = ref<{ file: File, previewUrl: string }[]>([])
+
+const addPendingPhotos = (ev: Event) => {
+  const input = ev.target as HTMLInputElement
+  const files = Array.from(input.files ?? [])
+  input.value = ''
+
+  pendingPhotos.value = [
+    ...pendingPhotos.value,
+    ...files.map(file => ({ file, previewUrl: URL.createObjectURL(file) }))
+  ]
+}
+
+const removePendingPhoto = (index: number) => {
+  const removed = pendingPhotos.value[index]
+  if (removed) URL.revokeObjectURL(removed.previewUrl)
+  pendingPhotos.value = pendingPhotos.value.filter((_, i) => i !== index)
+}
+
 // 会場選択時のドリンク代自動入力: 自分がその会場で最後に払った額 → 会場マスタの標準額 の順で参照する
 const autoFilledDrinkFee = ref<number | null>(null)
 
@@ -190,7 +210,7 @@ const handleSubmit = async () => {
     rating: rating.value,
     chekiItems: chekiItems.value.map(stripGroupDraft),
     goodsItems: goodsItems.value.map(stripGroupDraft)
-  })
+  }, pendingPhotos.value.map(p => p.file))
 }
 </script>
 
@@ -268,7 +288,7 @@ const handleSubmit = async () => {
                 v-model.number="ticketPrice"
                 type="number"
                 min="0"
-                step="100"
+                step="1"
                 class="w-full"
               />
             </UFormField>
@@ -278,7 +298,7 @@ const handleSubmit = async () => {
                 v-model.number="drinkFee"
                 type="number"
                 min="0"
-                step="100"
+                step="1"
                 class="w-full"
               />
             </UFormField>
@@ -350,6 +370,71 @@ const handleSubmit = async () => {
           />
         </button>
       </div>
+    </UCard>
+
+    <UCard
+      v-if="!eventId"
+      :ui="{ body: 'p-3 sm:p-4' }"
+    >
+      <template #header>
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2 font-semibold">
+            <UIcon
+              name="i-lucide-image"
+              class="text-lg"
+            />
+            チェキフォト
+          </div>
+          <span
+            v-if="pendingPhotos.length > 0"
+            class="text-sm text-muted"
+          >{{ pendingPhotos.length }}枚</span>
+        </div>
+      </template>
+
+      <div class="grid grid-cols-3 gap-2">
+        <div
+          v-for="(p, index) in pendingPhotos"
+          :key="p.previewUrl"
+          class="relative"
+        >
+          <img
+            :src="p.previewUrl"
+            alt="チェキフォト（アップロード予定）"
+            class="aspect-square w-full rounded-lg object-cover"
+          >
+          <UButton
+            icon="i-lucide-x"
+            color="error"
+            variant="solid"
+            size="xs"
+            class="absolute top-1 right-1"
+            @click="removePendingPhoto(index)"
+          />
+        </div>
+
+        <label class="flex aspect-square w-full cursor-pointer flex-col items-center justify-center gap-1 rounded-lg border-2 border-dashed border-default text-muted transition hover:border-primary hover:text-primary">
+          <UIcon
+            name="i-lucide-plus"
+            class="text-2xl"
+          />
+          <span class="text-xs">写真を追加</span>
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            class="hidden"
+            @change="addPendingPhotos"
+          >
+        </label>
+      </div>
+
+      <p
+        v-if="pendingPhotos.length > 0"
+        class="mt-2 text-xs text-muted"
+      >
+        登録ボタンを押すと一緒にアップロードされます
+      </p>
     </UCard>
 
     <UCard :ui="{ body: 'p-3 sm:p-4' }">

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import GenbaEventForm from '../../components/genba/GenbaEventForm.vue'
-import type { GenbaEventInput } from '../../../shared/types/genba'
+import type { GenbaEventDetail, GenbaEventInput } from '../../../shared/types/genba'
 
 definePageMeta({
   layout: 'genba'
@@ -25,17 +25,38 @@ const initialValue: GenbaEventInput = {
   goodsItems: []
 }
 
-const handleSubmit = async (value: GenbaEventInput) => {
+const handleSubmit = async (value: GenbaEventInput, photos: File[]) => {
   errorMessage.value = ''
   loading.value = true
 
   try {
-    await $fetch('/api/genba/events', {
+    const created = await $fetch<GenbaEventDetail>('/api/genba/events', {
       method: 'post',
       body: value
     })
 
-    router.push('/genba')
+    // 写真は登録済みイベントに紐づけてアップロードする（失敗しても登録自体は完了している）
+    let photoFailed = false
+    for (const file of photos) {
+      try {
+        const blob = await resizeGenbaImage(file)
+        const formData = new FormData()
+        formData.append('photo', blob, 'photo.jpg')
+        await $fetch(`/api/genba/events/${created.id}/photos`, {
+          method: 'post',
+          body: formData
+        })
+      } catch {
+        photoFailed = true
+      }
+    }
+
+    if (photoFailed) {
+      alert('一部の写真をアップロードできませんでした。詳細ページから追加できます')
+    }
+
+    // 写真付きで登録したときは仕上がりが見える詳細ページへ
+    router.push(photos.length > 0 ? `/genba/${created.id}` : '/genba')
   } catch (e) {
     errorMessage.value = (e as { data?: { message?: string } })?.data?.message ?? '登録に失敗しました'
   } finally {
