@@ -178,8 +178,8 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="mx-auto w-full max-w-2xl px-4 py-3">
-    <div class="mb-2 flex items-center justify-between">
+  <div class="mx-auto w-full max-w-2xl px-4 py-4">
+    <div class="mb-3 flex items-center justify-between">
       <UButton
         icon="i-lucide-chevron-left"
         variant="ghost"
@@ -205,7 +205,7 @@ onMounted(async () => {
       class="mb-3"
     />
 
-    <div class="mb-2 flex flex-wrap items-center gap-2">
+    <div class="mb-3 flex flex-wrap items-center gap-2">
       <USelectMenu
         v-model="memberFilter"
         :items="memberOptions"
@@ -239,10 +239,10 @@ onMounted(async () => {
 
     <UCard
       v-if="monthlyBudget !== null"
-      class="mb-2"
-      :ui="{ body: 'px-3 py-2' }"
+      class="mb-3"
+      :ui="{ body: 'px-4 py-2.5' }"
     >
-      <div class="flex items-center justify-between gap-2 text-xs">
+      <div class="flex items-center justify-between gap-2 text-sm">
         <span class="text-muted">予算 ¥{{ monthlyBudget.toLocaleString() }}</span>
         <span class="text-muted">使用{{ monthPlannedTotal > 0 ? '（予定込）' : '' }} ¥{{ monthTotal.toLocaleString() }}</span>
         <span
@@ -252,7 +252,7 @@ onMounted(async () => {
       </div>
     </UCard>
 
-    <UCard :ui="{ body: 'p-2 sm:p-3' }">
+    <UCard :ui="{ body: 'p-3 sm:p-4' }">
       <div class="grid grid-cols-7 gap-1 text-center text-xs text-muted">
         <span
           v-for="w in ['日', '月', '火', '水', '木', '金', '土']"
@@ -356,8 +356,8 @@ onMounted(async () => {
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  min-height: 46px;
-  padding-top: 3px;
+  min-height: 50px;
+  padding-top: 4px;
   border-radius: 8px;
   background: transparent;
   cursor: pointer;
