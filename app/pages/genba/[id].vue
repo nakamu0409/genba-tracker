@@ -50,12 +50,16 @@ const rakutenHotelUrl = computed(() => {
   return `https://hb.afl.rakuten.co.jp/hgc/${affiliateId}/?pc=${encodeURIComponent(base)}`
 })
 
-const tripHotelUrl = computed(() => {
-  const base = 'https://jp.trip.com/hotels/'
+const tripAffiliateUrl = (path: string) => {
+  const base = `https://jp.trip.com/${path}/`
   const { tripAllianceId, tripSid } = config.public
   if (!tripAllianceId || !tripSid) return base
   return `${base}?Allianceid=${tripAllianceId}&SID=${tripSid}`
-})
+}
+
+const tripHotelUrl = computed(() => tripAffiliateUrl('hotels'))
+const tripFlightUrl = computed(() => tripAffiliateUrl('flights'))
+const tripTrainUrl = computed(() => tripAffiliateUrl('trains'))
 
 const photos = ref<GenbaPhoto[]>([])
 watch(data, (d) => {
@@ -296,11 +300,31 @@ const deleteEvent = async () => {
               :to="tripHotelUrl"
               external
               target="_blank"
+              icon="i-lucide-hotel"
+              variant="soft"
+              size="sm"
+            >
+              Trip.comホテル
+            </UButton>
+            <UButton
+              :to="tripFlightUrl"
+              external
+              target="_blank"
               icon="i-lucide-plane"
               variant="soft"
               size="sm"
             >
-              Trip.com
+              航空券
+            </UButton>
+            <UButton
+              :to="tripTrainUrl"
+              external
+              target="_blank"
+              icon="i-lucide-train-front"
+              variant="soft"
+              size="sm"
+            >
+              新幹線・特急
             </UButton>
           </div>
         </div>
