@@ -240,19 +240,26 @@ onMounted(async () => {
     <UCard
       v-if="monthlyBudget !== null"
       class="mb-3"
-      :ui="{ body: 'px-4 py-2.5 flex flex-col gap-1' }"
+      :ui="{ body: 'p-4 flex flex-col gap-1' }"
     >
-      <div class="flex items-center justify-between gap-2 text-sm">
-        <span class="text-muted">予算 ¥{{ monthlyBudget.toLocaleString() }}</span>
-        <span class="text-muted">使用 ¥{{ monthTotal.toLocaleString() }}</span>
+      <div class="flex items-center justify-between text-sm text-muted">
+        <span>予算</span>
+        <span>¥{{ monthlyBudget.toLocaleString() }}</span>
+      </div>
+      <div class="flex items-center justify-between text-sm text-muted">
+        <span>使用</span>
+        <span>¥{{ monthTotal.toLocaleString() }}</span>
+      </div>
+      <div class="flex items-center justify-between">
+        <span class="font-semibold">{{ budgetOverAmount > 0 ? '予算超過' : '残り' }}</span>
         <span
-          class="font-bold"
+          class="text-lg font-bold"
           :class="budgetOverAmount > 0 ? 'text-error' : 'text-primary'"
-        >残り ¥{{ (monthlyBudget - monthTotal).toLocaleString() }}</span>
+        >¥{{ Math.abs(monthlyBudget - monthTotal).toLocaleString() }}</span>
       </div>
       <div
         v-if="monthPlannedTotal > 0"
-        class="flex items-center justify-between text-xs text-muted"
+        class="flex items-center justify-between text-sm text-muted"
       >
         <span>これから使う予定分</span>
         <span>¥{{ monthPlannedTotal.toLocaleString() }}</span>
