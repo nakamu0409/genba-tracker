@@ -100,6 +100,8 @@ export function parseGenbaEventInput(body: unknown): GenbaEventInput {
     eventDate,
     venueName,
     ticketPrice: toNonNegativeInt(data.ticketPrice ?? 0, 'チケット代'),
+    // 未指定時は支払い済み扱い（既存のAPI利用者・移行データとの互換のため）
+    ticketPaid: data.ticketPaid === undefined ? true : Boolean(data.ticketPaid),
     drinkFee: toNonNegativeInt(data.drinkFee ?? 0, 'ドリンク代'),
     transportFee: toNonNegativeInt(data.transportFee ?? 0, '交通費'),
     lodgingFee: toNonNegativeInt(data.lodgingFee ?? 0, '宿泊費'),

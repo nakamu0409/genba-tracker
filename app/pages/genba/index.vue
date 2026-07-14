@@ -129,6 +129,34 @@ const filteredChekiCount = computed(() => {
   return filteredEvents.value.reduce((sum, e) => sum + e.chekiCount, 0)
 })
 
+// チケット未払い（先行抽選等で先に確保したがまだ支払っていないもの）のまとめ
+const unpaidTicketEvents = computed(() => {
+  return events.value.filter(e => !e.ticketPaid && e.ticketPrice > 0)
+})
+
+const unpaidTicketTotal = computed(() => {
+  return unpaidTicketEvents.value.reduce((sum, e) => sum + e.ticketPrice, 0)
+})
+
+const togglingTicketId = ref<number | null>(null)
+
+const markTicketPaid = async (id: number) => {
+  togglingTicketId.value = id
+
+  try {
+    await $fetch(`/api/genba/events/${id}/ticket-paid`, {
+      method: 'put',
+      body: { ticketPaid: true }
+    })
+    const target = events.value.find(e => e.id === id)
+    if (target) target.ticketPaid = true
+  } catch (e) {
+    errorMessage.value = (e as { data?: { message?: string } })?.data?.message ?? '更新に失敗しました'
+  } finally {
+    togglingTicketId.value = null
+  }
+}
+
 const budgetOverAmount = computed(() => {
   if (monthlyBudget.value === null) return 0
   return filteredTotal.value - monthlyBudget.value
@@ -267,6 +295,15 @@ onMounted(async () => {
       color="error"
       variant="soft"
       :title="errorMessage"
+      class="mb-4"
+    />
+
+    <UAlert
+      v-if="unpaidTicketEvents.length > 0"
+      color="warning"
+      variant="soft"
+      icon="i-lucide-circle-dollar-sign"
+      :title="`チケット未払いが${unpaidTicketEvents.length}件（¥${unpaidTicketTotal.toLocaleString()}）あります`"
       class="mb-4"
     />
 
@@ -448,6 +485,14 @@ onMounted(async () => {
                 >
                   予定
                 </UBadge>
+                <UBadge
+                  v-if="!e.ticketPaid && e.ticketPrice > 0"
+                  color="warning"
+                  variant="subtle"
+                  size="sm"
+                >
+                  チケット未払い
+                </UBadge>
               </span>
               <span class="text-xs text-muted">
                 {{ e.eventDate || '日付未設定' }}
@@ -455,6 +500,18 @@ onMounted(async () => {
                 <template v-if="e.chekiCount > 0"> ・ チェキ{{ e.chekiCount }}枚</template>
                 <template v-if="e.rating !== null"> ・ {{ '★'.repeat(e.rating) }}{{ '☆'.repeat(5 - e.rating) }}</template>
               </span>
+              <UButton
+                v-if="!e.ticketPaid && e.ticketPrice > 0"
+                icon="i-lucide-check"
+                color="warning"
+                variant="soft"
+                size="xs"
+                class="mt-1 self-start"
+                :loading="togglingTicketId === e.id"
+                @click.stop="markTicketPaid(e.id)"
+              >
+                支払い済みにする
+              </UButton>
               <div
                 v-if="e.memberNames.length > 0 || e.groupNames.length > 0"
                 class="mt-1 flex flex-wrap gap-1"

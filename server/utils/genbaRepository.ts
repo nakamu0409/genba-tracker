@@ -18,6 +18,7 @@ type EventRow = {
   event_date: string | null
   venue_name: string | null
   ticket_price: number
+  ticket_paid: number
   drink_fee: number
   transport_fee: number
   lodging_fee: number
@@ -61,6 +62,7 @@ function toGenbaEvent(row: EventRow): GenbaEvent {
     memberNames: splitNames(row.member_names),
     groupNames: splitNames(row.group_names),
     ticketPrice: row.ticket_price,
+    ticketPaid: row.ticket_paid === 1,
     drinkFee: row.drink_fee,
     transportFee: row.transport_fee,
     lodgingFee: row.lodging_fee,
@@ -79,7 +81,7 @@ function toGenbaEvent(row: EventRow): GenbaEvent {
 const EVENT_SELECT = `
   SELECT
     e.id, e.event_name, e.event_date, e.venue_name,
-    e.ticket_price, e.drink_fee, e.transport_fee, e.lodging_fee, e.memo, e.rating, e.created_at,
+    e.ticket_price, e.ticket_paid, e.drink_fee, e.transport_fee, e.lodging_fee, e.memo, e.rating, e.created_at,
     COALESCE(SUM(CASE WHEN i.category = 'cheki' THEN i.unit_price * i.quantity ELSE 0 END), 0) AS cheki_total,
     COALESCE(SUM(CASE WHEN i.category = 'cheki' THEN i.quantity ELSE 0 END), 0) AS cheki_count,
     COALESCE(SUM(CASE WHEN i.category = 'goods' THEN i.unit_price * i.quantity ELSE 0 END), 0) AS goods_total,
@@ -213,8 +215,8 @@ export async function createGenbaEvent(deviceId: string, input: GenbaEventInput)
   try {
     const result = await tx.execute({
       sql: `
-        INSERT INTO genba_events (device_id, event_name, event_date, venue_name, ticket_price, drink_fee, transport_fee, lodging_fee, memo, rating)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO genba_events (device_id, event_name, event_date, venue_name, ticket_price, ticket_paid, drink_fee, transport_fee, lodging_fee, memo, rating)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
         deviceId,
@@ -222,6 +224,7 @@ export async function createGenbaEvent(deviceId: string, input: GenbaEventInput)
         input.eventDate,
         input.venueName,
         input.ticketPrice,
+        input.ticketPaid ? 1 : 0,
         input.drinkFee,
         input.transportFee,
         input.lodgingFee,
@@ -256,7 +259,7 @@ export async function updateGenbaEvent(deviceId: string, id: number, input: Genb
       sql: `
         UPDATE genba_events
         SET event_name = ?, event_date = ?, venue_name = ?,
-            ticket_price = ?, drink_fee = ?, transport_fee = ?, lodging_fee = ?, memo = ?, rating = ?
+            ticket_price = ?, ticket_paid = ?, drink_fee = ?, transport_fee = ?, lodging_fee = ?, memo = ?, rating = ?
         WHERE id = ? AND device_id = ?
       `,
       args: [
@@ -264,6 +267,7 @@ export async function updateGenbaEvent(deviceId: string, id: number, input: Genb
         input.eventDate,
         input.venueName,
         input.ticketPrice,
+        input.ticketPaid ? 1 : 0,
         input.drinkFee,
         input.transportFee,
         input.lodgingFee,
@@ -291,6 +295,18 @@ export async function updateGenbaEvent(deviceId: string, id: number, input: Genb
   } finally {
     tx.close()
   }
+}
+
+/**
+チケットの支払い状況だけを切り替える（一覧・詳細からのワンタップ操作用）。指定端末の記録のみ操作可能
+ */
+export async function setTicketPaid(deviceId: string, id: number, ticketPaid: boolean): Promise<boolean> {
+  const db = await getGenbaDb()
+  const result = await db.execute({
+    sql: 'UPDATE genba_events SET ticket_paid = ? WHERE id = ? AND device_id = ?',
+    args: [ticketPaid ? 1 : 0, id, deviceId]
+  })
+  return result.rowsAffected > 0
 }
 
 /**

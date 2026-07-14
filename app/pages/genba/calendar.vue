@@ -335,6 +335,14 @@ onMounted(async () => {
               >
                 予定
               </UBadge>
+              <UBadge
+                v-if="!e.ticketPaid && e.ticketPrice > 0"
+                color="warning"
+                variant="subtle"
+                size="sm"
+              >
+                チケット未払い
+              </UBadge>
             </span>
             <span class="text-xs text-muted">
               <template v-if="e.venueName">{{ e.venueName }}</template>

@@ -26,11 +26,11 @@ const errorMessage = ref('')
 const chekiItems = computed(() => data.value?.items.filter(item => item.category === 'cheki') ?? [])
 const goodsItems = computed(() => data.value?.items.filter(item => item.category === 'goods') ?? [])
 
-// 0円の費目は表示しない（宿泊費など使わない現場でゼロ行が並ぶのを避ける）
+// 0円の費目は表示しない（宿泊費など使わない現場でゼロ行が並ぶのを避ける）。
+// チケット代は支払い状況の表示・切り替えがあるので別枠で扱う
 const baseFees = computed(() => {
   if (!data.value) return []
   return [
-    { label: 'チケット代', value: data.value.ticketPrice },
     { label: 'ドリンク代', value: data.value.drinkFee },
     { label: '交通費', value: data.value.transportFee },
     { label: '宿泊費', value: data.value.lodgingFee }
@@ -41,21 +41,30 @@ const goEdit = () => {
   router.push(`/genba/edit/${id}`)
 }
 
+const togglingTicketPaid = ref(false)
+
+const toggleTicketPaid = async () => {
+  if (!data.value) return
+  const next = !data.value.ticketPaid
+  togglingTicketPaid.value = true
+
+  try {
+    await $fetch(`/api/genba/events/${id}/ticket-paid`, {
+      method: 'put',
+      body: { ticketPaid: next }
+    })
+    data.value.ticketPaid = next
+  } catch (e) {
+    errorMessage.value = (e as { data?: { message?: string } })?.data?.message ?? '更新に失敗しました'
+  } finally {
+    togglingTicketPaid.value = false
+  }
+}
+
 // 予定の現場に出すホテル予約への導線（アフィリエイトID設定時は成果リンクにする）
 const config = useRuntimeConfig()
-const rakutenHotelUrl = computed(() => {
-  const base = 'https://travel.rakuten.co.jp/'
-  const affiliateId = config.public.rakutenAffiliateId
-  if (!affiliateId) return base
-  return `https://hb.afl.rakuten.co.jp/hgc/${affiliateId}/?pc=${encodeURIComponent(base)}`
-})
-
-const tripHotelUrl = computed(() => {
-  const base = 'https://jp.trip.com/hotels/'
-  const { tripAllianceId, tripSid } = config.public
-  if (!tripAllianceId || !tripSid) return base
-  return `${base}?Allianceid=${tripAllianceId}&SID=${tripSid}`
-})
+const rakutenHotelUrl = computed(() => buildRakutenAffiliateUrl('https://travel.rakuten.co.jp/', config.public.rakutenAffiliateId))
+const tripHotelUrl = computed(() => buildTripAffiliateUrl('https://jp.trip.com/hotels/', config.public.tripAllianceId, config.public.tripSid))
 
 const photos = ref<GenbaPhoto[]>([])
 watch(data, (d) => {
@@ -306,8 +315,37 @@ const deleteEvent = async () => {
         </div>
       </UCard>
 
-      <UCard v-if="baseFees.length > 0">
+      <UCard v-if="data.ticketPrice > 0 || baseFees.length > 0">
         <div class="flex flex-col gap-2 text-sm">
+          <div
+            v-if="data.ticketPrice > 0"
+            class="flex items-center justify-between"
+          >
+            <span class="flex items-center gap-1.5 text-muted">
+              チケット代
+              <UBadge
+                :color="data.ticketPaid ? 'success' : 'warning'"
+                variant="subtle"
+                size="sm"
+              >
+                {{ data.ticketPaid ? '支払い済み' : '未払い' }}
+              </UBadge>
+            </span>
+            <div class="flex items-center gap-2">
+              <span>¥{{ data.ticketPrice.toLocaleString() }}</span>
+              <UButton
+                :icon="data.ticketPaid ? 'i-lucide-rotate-ccw' : 'i-lucide-check'"
+                :color="data.ticketPaid ? 'neutral' : 'warning'"
+                variant="soft"
+                size="xs"
+                :loading="togglingTicketPaid"
+                @click="toggleTicketPaid"
+              >
+                {{ data.ticketPaid ? '未払いに戻す' : '支払い済みにする' }}
+              </UButton>
+            </div>
+          </div>
+
           <div
             v-for="fee in baseFees"
             :key="fee.label"

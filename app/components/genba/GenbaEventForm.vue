@@ -31,6 +31,7 @@ const eventName = ref(props.initialValue.eventName)
 const eventDate = ref(props.initialValue.eventDate ?? '')
 const venueName = ref(props.initialValue.venueName ?? '')
 const ticketPrice = ref(props.initialValue.ticketPrice)
+const ticketPaid = ref(props.initialValue.ticketPaid)
 const drinkFee = ref(props.initialValue.drinkFee)
 const transportFee = ref(props.initialValue.transportFee)
 const lodgingFee = ref(props.initialValue.lodgingFee)
@@ -120,6 +121,21 @@ const setRating = (value: number) => {
 
 const isPlanned = computed(() => isPlannedGenbaDate(eventDate.value || null))
 
+// 新規登録時は開催日に応じてチケット支払い済みの初期値を決める
+// （先行抽選等でチケット代を先払いすることが多いため、予定＝未来日付ならデフォルト未払い）。
+// 一度でも手動で切り替えたら、以降は開催日を変えても自動上書きしない
+const ticketPaidTouched = ref(false)
+
+const toggleTicketPaid = (value: boolean) => {
+  ticketPaid.value = value
+  ticketPaidTouched.value = true
+}
+
+watch(eventDate, () => {
+  if (props.eventId || ticketPaidTouched.value) return
+  ticketPaid.value = !isPlanned.value
+}, { immediate: true })
+
 // 登録と同時にアップロードするチェキフォト（新規登録時のみ。編集時は詳細ページで管理）
 const pendingPhotos = ref<{ file: File, previewUrl: string }[]>([])
 
@@ -203,6 +219,7 @@ const handleSubmit = async () => {
     eventDate: eventDate.value || null,
     venueName: venueName.value.trim() || null,
     ticketPrice: ticketPrice.value || 0,
+    ticketPaid: ticketPaid.value,
     drinkFee: drinkFee.value || 0,
     transportFee: transportFee.value || 0,
     lodgingFee: lodgingFee.value || 0,
@@ -322,6 +339,24 @@ const handleSubmit = async () => {
                 class="w-full"
               />
             </UFormField>
+          </div>
+
+          <div
+            v-if="ticketPrice > 0"
+            class="mt-3 flex items-center justify-between rounded-lg bg-elevated/50 px-3 py-2"
+          >
+            <span class="flex items-center gap-1.5 text-sm">
+              <UIcon
+                :name="ticketPaid ? 'i-lucide-check-circle-2' : 'i-lucide-circle-dollar-sign'"
+                :class="ticketPaid ? 'text-success' : 'text-warning'"
+              />
+              チケット代の支払い
+            </span>
+            <USwitch
+              :model-value="ticketPaid"
+              label="支払い済み"
+              @update:model-value="toggleTicketPaid"
+            />
           </div>
         </div>
       </div>

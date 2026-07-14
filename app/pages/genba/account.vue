@@ -45,6 +45,12 @@ const logout = async () => {
   sent.value = false
   email.value = ''
 }
+
+// 遠征・グッズ探しの導線（アフィリエイトID設定時は成果リンクになる）
+const config = useRuntimeConfig()
+const rakutenTravelUrl = computed(() => buildRakutenAffiliateUrl('https://travel.rakuten.co.jp/', config.public.rakutenAffiliateId))
+const tripComUrl = computed(() => buildTripAffiliateUrl('https://jp.trip.com/hotels/', config.public.tripAllianceId, config.public.tripSid))
+const rakutenIchibaUrl = computed(() => buildRakutenAffiliateUrl('https://search.rakuten.co.jp/search/mall/%E6%8E%A8%E3%81%97%E6%B4%BB%E3%82%B0%E3%83%83%E3%82%BA/', config.public.rakutenAffiliateId))
 </script>
 
 <template>
@@ -121,6 +127,62 @@ const logout = async () => {
             送信
           </UButton>
         </div>
+      </div>
+    </UCard>
+
+    <UCard
+      class="mt-4"
+      :ui="{ body: 'p-4 flex flex-col gap-3' }"
+    >
+      <div class="flex items-center gap-2 font-semibold">
+        <UIcon name="i-lucide-sparkles" />
+        オタ活のお供
+        <UBadge
+          color="neutral"
+          variant="subtle"
+          size="sm"
+        >
+          PR
+        </UBadge>
+      </div>
+
+      <div class="flex flex-col gap-2">
+        <UButton
+          :to="rakutenTravelUrl"
+          external
+          target="_blank"
+          icon="i-lucide-bed-double"
+          variant="soft"
+          color="neutral"
+          block
+          class="justify-start"
+        >
+          楽天トラベルで遠征の宿を探す
+        </UButton>
+        <UButton
+          :to="tripComUrl"
+          external
+          target="_blank"
+          icon="i-lucide-plane"
+          variant="soft"
+          color="neutral"
+          block
+          class="justify-start"
+        >
+          Trip.comで遠征の宿を探す
+        </UButton>
+        <UButton
+          :to="rakutenIchibaUrl"
+          external
+          target="_blank"
+          icon="i-lucide-shopping-bag"
+          variant="soft"
+          color="neutral"
+          block
+          class="justify-start"
+        >
+          楽天市場で推し活グッズを探す
+        </UButton>
       </div>
     </UCard>
   </div>
