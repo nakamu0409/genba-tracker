@@ -88,6 +88,12 @@ const budgetOverAmount = computed(() => {
   return monthTotal.value - monthlyBudget.value
 })
 
+// 予算バーの表示割合（0〜100%、予算超過時は満タンにする）
+const budgetUsageRatio = computed(() => {
+  if (!monthlyBudget.value) return monthTotal.value > 0 ? 100 : 0
+  return Math.min(100, (monthTotal.value / monthlyBudget.value) * 100)
+})
+
 const monthAverageRating = computed(() => {
   const prefix = `${calendarYear.value}-${pad2(calendarMonth.value + 1)}-`
   const ratings = calendarFilteredEvents.value
@@ -205,7 +211,7 @@ onMounted(async () => {
       class="mb-3"
     />
 
-    <div class="mb-3 flex flex-wrap items-center gap-2">
+    <div class="mb-2 flex flex-wrap items-center gap-2">
       <USelectMenu
         v-model="memberFilter"
         :items="memberOptions"
@@ -239,30 +245,29 @@ onMounted(async () => {
 
     <UCard
       v-if="monthlyBudget !== null"
-      class="mb-3"
-      :ui="{ body: 'p-4 flex flex-col gap-1' }"
+      class="mb-2"
+      :ui="{ body: 'px-4 py-3 flex flex-col gap-1.5' }"
     >
-      <div class="flex items-center justify-between text-sm text-muted">
-        <span>予算</span>
-        <span>¥{{ monthlyBudget.toLocaleString() }}</span>
-      </div>
-      <div class="flex items-center justify-between text-sm text-muted">
-        <span>使用</span>
-        <span>¥{{ monthTotal.toLocaleString() }}</span>
-      </div>
       <div class="flex items-center justify-between">
-        <span class="font-semibold">{{ budgetOverAmount > 0 ? '予算超過' : '残り' }}</span>
+        <span class="text-sm font-semibold">{{ budgetOverAmount > 0 ? '予算超過' : '残り' }}</span>
         <span
           class="text-lg font-bold"
           :class="budgetOverAmount > 0 ? 'text-error' : 'text-primary'"
         >¥{{ Math.abs(monthlyBudget - monthTotal).toLocaleString() }}</span>
       </div>
-      <div
-        v-if="monthPlannedTotal > 0"
-        class="flex items-center justify-between text-sm text-muted"
-      >
-        <span>これから使う予定分</span>
-        <span>¥{{ monthPlannedTotal.toLocaleString() }}</span>
+
+      <div class="h-1.5 w-full overflow-hidden rounded-full bg-elevated">
+        <div
+          class="h-full rounded-full transition-all"
+          :class="budgetOverAmount > 0 ? 'bg-error' : 'bg-primary'"
+          :style="{ width: `${budgetUsageRatio}%` }"
+        />
+      </div>
+
+      <div class="flex items-center justify-between text-xs text-muted">
+        <span>予算 ¥{{ monthlyBudget.toLocaleString() }}</span>
+        <span>使用 ¥{{ monthTotal.toLocaleString() }}</span>
+        <span v-if="monthPlannedTotal > 0">予定分 ¥{{ monthPlannedTotal.toLocaleString() }}</span>
       </div>
     </UCard>
 
