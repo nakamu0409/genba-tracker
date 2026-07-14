@@ -138,6 +138,20 @@ const unpaidTicketTotal = computed(() => {
   return unpaidTicketEvents.value.reduce((sum, e) => sum + e.ticketPrice, 0)
 })
 
+// 未払いのうち今月開催分（＝今月中に用意すべき額）を別出しする
+const thisMonthPrefix = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-`
+
+const unpaidThisMonthEvents = computed(() => {
+  return unpaidTicketEvents.value.filter(e => e.eventDate?.startsWith(thisMonthPrefix))
+})
+
+const unpaidThisMonthTotal = computed(() => {
+  return unpaidThisMonthEvents.value.reduce((sum, e) => sum + e.ticketPrice, 0)
+})
+
+const unpaidOtherTotal = computed(() => unpaidTicketTotal.value - unpaidThisMonthTotal.value)
+const unpaidOtherCount = computed(() => unpaidTicketEvents.value.length - unpaidThisMonthEvents.value.length)
+
 const togglingTicketId = ref<number | null>(null)
 
 const markTicketPaid = async (id: number) => {
@@ -303,7 +317,12 @@ onMounted(async () => {
       color="warning"
       variant="soft"
       icon="i-lucide-circle-dollar-sign"
-      :title="`チケット未払いが${unpaidTicketEvents.length}件（¥${unpaidTicketTotal.toLocaleString()}）あります`"
+      :title="unpaidThisMonthTotal > 0
+        ? `今月中に支払うチケット代 ¥${unpaidThisMonthTotal.toLocaleString()}（${unpaidThisMonthEvents.length}件）`
+        : `チケット未払いが${unpaidTicketEvents.length}件（¥${unpaidTicketTotal.toLocaleString()}）あります`"
+      :description="unpaidThisMonthTotal > 0 && unpaidOtherTotal > 0
+        ? `ほかに今月以外の未払いが¥${unpaidOtherTotal.toLocaleString()}（${unpaidOtherCount}件）あります`
+        : undefined"
       class="mb-4"
     />
 
