@@ -122,7 +122,7 @@ const filteredTotal = computed(() => {
 const filteredPlannedTotal = computed(() => {
   return filteredEvents.value
     .filter(e => isPlannedGenbaDate(e.eventDate))
-    .reduce((sum, e) => sum + e.totalAmount, 0)
+    .reduce((sum, e) => sum + plannedRemainingAmount(e), 0)
 })
 
 const filteredChekiCount = computed(() => {

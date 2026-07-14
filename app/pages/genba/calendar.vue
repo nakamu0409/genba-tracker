@@ -80,7 +80,7 @@ const monthPlannedTotal = computed(() => {
   const prefix = `${calendarYear.value}-${pad2(calendarMonth.value + 1)}-`
   return events.value
     .filter(e => e.eventDate?.startsWith(prefix) && isPlannedGenbaDate(e.eventDate))
-    .reduce((sum, e) => sum + e.totalAmount, 0)
+    .reduce((sum, e) => sum + plannedRemainingAmount(e), 0)
 })
 
 const budgetOverAmount = computed(() => {
