@@ -222,7 +222,13 @@ const shareImage = async () => {
             class="flex items-center justify-between text-sm"
           >
             <span>{{ ['🥇', '🥈', '🥉'][i] }} {{ row.memberName || '未設定' }}<span class="text-xs text-muted"> ・ {{ row.groupName || '未設定' }}</span></span>
-            <span class="font-bold text-primary">¥{{ row.totalAmount.toLocaleString() }}</span>
+            <span class="flex items-baseline gap-1.5">
+              <span
+                v-if="row.chekiCount > 0"
+                class="text-xs text-muted"
+              >チェキ{{ row.chekiCount }}枚</span>
+              <span class="font-bold text-primary">¥{{ row.totalAmount.toLocaleString() }}</span>
+            </span>
           </div>
         </div>
       </UCard>
