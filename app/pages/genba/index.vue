@@ -413,7 +413,7 @@ onMounted(async () => {
           v-if="filteredPlannedTotal > 0"
           class="flex items-center justify-between text-sm text-muted"
         >
-          <span>うち予定</span>
+          <span>これから使う予定分</span>
           <span>¥{{ filteredPlannedTotal.toLocaleString() }}</span>
         </div>
 
