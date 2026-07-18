@@ -57,7 +57,10 @@ const handleSubmit = async (value: GenbaEventInput) => {
   loading.value = true
 
   try {
-    await $fetch(`/api/genba/events/${id}`, {
+    // 末尾が動的セグメントのURL（/api/genba/events/${id}）はNitroの型推論が
+    // メソッドをGETのみに絞ってしまう既知の制限があるため、plain stringに逃がして回避する
+    const putUrl: string = `/api/genba/events/${id}`
+    await $fetch(putUrl, {
       method: 'put',
       body: value
     })

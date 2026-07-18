@@ -140,7 +140,10 @@ const deleteEvent = async () => {
   deleting.value = true
 
   try {
-    await $fetch(`/api/genba/events/${id}`, { method: 'delete' })
+    // 末尾が動的セグメントのURL（/api/genba/events/${id}）はNitroの型推論が
+    // メソッドをGETのみに絞ってしまう既知の制限があるため、plain stringに逃がして回避する
+    const deleteUrl: string = `/api/genba/events/${id}`
+    await $fetch(deleteUrl, { method: 'delete' })
     router.push('/genba')
   } catch (e) {
     errorMessage.value = (e as { data?: { message?: string } })?.data?.message ?? '削除に失敗しました'
