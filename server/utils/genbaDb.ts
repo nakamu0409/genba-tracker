@@ -6,10 +6,16 @@ let clientPromise: Promise<Client> | null = null
 
 /**
 Turso(libSQL)クライアントを取得する（プロセス内シングルトン）。初回呼び出し時にスキーマを用意する
+ *
+初期化に失敗した場合はキャッシュを持たない（失敗したPromiseを使い回すと、一時的な接続エラーが
+一度起きただけでプロセス再起動までDBアクセスが永久に失敗し続けるため、次回呼び出しで再接続を試みる）
  */
 export function getGenbaDb(): Promise<Client> {
   if (!clientPromise) {
-    clientPromise = initClient()
+    clientPromise = initClient().catch((err) => {
+      clientPromise = null
+      throw err
+    })
   }
   return clientPromise
 }
