@@ -67,6 +67,14 @@ export type GenbaBudget = {
   monthlyAmount: number | null
 }
 
+export type GenbaEventMemberBreakdown = {
+  eventId: number
+  memberName: string
+  groupName: string | null
+  amount: number
+  chekiCount: number
+}
+
 export type GenbaSummaryRow = {
   key: string
   memberName: string | null

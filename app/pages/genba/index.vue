@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { GenbaEvent, GenbaSummaryRow } from '../../../shared/types/genba'
+import type { GenbaEvent, GenbaEventMemberBreakdown, GenbaSummaryRow } from '../../../shared/types/genba'
 
 definePageMeta({
   layout: 'genba'
@@ -9,6 +9,7 @@ const router = useRouter()
 
 const events = ref<GenbaEvent[]>([])
 const summary = ref<GenbaSummaryRow[]>([])
+const memberBreakdown = ref<GenbaEventMemberBreakdown[]>([])
 const errorMessage = ref('')
 const deletingId = ref<number | null>(null)
 
@@ -115,18 +116,61 @@ const filteredEvents = computed(() => {
   })
 })
 
+// 現場ごとの推し別内訳（推し・グループで絞り込んだときに「その推しだけの金額」を出すために使う）
+const breakdownByEvent = computed(() => {
+  const map = new Map<number, GenbaEventMemberBreakdown[]>()
+  for (const row of memberBreakdown.value) {
+    const list = map.get(row.eventId) ?? []
+    list.push(row)
+    map.set(row.eventId, list)
+  }
+  return map
+})
+
+const isFilteringByPerson = computed(() => !!memberFilter.value || !!groupFilter.value)
+
+// 絞り込み中は、その現場の中でも指定した推し・グループの明細金額だけを合計する（チケット代等の共通費用は含まない）
+const filteredMemberRows = (e: GenbaEvent) => {
+  const rows = breakdownByEvent.value.get(e.id) ?? []
+  return rows.filter(r =>
+    (!memberFilter.value || r.memberName === memberFilter.value)
+    && (!groupFilter.value || r.groupName === groupFilter.value)
+  )
+}
+
+const eventDisplayAmount = (e: GenbaEvent) => {
+  if (!isFilteringByPerson.value) return e.totalAmount
+  return filteredMemberRows(e).reduce((sum, r) => sum + r.amount, 0)
+}
+
+const eventDisplayChekiCount = (e: GenbaEvent) => {
+  if (!isFilteringByPerson.value) return e.chekiCount
+  return filteredMemberRows(e).reduce((sum, r) => sum + r.chekiCount, 0)
+}
+
 const filteredTotal = computed(() => {
-  return filteredEvents.value.reduce((sum, e) => sum + e.totalAmount, 0)
+  return filteredEvents.value.reduce((sum, e) => sum + eventDisplayAmount(e), 0)
 })
 
 const filteredPlannedTotal = computed(() => {
-  return filteredEvents.value
-    .filter(e => isPlannedGenbaDate(e.eventDate))
-    .reduce((sum, e) => sum + plannedRemainingAmount(e), 0)
+  const plannedEvents = filteredEvents.value.filter(e => isPlannedGenbaDate(e.eventDate))
+
+  if (isFilteringByPerson.value) {
+    // 絞り込み中はチケット代等の共通費用を含めない金額と揃える（明細のみの合計にする）
+    return plannedEvents.reduce((sum, e) => sum + eventDisplayAmount(e), 0)
+  }
+
+  return plannedEvents.reduce((sum, e) => sum + plannedRemainingAmount(e), 0)
 })
 
 const filteredChekiCount = computed(() => {
-  return filteredEvents.value.reduce((sum, e) => sum + e.chekiCount, 0)
+  return filteredEvents.value.reduce((sum, e) => sum + eventDisplayChekiCount(e), 0)
+})
+
+const totalLabel = computed(() => {
+  const base = listScope.value === 'month' ? `${monthLabel.value}の合計` : '全体の合計'
+  const personLabel = memberFilter.value || groupFilter.value
+  return personLabel ? `${base}（${personLabel}）` : base
 })
 
 const togglingTicketId = ref<number | null>(null)
@@ -158,6 +202,7 @@ const fetchEvents = async () => {
 
   try {
     events.value = await $fetch<GenbaEvent[]>('/api/genba/events')
+    memberBreakdown.value = await $fetch<GenbaEventMemberBreakdown[]>('/api/genba/events/member-breakdown')
   } catch (e) {
     errorMessage.value = (e as { data?: { message?: string } })?.data?.message ?? '一覧取得に失敗しました'
   }
@@ -369,7 +414,7 @@ onMounted(async () => {
           <span>{{ filteredChekiCount }}枚</span>
         </div>
         <div class="flex items-center justify-between">
-          <span class="font-semibold">{{ listScope === 'month' ? `${monthLabel}の合計` : '全体の合計' }}</span>
+          <span class="font-semibold">{{ totalLabel }}</span>
           <span class="text-lg font-bold text-primary">¥{{ filteredTotal.toLocaleString() }}</span>
         </div>
         <div
@@ -479,7 +524,7 @@ onMounted(async () => {
               <span class="text-xs text-muted">
                 {{ e.eventDate || '日付未設定' }}
                 <template v-if="e.venueName"> ・ {{ e.venueName }}</template>
-                <template v-if="e.chekiCount > 0"> ・ チェキ{{ e.chekiCount }}枚</template>
+                <template v-if="eventDisplayChekiCount(e) > 0"> ・ チェキ{{ eventDisplayChekiCount(e) }}枚</template>
                 <template v-if="e.rating !== null"> ・ {{ '★'.repeat(e.rating) }}{{ '☆'.repeat(5 - e.rating) }}</template>
               </span>
               <UButton
@@ -520,7 +565,13 @@ onMounted(async () => {
             </div>
 
             <div class="flex flex-col items-end gap-2">
-              <span class="font-bold text-primary">¥{{ e.totalAmount.toLocaleString() }}</span>
+              <div class="flex flex-col items-end">
+                <span class="font-bold text-primary">¥{{ eventDisplayAmount(e).toLocaleString() }}</span>
+                <span
+                  v-if="isFilteringByPerson && eventDisplayAmount(e) !== e.totalAmount"
+                  class="text-xs text-muted"
+                >現場全体 ¥{{ e.totalAmount.toLocaleString() }}</span>
+              </div>
               <UButton
                 icon="i-lucide-trash-2"
                 color="error"

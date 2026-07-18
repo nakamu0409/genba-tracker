@@ -394,6 +394,53 @@ export async function getGenbaSummary(deviceId: string, filter?: GenbaSummaryFil
 }
 
 /**
+現場ごとの推し別内訳（チェキ・グッズの明細金額のみ、チケット代等は含まない）を取得する。
+1つの現場に複数の推しの明細がある場合に、一覧の絞り込みで「その推しだけの金額」を出すために使う
+ */
+export async function getEventMemberBreakdown(deviceId: string): Promise<{
+  eventId: number
+  memberName: string
+  groupName: string | null
+  amount: number
+  chekiCount: number
+}[]> {
+  const db = await getGenbaDb()
+
+  const result = await db.execute({
+    sql: `
+      SELECT
+        i.event_id,
+        i.member_name,
+        gi.group_name AS group_name,
+        SUM(i.unit_price * i.quantity) AS amount,
+        SUM(CASE WHEN i.category = 'cheki' THEN i.quantity ELSE 0 END) AS cheki_count
+      FROM genba_items i
+      INNER JOIN genba_events e ON e.id = i.event_id
+      LEFT JOIN genba_idols gi ON gi.name = i.member_name AND gi.device_id = e.device_id
+      WHERE e.device_id = ? AND i.member_name IS NOT NULL AND i.member_name != ''
+      GROUP BY i.event_id, i.member_name
+    `,
+    args: [deviceId]
+  })
+
+  const rows = result.rows as unknown as {
+    event_id: number
+    member_name: string
+    group_name: string | null
+    amount: number
+    cheki_count: number
+  }[]
+
+  return rows.map(row => ({
+    eventId: row.event_id,
+    memberName: row.member_name,
+    groupName: row.group_name,
+    amount: row.amount,
+    chekiCount: row.cheki_count
+  }))
+}
+
+/**
 指定年の年間まとめ（総額・現場回数・チェキ枚数・月別支出・最高額/最多チェキの現場・推し別ランキング）を取得する。
 未来の日付の「予定」の現場は振り返りの対象外として含めない
  */
