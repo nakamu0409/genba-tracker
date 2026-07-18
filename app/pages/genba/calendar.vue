@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import type { GenbaEvent } from '../../../shared/types/genba'
+import { useGenbaMasters } from '../../composables/useGenbaMasters'
 
 definePageMeta({
   layout: 'genba'
 })
 
 const router = useRouter()
+
+const { idols, groups, fetchMasters } = useGenbaMasters()
 
 const events = ref<GenbaEvent[]>([])
 const errorMessage = ref('')
@@ -39,14 +42,20 @@ const goNextMonth = () => {
   }
 }
 
+// 絞り込みの候補は「現在マスタに残っている名前」に限定する（マスタから削除した推しは
+// 過去記録には残るが、絞り込み候補には出さない）
 const memberOptions = computed(() => {
-  const names = events.value.flatMap(e => e.memberNames)
-  return [...new Set(names)].map(name => ({ label: name, value: name }))
+  const recorded = new Set(events.value.flatMap(e => e.memberNames))
+  return idols.value
+    .filter(i => recorded.has(i.name))
+    .map(i => ({ label: i.name, value: i.name }))
 })
 
 const groupOptions = computed(() => {
-  const names = events.value.flatMap(e => e.groupNames)
-  return [...new Set(names)].map(name => ({ label: name, value: name }))
+  const recorded = new Set(events.value.flatMap(e => e.groupNames))
+  return groups.value
+    .filter(g => recorded.has(g.name))
+    .map(g => ({ label: g.name, value: g.name }))
 })
 
 const calendarFilteredEvents = computed(() => {
@@ -180,6 +189,7 @@ const fetchEvents = async () => {
 onMounted(async () => {
   await fetchEvents()
   await fetchBudget()
+  await fetchMasters()
 })
 </script>
 

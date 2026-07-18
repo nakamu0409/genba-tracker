@@ -43,6 +43,27 @@ function tieredAchievements(
   }))
 }
 
+export type GenbaMemberRank = {
+  emoji: string
+  title: string
+}
+
+const MEMBER_RANK_TIERS: { threshold: number, emoji: string, title: string }[] = [
+  { threshold: 300000, emoji: '👑', title: '伝説の投資家' },
+  { threshold: 100000, emoji: '🔥', title: '沼オタク' },
+  { threshold: 30000, emoji: '💪', title: 'ベテランオタク' },
+  { threshold: 5000, emoji: '🙂', title: '常連オタク' },
+  { threshold: 0, emoji: '🌱', title: '見習いオタク' }
+]
+
+/**
+推し1人への累計課金額（チェキ・グッズの明細合計）からランク称号を判定する
+ */
+export function computeGenbaMemberRank(totalAmount: number): GenbaMemberRank {
+  const tier = MEMBER_RANK_TIERS.find(t => totalAmount >= t.threshold)
+  return { emoji: tier!.emoji, title: tier!.title }
+}
+
 /**
 現場記録の実績（バッジ）一覧を判定する。実績は保存せず、記録データから毎回その場で計算する
  */

@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import type { GenbaEvent, GenbaEventMemberBreakdown, GenbaSummaryRow } from '../../../shared/types/genba'
+import { useGenbaMasters } from '../../composables/useGenbaMasters'
 
 definePageMeta({
   layout: 'genba'
 })
 
 const router = useRouter()
+
+const { idols, groups, fetchMasters } = useGenbaMasters()
 
 const events = ref<GenbaEvent[]>([])
 const summary = ref<GenbaSummaryRow[]>([])
@@ -97,14 +100,20 @@ const isInSelectedMonth = (eventDate: string | null) => {
   return y === calendarYear.value && m === calendarMonth.value + 1
 }
 
+// 絞り込みの候補は「現在マスタに残っている名前」に限定する（マスタから削除した推しは
+// 過去記録には残るが、絞り込み候補には出さない）
 const memberOptions = computed(() => {
-  const names = events.value.flatMap(e => e.memberNames)
-  return [...new Set(names)].map(name => ({ label: name, value: name }))
+  const recorded = new Set(events.value.flatMap(e => e.memberNames))
+  return idols.value
+    .filter(i => recorded.has(i.name))
+    .map(i => ({ label: i.name, value: i.name }))
 })
 
 const groupOptions = computed(() => {
-  const names = events.value.flatMap(e => e.groupNames)
-  return [...new Set(names)].map(name => ({ label: name, value: name }))
+  const recorded = new Set(events.value.flatMap(e => e.groupNames))
+  return groups.value
+    .filter(g => recorded.has(g.name))
+    .map(g => ({ label: g.name, value: g.name }))
 })
 
 const filteredEvents = computed(() => {
@@ -146,6 +155,17 @@ const eventDisplayAmount = (e: GenbaEvent) => {
 const eventDisplayChekiCount = (e: GenbaEvent) => {
   if (!isFilteringByPerson.value) return e.chekiCount
   return filteredMemberRows(e).reduce((sum, r) => sum + r.chekiCount, 0)
+}
+
+// 絞り込み中は、そのカードのバッジにも絞り込み対象以外の推し・グループを出さない
+const displayMemberNames = (e: GenbaEvent) => {
+  if (!isFilteringByPerson.value) return e.memberNames
+  return [...new Set(filteredMemberRows(e).map(r => r.memberName))]
+}
+
+const displayGroupNames = (e: GenbaEvent) => {
+  if (!isFilteringByPerson.value) return e.groupNames
+  return [...new Set(filteredMemberRows(e).map(r => r.groupName).filter((g): g is string => !!g))]
 }
 
 const filteredTotal = computed(() => {
@@ -294,6 +314,7 @@ const deleteEvent = async (id: number) => {
 onMounted(async () => {
   await fetchEvents()
   await fetchSummary()
+  await fetchMasters()
 })
 </script>
 
@@ -541,11 +562,11 @@ onMounted(async () => {
                 支払い済みにする
               </UButton>
               <div
-                v-if="e.memberNames.length > 0 || e.groupNames.length > 0"
+                v-if="displayMemberNames(e).length > 0 || displayGroupNames(e).length > 0"
                 class="mt-1 flex flex-wrap gap-1"
               >
                 <UBadge
-                  v-for="name in e.memberNames"
+                  v-for="name in displayMemberNames(e)"
                   :key="`member-${name}`"
                   color="primary"
                   variant="subtle"
@@ -554,7 +575,7 @@ onMounted(async () => {
                   {{ name }}
                 </UBadge>
                 <UBadge
-                  v-for="name in e.groupNames"
+                  v-for="name in displayGroupNames(e)"
                   :key="`group-${name}`"
                   color="neutral"
                   variant="subtle"

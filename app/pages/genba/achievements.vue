@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { GenbaEvent, GenbaSummaryRow } from '../../../shared/types/genba'
+import { useGenbaMasters } from '../../composables/useGenbaMasters'
 
 definePageMeta({
   layout: 'genba'
@@ -7,10 +8,13 @@ definePageMeta({
 
 const STORAGE_KEY = 'genba_achievements_unlocked_ids'
 
+const { idols, fetchMasters } = useGenbaMasters()
+
 const loading = ref(true)
 const errorMessage = ref('')
 const achievements = ref<GenbaAchievement[]>([])
 const newlyUnlocked = ref<GenbaAchievement[]>([])
+const memberRanking = ref<GenbaSummaryRow[]>([])
 
 const categoryLabels: Record<GenbaAchievementCategory, string> = {
   events: '現場回数',
@@ -32,6 +36,17 @@ const grouped = computed(() => {
 
 const unlockedCount = computed(() => achievements.value.filter(a => a.unlocked).length)
 
+const memberRanks = computed(() => {
+  return memberRanking.value
+    .filter(r => r.memberName && r.totalAmount > 0)
+    .sort((a, b) => b.totalAmount - a.totalAmount)
+    .map(r => ({
+      ...r,
+      rank: computeGenbaMemberRank(r.totalAmount),
+      photoUrl: idols.value.find(i => i.name === r.memberName)?.photoUrl ?? null
+    }))
+})
+
 onMounted(async () => {
   loading.value = true
   errorMessage.value = ''
@@ -39,8 +54,10 @@ onMounted(async () => {
   try {
     const [events, ranking] = await Promise.all([
       $fetch<GenbaEvent[]>('/api/genba/events'),
-      $fetch<GenbaSummaryRow[]>('/api/genba/summary')
+      $fetch<GenbaSummaryRow[]>('/api/genba/summary'),
+      fetchMasters()
     ])
+    memberRanking.value = ranking
 
     // 実績は「実際に行った現場」だけを対象にする（予定は含めない）
     const pastEvents = events.filter(e => !isPlannedGenbaDate(e.eventDate))
@@ -121,6 +138,44 @@ onMounted(async () => {
           <span class="text-lg font-bold text-primary">{{ unlockedCount }} / {{ achievements.length }}</span>
         </div>
       </UCard>
+
+      <div
+        v-if="memberRanks.length > 0"
+        class="mb-5"
+      >
+        <p class="mb-2 text-sm font-semibold text-muted">
+          推し別ランク
+        </p>
+        <div class="flex flex-col gap-2">
+          <UCard
+            v-for="row in memberRanks"
+            :key="row.key"
+            :ui="{ body: 'p-3 flex items-center gap-3' }"
+          >
+            <UAvatar
+              :src="row.photoUrl ?? undefined"
+              icon="i-lucide-star"
+              size="md"
+            />
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-sm font-semibold">
+                {{ row.memberName }}
+                <span
+                  v-if="row.groupName"
+                  class="text-xs font-normal text-muted"
+                >・ {{ row.groupName }}</span>
+              </p>
+              <p class="text-xs text-muted">
+                {{ row.rank.emoji }} {{ row.rank.title }}
+                <template v-if="row.chekiCount > 0">
+                  ・ チェキ{{ row.chekiCount }}枚
+                </template>
+              </p>
+            </div>
+            <span class="shrink-0 font-bold text-primary">¥{{ row.totalAmount.toLocaleString() }}</span>
+          </UCard>
+        </div>
+      </div>
 
       <div class="flex flex-col gap-5">
         <div
