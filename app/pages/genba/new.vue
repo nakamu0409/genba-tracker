@@ -11,20 +11,66 @@ const route = useRoute()
 const loading = ref(false)
 const errorMessage = ref('')
 
-const initialValue: GenbaEventInput = {
-  eventName: '',
-  eventDate: typeof route.query.date === 'string' ? route.query.date : null,
-  venueName: null,
-  ticketPrice: 0,
-  ticketPaid: true,
-  drinkFee: 0,
-  transportFee: 0,
-  lodgingFee: 0,
-  memo: null,
-  rating: null,
-  chekiItems: [],
-  goodsItems: []
-}
+const duplicateFromId = typeof route.query.duplicateFrom === 'string' ? route.query.duplicateFrom : null
+const sourceEvent = ref<GenbaEventDetail | null>(null)
+const loadingSource = ref(!!duplicateFromId)
+
+onMounted(async () => {
+  if (!duplicateFromId) return
+
+  try {
+    sourceEvent.value = await $fetch<GenbaEventDetail>(`/api/genba/events/${duplicateFromId}`)
+  } catch (e) {
+    errorMessage.value = (e as { data?: { message?: string } })?.data?.message ?? '複製元の取得に失敗しました'
+  } finally {
+    loadingSource.value = false
+  }
+})
+
+// 複製時は日付・満足度・メモは新しい現場用に空にし、会場・費用・推しの明細はそのまま引き継ぐ
+const initialValue = computed<GenbaEventInput>(() => {
+  const src = sourceEvent.value
+
+  if (!src) {
+    return {
+      eventName: '',
+      eventDate: typeof route.query.date === 'string' ? route.query.date : null,
+      venueName: null,
+      ticketPrice: 0,
+      ticketPaid: true,
+      drinkFee: 0,
+      transportFee: 0,
+      lodgingFee: 0,
+      memo: null,
+      rating: null,
+      chekiItems: [],
+      goodsItems: []
+    }
+  }
+
+  const toItemInput = (item: GenbaEventDetail['items'][number]) => ({
+    label: item.label,
+    unitPrice: item.unitPrice,
+    quantity: item.quantity,
+    memberName: item.memberName,
+    groupName: item.groupName
+  })
+
+  return {
+    eventName: src.eventName,
+    eventDate: typeof route.query.date === 'string' ? route.query.date : null,
+    venueName: src.venueName,
+    ticketPrice: src.ticketPrice,
+    ticketPaid: true,
+    drinkFee: src.drinkFee,
+    transportFee: src.transportFee,
+    lodgingFee: src.lodgingFee,
+    memo: null,
+    rating: null,
+    chekiItems: src.items.filter(item => item.category === 'cheki').map(toItemInput),
+    goodsItems: src.items.filter(item => item.category === 'goods').map(toItemInput)
+  }
+})
 
 const handleSubmit = async (value: GenbaEventInput, photos: File[]) => {
   errorMessage.value = ''
@@ -80,7 +126,24 @@ const handleSubmit = async (value: GenbaEventInput, photos: File[]) => {
       class="mb-4"
     />
 
+    <UAlert
+      v-if="duplicateFromId && sourceEvent"
+      color="primary"
+      variant="soft"
+      icon="i-lucide-copy"
+      title="複製した内容です。日付を選び直して登録してください"
+      class="mb-4"
+    />
+
+    <div
+      v-if="loadingSource"
+      class="py-10 text-center text-muted"
+    >
+      読み込み中...
+    </div>
+
     <GenbaEventForm
+      v-else
       :initial-value="initialValue"
       submit-label="登録"
       :loading="loading"

@@ -41,6 +41,10 @@ const goEdit = () => {
   router.push(`/genba/edit/${id}`)
 }
 
+const goDuplicate = () => {
+  router.push(`/genba/new?duplicateFrom=${id}`)
+}
+
 const togglingTicketPaid = ref(false)
 
 const toggleTicketPaid = async () => {
@@ -169,6 +173,11 @@ const deleteEvent = async () => {
           icon="i-lucide-pencil"
           variant="soft"
           @click="goEdit"
+        />
+        <UButton
+          icon="i-lucide-copy"
+          variant="soft"
+          @click="goDuplicate"
         />
         <UButton
           icon="i-lucide-trash-2"
