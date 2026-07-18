@@ -53,9 +53,17 @@ const logout = async () => {
 <template>
   <div class="mx-auto w-full max-w-2xl px-4 py-5">
     <div class="mb-4 flex items-center justify-between">
-      <h1 class="text-xl font-bold">
-        マスタ管理
-      </h1>
+      <div class="flex items-center gap-2">
+        <UButton
+          to="/genba/account"
+          icon="i-lucide-arrow-left"
+          variant="ghost"
+          color="neutral"
+        />
+        <h1 class="text-xl font-bold">
+          マスタ管理
+        </h1>
+      </div>
 
       <UBadge
         v-if="isAdmin"
