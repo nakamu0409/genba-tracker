@@ -89,6 +89,7 @@ export type GenbaYearlyOverview = {
   totalAmount: number
   eventCount: number
   chekiCount: number
+  venueCount: number
   monthlyTotals: { month: number, totalAmount: number }[]
   monthlyAverageRatings: { month: number, averageRating: number | null }[]
   averageRating: number | null

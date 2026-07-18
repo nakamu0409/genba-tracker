@@ -79,6 +79,21 @@ const topEventByAmount = computed(() => {
 
 const topRanking = computed(() => ranking.value.slice(0, 3))
 
+const venueCount = computed(() => {
+  return new Set(monthEvents.value.map(e => e.venueName).filter((v): v is string => !!v)).size
+})
+
+const diagnosis = computed(() => {
+  if (monthEvents.value.length === 0) return null
+  return computeGenbaDiagnosis({
+    eventCount: monthEvents.value.length,
+    chekiCount: chekiCount.value,
+    averageRating: averageRating.value,
+    venueCount: venueCount.value,
+    ranking: ranking.value
+  })
+})
+
 const shareImage = async () => {
   if (!shareCardRef.value) return
   sharing.value = true
@@ -158,6 +173,27 @@ const shareImage = async () => {
       ref="shareCardRef"
       class="flex flex-col gap-4 bg-default p-1"
     >
+      <UCard
+        v-if="diagnosis"
+        :ui="{ body: 'p-5 text-center bg-gradient-to-br from-primary-500/15 via-transparent to-transparent' }"
+      >
+        <p class="mb-2 text-xs font-semibold text-muted">
+          {{ monthLabel }}のオタ活診断
+        </p>
+        <p class="text-4xl">
+          {{ diagnosis.emoji }}
+        </p>
+        <p class="mt-1 text-lg font-bold text-primary">
+          {{ diagnosis.title }}
+        </p>
+        <p class="mt-1 text-sm text-muted">
+          {{ diagnosis.tagline }}
+        </p>
+        <p class="mt-2 text-xs font-semibold text-muted">
+          {{ diagnosis.statLine }}
+        </p>
+      </UCard>
+
       <UCard :ui="{ body: 'p-5' }">
         <p class="mb-3 text-center text-sm text-muted">
           {{ monthLabel }}の現場まとめ

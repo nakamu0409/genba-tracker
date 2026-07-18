@@ -461,6 +461,7 @@ export async function getYearlyOverview(deviceId: string, year: number): Promise
 
   const totalAmount = events.reduce((sum, e) => sum + e.totalAmount, 0)
   const chekiCount = events.reduce((sum, e) => sum + e.chekiCount, 0)
+  const venueCount = new Set(events.map(e => e.venueName).filter((v): v is string => !!v)).size
 
   const monthlyTotalsMap = new Map<number, number>()
   for (const e of events) {
@@ -511,6 +512,7 @@ export async function getYearlyOverview(deviceId: string, year: number): Promise
     totalAmount,
     eventCount: events.length,
     chekiCount,
+    venueCount,
     monthlyTotals,
     monthlyAverageRatings,
     averageRating,

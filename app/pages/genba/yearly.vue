@@ -48,6 +48,17 @@ const maxMonthlyAmount = computed(() => {
 
 const topRanking = computed(() => overview.value?.ranking.slice(0, 5) ?? [])
 
+const diagnosis = computed(() => {
+  if (!overview.value) return null
+  return computeGenbaDiagnosis({
+    eventCount: overview.value.eventCount,
+    chekiCount: overview.value.chekiCount,
+    averageRating: overview.value.averageRating,
+    venueCount: overview.value.venueCount,
+    ranking: overview.value.ranking
+  })
+})
+
 const memberOptions = computed(() => {
   const names = (overview.value?.ranking ?? []).map(r => r.memberName).filter((n): n is string => !!n)
   return [...new Set(names)]
@@ -166,6 +177,27 @@ const shareImage = async () => {
       ref="shareCardRef"
       class="flex flex-col gap-4 bg-default p-1"
     >
+      <UCard
+        v-if="diagnosis"
+        :ui="{ body: 'p-5 text-center bg-gradient-to-br from-primary-500/15 via-transparent to-transparent' }"
+      >
+        <p class="mb-2 text-xs font-semibold text-muted">
+          {{ year }}年のオタ活診断
+        </p>
+        <p class="text-4xl">
+          {{ diagnosis.emoji }}
+        </p>
+        <p class="mt-1 text-lg font-bold text-primary">
+          {{ diagnosis.title }}
+        </p>
+        <p class="mt-1 text-sm text-muted">
+          {{ diagnosis.tagline }}
+        </p>
+        <p class="mt-2 text-xs font-semibold text-muted">
+          {{ diagnosis.statLine }}
+        </p>
+      </UCard>
+
       <UCard :ui="{ body: 'p-5' }">
         <p class="mb-3 text-center text-sm text-muted">
           {{ year }}年の現場まとめ
