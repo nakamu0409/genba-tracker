@@ -42,8 +42,9 @@ async function initClient(): Promise<Client> {
 
 /**
 テーブル・インデックスを用意し、既存DBには後方互換のマイグレーションを適用する
+（テストからも実スキーマを再現するために使うのでexportしている）
  */
-async function ensureSchema(client: Client): Promise<void> {
+export async function ensureSchema(client: Client): Promise<void> {
   await client.execute(`
     CREATE TABLE IF NOT EXISTS genba_events (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
