@@ -52,6 +52,17 @@ const initialValue = computed(() => {
   }
 })
 
+// 詳細ページへ戻る。編集は詳細から来るので、履歴を積み増さずrouter.back()で戻す。
+// これにより「カレンダー→詳細→編集」の履歴が保たれ、詳細で戻るとカレンダーに帰れる。
+// 直接この編集ページを開いた場合（履歴なし）は詳細へpushする
+const backToDetail = () => {
+  if (window.history.state?.back) {
+    router.back()
+  } else {
+    router.push(`/genba/${id}`)
+  }
+}
+
 const handleSubmit = async (value: GenbaEventInput) => {
   errorMessage.value = ''
   loading.value = true
@@ -65,7 +76,7 @@ const handleSubmit = async (value: GenbaEventInput) => {
       body: value
     })
 
-    router.push(`/genba/${id}`)
+    backToDetail()
   } catch (e) {
     errorMessage.value = (e as { data?: { message?: string } })?.data?.message ?? '更新に失敗しました'
   } finally {
@@ -78,10 +89,10 @@ const handleSubmit = async (value: GenbaEventInput) => {
   <div class="mx-auto w-full max-w-2xl px-4 py-5">
     <div class="mb-4 flex items-center gap-2">
       <UButton
-        :to="`/genba/${id}`"
         icon="i-lucide-arrow-left"
         variant="ghost"
         color="neutral"
+        @click="backToDetail"
       />
       <h1 class="text-xl font-bold">
         現場を編集
