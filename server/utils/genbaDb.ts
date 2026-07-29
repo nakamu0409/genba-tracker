@@ -78,7 +78,8 @@ export async function ensureSchema(client: Client): Promise<void> {
       unit_price INTEGER NOT NULL DEFAULT 0,
       quantity INTEGER NOT NULL DEFAULT 1,
       member_name TEXT,
-      group_name TEXT
+      group_name TEXT,
+      paid INTEGER NOT NULL DEFAULT 1
     )
   `)
 
@@ -199,6 +200,12 @@ async function migrateGenbaColumns(client: Client): Promise<void> {
 
   if (!itemColumnNames.has('group_name')) {
     await client.execute('ALTER TABLE genba_items ADD COLUMN group_name TEXT')
+  }
+
+  // 明細ごとの前払い管理（チェキはメンバーごとに支払い済みを管理するため。
+  // イベント単位の items_paid 列は廃止し、こちらに一本化。既存明細は支払い済み扱い DEFAULT 1）
+  if (!itemColumnNames.has('paid')) {
+    await client.execute('ALTER TABLE genba_items ADD COLUMN paid INTEGER NOT NULL DEFAULT 1')
   }
 }
 

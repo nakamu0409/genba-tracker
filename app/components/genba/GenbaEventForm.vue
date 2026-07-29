@@ -24,7 +24,8 @@ const toFormState = (item: InitialItemInput): GenbaItemFormState => ({
   unitPrice: item.unitPrice,
   quantity: item.quantity,
   memberName: item.memberName,
-  groupDraft: item.groupName ?? null
+  groupDraft: item.groupName ?? null,
+  paid: item.paid ?? true
 })
 
 const eventName = ref(props.initialValue.eventName)
@@ -37,7 +38,6 @@ const transportFee = ref(props.initialValue.transportFee)
 const transportPaid = ref(props.initialValue.transportPaid)
 const lodgingFee = ref(props.initialValue.lodgingFee)
 const lodgingPaid = ref(props.initialValue.lodgingPaid)
-const itemsPaid = ref(props.initialValue.itemsPaid)
 const memo = ref(props.initialValue.memo ?? '')
 const rating = ref<number | null>(props.initialValue.rating ?? null)
 const chekiItems = ref<GenbaItemFormState[]>(props.initialValue.chekiItems.map(toFormState))
@@ -141,10 +141,6 @@ const toggleLodgingPaid = (value: boolean) => {
   lodgingPaid.value = value
   paidTouched.value = true
 }
-const toggleItemsPaid = (value: boolean) => {
-  itemsPaid.value = value
-  paidTouched.value = true
-}
 
 watch(eventDate, () => {
   if (props.eventId || paidTouched.value) return
@@ -152,15 +148,14 @@ watch(eventDate, () => {
   ticketPaid.value = paid
   transportPaid.value = paid
   lodgingPaid.value = paid
-  itemsPaid.value = paid
+  // チェキ・グッズ明細も同じ既定（予定なら未払い＝これから使う予定分に計上）に揃える
+  chekiItems.value = chekiItems.value.map(i => ({ ...i, paid }))
+  goodsItems.value = goodsItems.value.map(i => ({ ...i, paid }))
 }, { immediate: true })
 
-// 支払いトグルを出す費目（値が入っているものだけ）。過去の現場では
-// チケット未払い管理のみ意味があるので、それ以外は予定の現場でだけ表示してごちゃつきを抑える
-const itemsTotalForPaid = computed(() =>
-  chekiItems.value.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0)
-  + goodsItems.value.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0))
-
+// 費用の支払いトグルを出す費目（値が入っているものだけ）。過去の現場では
+// チケット未払い管理のみ意味があるので、それ以外は予定の現場でだけ表示してごちゃつきを抑える。
+// チェキ・グッズは明細ごと（メンバーごと）に各エディタ内で管理する
 const paidToggles = computed(() => {
   const rows: { key: string, label: string, value: boolean, toggle: (v: boolean) => void }[] = []
   if (ticketPrice.value > 0) {
@@ -171,9 +166,6 @@ const paidToggles = computed(() => {
   }
   if (isPlanned.value && lodgingFee.value > 0) {
     rows.push({ key: 'lodging', label: '宿泊費', value: lodgingPaid.value, toggle: toggleLodgingPaid })
-  }
-  if (isPlanned.value && itemsTotalForPaid.value > 0) {
-    rows.push({ key: 'items', label: 'チェキ・グッズ', value: itemsPaid.value, toggle: toggleItemsPaid })
   }
   return rows
 })
@@ -267,7 +259,6 @@ const handleSubmit = async () => {
     transportPaid: transportPaid.value,
     lodgingFee: lodgingFee.value || 0,
     lodgingPaid: lodgingPaid.value,
-    itemsPaid: itemsPaid.value,
     memo: memo.value || null,
     rating: rating.value,
     chekiItems: chekiItems.value.map(stripGroupDraft),
@@ -426,6 +417,8 @@ const handleSubmit = async () => {
       :idols="idols"
       :groups="groups"
       require-member
+      :show-paid="isPlanned"
+      :default-paid="!isPlanned"
     />
 
     <GenbaItemEditor
@@ -435,6 +428,8 @@ const handleSubmit = async () => {
       :idols="idols"
       :groups="groups"
       show-label
+      :show-paid="isPlanned"
+      :default-paid="!isPlanned"
     />
 
     <UCard :ui="{ body: 'p-3 sm:p-4' }">

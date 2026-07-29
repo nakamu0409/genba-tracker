@@ -8,6 +8,7 @@ export type GenbaItem = {
   quantity: number
   memberName: string | null
   groupName: string | null
+  paid: boolean
 }
 
 export type GenbaItemInput = {
@@ -15,6 +16,8 @@ export type GenbaItemInput = {
   unitPrice: number
   quantity: number
   memberName: string | null
+  // 前払い済みか。未指定時は支払い済み扱い（既存API・過去データとの互換）
+  paid?: boolean
 }
 
 export type GenbaEvent = {
@@ -31,13 +34,14 @@ export type GenbaEvent = {
   transportPaid: boolean
   lodgingFee: number
   lodgingPaid: boolean
-  itemsPaid: boolean
   memo: string | null
   rating: number | null
   createdAt: string
   chekiTotal: number
   chekiCount: number
   goodsTotal: number
+  // チェキ・グッズ明細のうち、まだ支払っていない分の合計（これから使う予定分の計算に使う）
+  unpaidItemsTotal: number
   totalAmount: number
 }
 
@@ -62,7 +66,6 @@ export type GenbaEventInput = {
   transportPaid: boolean
   lodgingFee: number
   lodgingPaid: boolean
-  itemsPaid: boolean
   memo: string | null
   rating: number | null
   chekiItems: GenbaItemInput[]

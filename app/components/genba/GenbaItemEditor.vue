@@ -11,6 +11,10 @@ const props = defineProps<{
   groups: GenbaMasterEntry[]
   requireMember?: boolean
   showLabel?: boolean
+  // 予定の現場のとき、明細ごとに「支払い済み」トグルを出す
+  showPaid?: boolean
+  // 新しい明細行の支払い済み初期値（予定なら未払い＝false）
+  defaultPaid?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -31,7 +35,7 @@ const subtotal = computed(() => {
 const addRow = () => {
   emit('update:modelValue', [
     ...props.modelValue,
-    { label: '', unitPrice: 0, quantity: 1, memberName: null, groupDraft: null }
+    { label: '', unitPrice: 0, quantity: 1, memberName: null, groupDraft: null, paid: props.defaultPaid ?? true }
   ])
 }
 
@@ -83,7 +87,7 @@ const quickAddIdols = computed(() => {
 const quickAddIdol = (idol: GenbaMasterEntry) => {
   emit('update:modelValue', [
     ...props.modelValue,
-    { label: '', unitPrice: idol.lastUnitPrice ?? 0, quantity: 1, memberName: idol.name, groupDraft: idol.groupName }
+    { label: '', unitPrice: idol.lastUnitPrice ?? 0, quantity: 1, memberName: idol.name, groupDraft: idol.groupName, paid: props.defaultPaid ?? true }
   ])
 }
 
@@ -251,6 +255,23 @@ const handleCreateGroup = (index: number, name: string) => {
           <span class="pb-2 text-right text-sm font-semibold text-highlighted">
             ¥{{ (item.unitPrice * item.quantity).toLocaleString() }}
           </span>
+        </div>
+
+        <div
+          v-if="showPaid && item.unitPrice > 0"
+          class="flex items-center justify-between rounded-md bg-elevated/50 px-2 py-1.5"
+        >
+          <span class="flex items-center gap-1.5 text-xs">
+            <UIcon
+              :name="item.paid ? 'i-lucide-check-circle-2' : 'i-lucide-circle-dollar-sign'"
+              :class="item.paid ? 'text-success' : 'text-warning'"
+            />
+            前もって支払い済み
+          </span>
+          <USwitch
+            :model-value="item.paid ?? true"
+            @update:model-value="(v) => updateRow(index, { paid: v })"
+          />
         </div>
       </div>
 

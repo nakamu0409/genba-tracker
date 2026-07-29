@@ -59,7 +59,9 @@ function parseItems(raw: unknown, categoryLabel: string, requireMember: boolean)
       label,
       unitPrice: toNonNegativeInt(data?.unitPrice, `${categoryLabel}の単価`),
       quantity: Math.max(1, toNonNegativeInt(data?.quantity ?? 1, `${categoryLabel}の数量`)),
-      memberName
+      memberName,
+      // 未指定時は支払い済み扱い（既存API・過去データとの互換）
+      paid: data?.paid === undefined ? true : Boolean(data.paid)
     }
   })
 }
@@ -107,7 +109,6 @@ export function parseGenbaEventInput(body: unknown): GenbaEventInput {
     transportPaid: data.transportPaid === undefined ? true : Boolean(data.transportPaid),
     lodgingFee: toNonNegativeInt(data.lodgingFee ?? 0, '宿泊費'),
     lodgingPaid: data.lodgingPaid === undefined ? true : Boolean(data.lodgingPaid),
-    itemsPaid: data.itemsPaid === undefined ? true : Boolean(data.itemsPaid),
     memo,
     rating,
     chekiItems: parseItems(data.chekiItems, 'チェキ', true),

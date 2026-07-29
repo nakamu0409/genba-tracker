@@ -31,7 +31,6 @@ const initialValue = computed(() => {
     transportPaid: data.value.transportPaid,
     lodgingFee: data.value.lodgingFee,
     lodgingPaid: data.value.lodgingPaid,
-    itemsPaid: data.value.itemsPaid,
     memo: data.value.memo,
     rating: data.value.rating,
     chekiItems: data.value.items
@@ -41,7 +40,8 @@ const initialValue = computed(() => {
         unitPrice: item.unitPrice,
         quantity: item.quantity,
         memberName: item.memberName,
-        groupName: item.groupName
+        groupName: item.groupName,
+        paid: item.paid
       })),
     goodsItems: data.value.items
       .filter(item => item.category === 'goods')
@@ -50,7 +50,8 @@ const initialValue = computed(() => {
         unitPrice: item.unitPrice,
         quantity: item.quantity,
         memberName: item.memberName,
-        groupName: item.groupName
+        groupName: item.groupName,
+        paid: item.paid
       }))
   }
 })

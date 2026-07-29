@@ -67,7 +67,6 @@ const eventInput = (overrides: Partial<GenbaEventInput> = {}): GenbaEventInput =
   transportPaid: true,
   lodgingFee: 0,
   lodgingPaid: true,
-  itemsPaid: true,
   memo: null,
   rating: null,
   chekiItems: [],
@@ -129,23 +128,29 @@ describe('genba_idolsとのJOINのデバイススコープ（チェキ増殖バ�
 })
 
 describe('前払い済みフラグの保存とこれから使う予定分', () => {
-  it('各費目の支払い済みフラグが保存・復元される', async () => {
+  it('費用の支払い済みフラグと明細ごとの支払い済みが保存・復元される', async () => {
     const created = await createGenbaEvent(DEVICE_A, eventInput({
       ticketPrice: 3000, ticketPaid: true,
       transportFee: 2000, transportPaid: true,
       lodgingFee: 8000, lodgingPaid: false,
-      chekiItems: [{ label: '推しX', unitPrice: 1500, quantity: 2, memberName: '推しX' }],
-      itemsPaid: false
+      chekiItems: [
+        { label: '推しA', unitPrice: 1500, quantity: 2, memberName: '推しA', paid: true },
+        { label: '推しB', unitPrice: 1000, quantity: 1, memberName: '推しB', paid: false }
+      ]
     }))
 
     expect(created.ticketPaid).toBe(true)
     expect(created.transportPaid).toBe(true)
     expect(created.lodgingPaid).toBe(false)
-    expect(created.itemsPaid).toBe(false)
+    // 未払い明細（推しB 1000円）だけが未払い合計に載る
+    expect(created.unpaidItemsTotal).toBe(1000)
 
     const detail = await getGenbaEventDetail(DEVICE_A, created.id)
     expect(detail!.lodgingPaid).toBe(false)
-    expect(detail!.itemsPaid).toBe(false)
+    const itemA = detail!.items.find(i => i.memberName === '推しA')
+    const itemB = detail!.items.find(i => i.memberName === '推しB')
+    expect(itemA!.paid).toBe(true)
+    expect(itemB!.paid).toBe(false)
   })
 })
 
