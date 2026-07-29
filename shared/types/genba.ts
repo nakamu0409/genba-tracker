@@ -28,7 +28,10 @@ export type GenbaEvent = {
   ticketPaid: boolean
   drinkFee: number
   transportFee: number
+  transportPaid: boolean
   lodgingFee: number
+  lodgingPaid: boolean
+  itemsPaid: boolean
   memo: string | null
   rating: number | null
   createdAt: string
@@ -56,7 +59,10 @@ export type GenbaEventInput = {
   ticketPaid: boolean
   drinkFee: number
   transportFee: number
+  transportPaid: boolean
   lodgingFee: number
+  lodgingPaid: boolean
+  itemsPaid: boolean
   memo: string | null
   rating: number | null
   chekiItems: GenbaItemInput[]

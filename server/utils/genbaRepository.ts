@@ -21,7 +21,10 @@ type EventRow = {
   ticket_paid: number
   drink_fee: number
   transport_fee: number
+  transport_paid: number
   lodging_fee: number
+  lodging_paid: number
+  items_paid: number
   memo: string | null
   rating: number | null
   created_at: string
@@ -65,7 +68,10 @@ function toGenbaEvent(row: EventRow): GenbaEvent {
     ticketPaid: row.ticket_paid === 1,
     drinkFee: row.drink_fee,
     transportFee: row.transport_fee,
+    transportPaid: row.transport_paid === 1,
     lodgingFee: row.lodging_fee,
+    lodgingPaid: row.lodging_paid === 1,
+    itemsPaid: row.items_paid === 1,
     memo: row.memo,
     rating: row.rating,
     createdAt: row.created_at,
@@ -81,7 +87,7 @@ function toGenbaEvent(row: EventRow): GenbaEvent {
 const EVENT_SELECT = `
   SELECT
     e.id, e.event_name, e.event_date, e.venue_name,
-    e.ticket_price, e.ticket_paid, e.drink_fee, e.transport_fee, e.lodging_fee, e.memo, e.rating, e.created_at,
+    e.ticket_price, e.ticket_paid, e.drink_fee, e.transport_fee, e.transport_paid, e.lodging_fee, e.lodging_paid, e.items_paid, e.memo, e.rating, e.created_at,
     COALESCE(SUM(CASE WHEN i.category = 'cheki' THEN i.unit_price * i.quantity ELSE 0 END), 0) AS cheki_total,
     COALESCE(SUM(CASE WHEN i.category = 'cheki' THEN i.quantity ELSE 0 END), 0) AS cheki_count,
     COALESCE(SUM(CASE WHEN i.category = 'goods' THEN i.unit_price * i.quantity ELSE 0 END), 0) AS goods_total,
@@ -215,8 +221,8 @@ export async function createGenbaEvent(deviceId: string, input: GenbaEventInput)
   try {
     const result = await tx.execute({
       sql: `
-        INSERT INTO genba_events (device_id, event_name, event_date, venue_name, ticket_price, ticket_paid, drink_fee, transport_fee, lodging_fee, memo, rating)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO genba_events (device_id, event_name, event_date, venue_name, ticket_price, ticket_paid, drink_fee, transport_fee, transport_paid, lodging_fee, lodging_paid, items_paid, memo, rating)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
         deviceId,
@@ -227,7 +233,10 @@ export async function createGenbaEvent(deviceId: string, input: GenbaEventInput)
         input.ticketPaid ? 1 : 0,
         input.drinkFee,
         input.transportFee,
+        input.transportPaid ? 1 : 0,
         input.lodgingFee,
+        input.lodgingPaid ? 1 : 0,
+        input.itemsPaid ? 1 : 0,
         input.memo,
         input.rating
       ]
@@ -259,7 +268,8 @@ export async function updateGenbaEvent(deviceId: string, id: number, input: Genb
       sql: `
         UPDATE genba_events
         SET event_name = ?, event_date = ?, venue_name = ?,
-            ticket_price = ?, ticket_paid = ?, drink_fee = ?, transport_fee = ?, lodging_fee = ?, memo = ?, rating = ?
+            ticket_price = ?, ticket_paid = ?, drink_fee = ?, transport_fee = ?, transport_paid = ?,
+            lodging_fee = ?, lodging_paid = ?, items_paid = ?, memo = ?, rating = ?
         WHERE id = ? AND device_id = ?
       `,
       args: [
@@ -270,7 +280,10 @@ export async function updateGenbaEvent(deviceId: string, id: number, input: Genb
         input.ticketPaid ? 1 : 0,
         input.drinkFee,
         input.transportFee,
+        input.transportPaid ? 1 : 0,
         input.lodgingFee,
+        input.lodgingPaid ? 1 : 0,
+        input.itemsPaid ? 1 : 0,
         input.memo,
         input.rating,
         id,

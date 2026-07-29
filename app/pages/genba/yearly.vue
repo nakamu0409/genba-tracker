@@ -1,10 +1,15 @@
 <script setup lang="ts">
 import { toPng } from 'html-to-image'
 import type { GenbaMemberTrend, GenbaYearlyOverview } from '../../../shared/types/genba'
+import { useGenbaMasters } from '../../composables/useGenbaMasters'
 
 definePageMeta({
   layout: 'genba'
 })
+
+const { idols, fetchMasters } = useGenbaMasters()
+const photoFor = (name: string | null) => (name ? idols.value.find(i => i.name === name)?.photoUrl ?? undefined : undefined)
+onMounted(fetchMasters)
 
 const today = new Date()
 const year = ref(today.getFullYear())
@@ -263,9 +268,17 @@ const shareImage = async () => {
           <div
             v-for="(row, i) in topRanking"
             :key="row.key"
-            class="flex items-center justify-between text-sm"
+            class="flex items-center justify-between gap-2 text-sm"
           >
-            <span>{{ i + 1 }}. {{ row.memberName || '未設定' }}<span class="text-xs text-muted"> ・ {{ row.groupName || '未設定' }}</span></span>
+            <span class="flex min-w-0 items-center gap-2">
+              <span class="shrink-0 text-muted">{{ i + 1 }}.</span>
+              <UAvatar
+                :src="photoFor(row.memberName)"
+                icon="i-lucide-star"
+                size="2xs"
+              />
+              <span class="truncate">{{ row.memberName || '未設定' }}<span class="text-xs text-muted"> ・ {{ row.groupName || '未設定' }}</span></span>
+            </span>
             <span class="flex items-baseline gap-1.5">
               <span
                 v-if="row.chekiCount > 0"

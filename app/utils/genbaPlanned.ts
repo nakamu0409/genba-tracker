@@ -14,9 +14,26 @@ export function isPlannedGenbaDate(eventDate: string | null): boolean {
 }
 
 /**
-「予定」集計に使う残り見込み額。チケット代は先行抽選等で開催前に払い済みのことがあるため、
-支払い済みならそのぶんを差し引く（＝これから実際に払う／使う見込み額のみを残す）
+「予定」集計に使う残り見込み額。チケット代・交通費・宿泊費・チェキ/グッズは
+先行抽選や事前予約で開催前に払い済みのことがあるため、支払い済みの費目は差し引く
+（＝これから実際に払う／使う見込み額のみを残す）
  */
-export function plannedRemainingAmount(event: { totalAmount: number, ticketPrice: number, ticketPaid: boolean }): number {
-  return event.totalAmount - (event.ticketPaid ? event.ticketPrice : 0)
+export function plannedRemainingAmount(event: {
+  totalAmount: number
+  ticketPrice: number
+  ticketPaid: boolean
+  transportFee: number
+  transportPaid: boolean
+  lodgingFee: number
+  lodgingPaid: boolean
+  chekiTotal: number
+  goodsTotal: number
+  itemsPaid: boolean
+}): number {
+  let remaining = event.totalAmount
+  if (event.ticketPaid) remaining -= event.ticketPrice
+  if (event.transportPaid) remaining -= event.transportFee
+  if (event.lodgingPaid) remaining -= event.lodgingFee
+  if (event.itemsPaid) remaining -= event.chekiTotal + event.goodsTotal
+  return remaining
 }

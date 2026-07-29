@@ -64,7 +64,10 @@ const eventInput = (overrides: Partial<GenbaEventInput> = {}): GenbaEventInput =
   ticketPaid: true,
   drinkFee: 600,
   transportFee: 0,
+  transportPaid: true,
   lodgingFee: 0,
+  lodgingPaid: true,
+  itemsPaid: true,
   memo: null,
   rating: null,
   chekiItems: [],
@@ -122,6 +125,27 @@ describe('genba_idolsとのJOINのデバイススコープ（チェキ増殖バ�
     const rows = (await testClient.execute('SELECT device_id, last_unit_price FROM genba_idols ORDER BY device_id')).rows
     expect(rows.find(r => r.device_id === DEVICE_A)!.last_unit_price).toBe(1500)
     expect(rows.find(r => r.device_id === DEVICE_B)!.last_unit_price).toBeNull()
+  })
+})
+
+describe('前払い済みフラグの保存とこれから使う予定分', () => {
+  it('各費目の支払い済みフラグが保存・復元される', async () => {
+    const created = await createGenbaEvent(DEVICE_A, eventInput({
+      ticketPrice: 3000, ticketPaid: true,
+      transportFee: 2000, transportPaid: true,
+      lodgingFee: 8000, lodgingPaid: false,
+      chekiItems: [{ label: '推しX', unitPrice: 1500, quantity: 2, memberName: '推しX' }],
+      itemsPaid: false
+    }))
+
+    expect(created.ticketPaid).toBe(true)
+    expect(created.transportPaid).toBe(true)
+    expect(created.lodgingPaid).toBe(false)
+    expect(created.itemsPaid).toBe(false)
+
+    const detail = await getGenbaEventDetail(DEVICE_A, created.id)
+    expect(detail!.lodgingPaid).toBe(false)
+    expect(detail!.itemsPaid).toBe(false)
   })
 })
 

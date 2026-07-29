@@ -60,6 +60,9 @@ export async function ensureSchema(client: Client): Promise<void> {
       transport_fee INTEGER NOT NULL DEFAULT 0,
       lodging_fee INTEGER NOT NULL DEFAULT 0,
       ticket_paid INTEGER NOT NULL DEFAULT 1,
+      transport_paid INTEGER NOT NULL DEFAULT 1,
+      lodging_paid INTEGER NOT NULL DEFAULT 1,
+      items_paid INTEGER NOT NULL DEFAULT 1,
       memo TEXT,
       rating INTEGER,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -174,6 +177,17 @@ async function migrateGenbaColumns(client: Client): Promise<void> {
   // 既存データは実施済みとみなし支払い済み扱いにする（DEFAULT 1）
   if (!eventColumnNames.has('ticket_paid')) {
     await client.execute('ALTER TABLE genba_events ADD COLUMN ticket_paid INTEGER NOT NULL DEFAULT 1')
+  }
+
+  // 交通費・宿泊費・チェキ/グッズの前払い管理（DEFAULT 1＝支払い済み。既存データは支払い済み扱い）
+  if (!eventColumnNames.has('transport_paid')) {
+    await client.execute('ALTER TABLE genba_events ADD COLUMN transport_paid INTEGER NOT NULL DEFAULT 1')
+  }
+  if (!eventColumnNames.has('lodging_paid')) {
+    await client.execute('ALTER TABLE genba_events ADD COLUMN lodging_paid INTEGER NOT NULL DEFAULT 1')
+  }
+  if (!eventColumnNames.has('items_paid')) {
+    await client.execute('ALTER TABLE genba_events ADD COLUMN items_paid INTEGER NOT NULL DEFAULT 1')
   }
 
   const itemColumns = (await client.execute('PRAGMA table_info(genba_items)')).rows as unknown as { name: string }[]

@@ -28,7 +28,10 @@ const initialValue = computed(() => {
     ticketPaid: data.value.ticketPaid,
     drinkFee: data.value.drinkFee,
     transportFee: data.value.transportFee,
+    transportPaid: data.value.transportPaid,
     lodgingFee: data.value.lodgingFee,
+    lodgingPaid: data.value.lodgingPaid,
+    itemsPaid: data.value.itemsPaid,
     memo: data.value.memo,
     rating: data.value.rating,
     chekiItems: data.value.items

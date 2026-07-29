@@ -34,7 +34,10 @@ const ticketPrice = ref(props.initialValue.ticketPrice)
 const ticketPaid = ref(props.initialValue.ticketPaid)
 const drinkFee = ref(props.initialValue.drinkFee)
 const transportFee = ref(props.initialValue.transportFee)
+const transportPaid = ref(props.initialValue.transportPaid)
 const lodgingFee = ref(props.initialValue.lodgingFee)
+const lodgingPaid = ref(props.initialValue.lodgingPaid)
+const itemsPaid = ref(props.initialValue.itemsPaid)
 const memo = ref(props.initialValue.memo ?? '')
 const rating = ref<number | null>(props.initialValue.rating ?? null)
 const chekiItems = ref<GenbaItemFormState[]>(props.initialValue.chekiItems.map(toFormState))
@@ -121,20 +124,59 @@ const setRating = (value: number) => {
 
 const isPlanned = computed(() => isPlannedGenbaDate(eventDate.value || null))
 
-// 新規登録時は開催日に応じてチケット支払い済みの初期値を決める
-// （先行抽選等でチケット代を先払いすることが多いため、予定＝未来日付ならデフォルト未払い）。
-// 一度でも手動で切り替えたら、以降は開催日を変えても自動上書きしない
-const ticketPaidTouched = ref(false)
+// 新規登録時は開催日に応じて各費目の支払い済み初期値を決める
+// （予定＝未来日付なら「まだ払っていない」＝これから使う予定分にカウント。過去なら支払い済み）。
+// 一度でも手動で切り替えた費目は、以降は開催日を変えても自動上書きしない
+const paidTouched = ref(false)
 
 const toggleTicketPaid = (value: boolean) => {
   ticketPaid.value = value
-  ticketPaidTouched.value = true
+  paidTouched.value = true
+}
+const toggleTransportPaid = (value: boolean) => {
+  transportPaid.value = value
+  paidTouched.value = true
+}
+const toggleLodgingPaid = (value: boolean) => {
+  lodgingPaid.value = value
+  paidTouched.value = true
+}
+const toggleItemsPaid = (value: boolean) => {
+  itemsPaid.value = value
+  paidTouched.value = true
 }
 
 watch(eventDate, () => {
-  if (props.eventId || ticketPaidTouched.value) return
-  ticketPaid.value = !isPlanned.value
+  if (props.eventId || paidTouched.value) return
+  const paid = !isPlanned.value
+  ticketPaid.value = paid
+  transportPaid.value = paid
+  lodgingPaid.value = paid
+  itemsPaid.value = paid
 }, { immediate: true })
+
+// 支払いトグルを出す費目（値が入っているものだけ）。過去の現場では
+// チケット未払い管理のみ意味があるので、それ以外は予定の現場でだけ表示してごちゃつきを抑える
+const itemsTotalForPaid = computed(() =>
+  chekiItems.value.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0)
+  + goodsItems.value.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0))
+
+const paidToggles = computed(() => {
+  const rows: { key: string, label: string, value: boolean, toggle: (v: boolean) => void }[] = []
+  if (ticketPrice.value > 0) {
+    rows.push({ key: 'ticket', label: 'チケット代', value: ticketPaid.value, toggle: toggleTicketPaid })
+  }
+  if (isPlanned.value && transportFee.value > 0) {
+    rows.push({ key: 'transport', label: '交通費', value: transportPaid.value, toggle: toggleTransportPaid })
+  }
+  if (isPlanned.value && lodgingFee.value > 0) {
+    rows.push({ key: 'lodging', label: '宿泊費', value: lodgingPaid.value, toggle: toggleLodgingPaid })
+  }
+  if (isPlanned.value && itemsTotalForPaid.value > 0) {
+    rows.push({ key: 'items', label: 'チェキ・グッズ', value: itemsPaid.value, toggle: toggleItemsPaid })
+  }
+  return rows
+})
 
 // 登録と同時にアップロードするチェキフォト（新規登録時のみ。編集時は詳細ページで管理）
 const pendingPhotos = ref<{ file: File, previewUrl: string }[]>([])
@@ -222,7 +264,10 @@ const handleSubmit = async () => {
     ticketPaid: ticketPaid.value,
     drinkFee: drinkFee.value || 0,
     transportFee: transportFee.value || 0,
+    transportPaid: transportPaid.value,
     lodgingFee: lodgingFee.value || 0,
+    lodgingPaid: lodgingPaid.value,
+    itemsPaid: itemsPaid.value,
     memo: memo.value || null,
     rating: rating.value,
     chekiItems: chekiItems.value.map(stripGroupDraft),
@@ -342,21 +387,33 @@ const handleSubmit = async () => {
           </div>
 
           <div
-            v-if="ticketPrice > 0"
-            class="mt-3 flex items-center justify-between rounded-lg bg-elevated/50 px-3 py-2"
+            v-if="paidToggles.length > 0"
+            class="mt-3 flex flex-col gap-1.5 rounded-lg bg-elevated/50 px-3 py-2"
           >
-            <span class="flex items-center gap-1.5 text-sm">
-              <UIcon
-                :name="ticketPaid ? 'i-lucide-check-circle-2' : 'i-lucide-circle-dollar-sign'"
-                :class="ticketPaid ? 'text-success' : 'text-warning'"
+            <p
+              v-if="isPlanned"
+              class="text-xs text-muted"
+            >
+              前もって払った費目はオンにすると「これから使う予定分」から外れます
+            </p>
+            <div
+              v-for="row in paidToggles"
+              :key="row.key"
+              class="flex items-center justify-between"
+            >
+              <span class="flex items-center gap-1.5 text-sm">
+                <UIcon
+                  :name="row.value ? 'i-lucide-check-circle-2' : 'i-lucide-circle-dollar-sign'"
+                  :class="row.value ? 'text-success' : 'text-warning'"
+                />
+                {{ row.label }}
+              </span>
+              <USwitch
+                :model-value="row.value"
+                label="支払い済み"
+                @update:model-value="row.toggle"
               />
-              チケット代の支払い
-            </span>
-            <USwitch
-              :model-value="ticketPaid"
-              label="支払い済み"
-              @update:model-value="toggleTicketPaid"
-            />
+            </div>
           </div>
         </div>
       </div>
