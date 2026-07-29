@@ -9,6 +9,7 @@ definePageMeta({
 const router = useRouter()
 
 const { idols, groups, fetchMasters } = useGenbaMasters()
+const photoFor = (name: string | null) => (name ? idols.value.find(i => i.name === name)?.photoUrl ?? undefined : undefined)
 
 const events = ref<GenbaEvent[]>([])
 const summary = ref<GenbaSummaryRow[]>([])
@@ -665,16 +666,23 @@ onMounted(async () => {
         <UCard
           v-for="row in summary"
           :key="row.key"
-          :ui="{ body: 'p-4 flex items-center justify-between' }"
+          :ui="{ body: 'p-4 flex items-center justify-between gap-2' }"
         >
-          <div class="flex flex-col gap-1">
-            <span class="font-semibold">{{ row.memberName || '未設定' }}</span>
-            <span class="text-xs text-muted">
-              {{ row.groupName || '未設定' }} ・ {{ row.eventCount }}現場
-              <template v-if="row.chekiCount > 0"> ・ チェキ{{ row.chekiCount }}枚</template>
-            </span>
+          <div class="flex min-w-0 items-center gap-3">
+            <UAvatar
+              :src="photoFor(row.memberName)"
+              icon="i-lucide-star"
+              size="sm"
+            />
+            <div class="flex min-w-0 flex-col gap-1">
+              <span class="truncate font-semibold">{{ row.memberName || '未設定' }}</span>
+              <span class="text-xs text-muted">
+                {{ row.groupName || '未設定' }} ・ {{ row.eventCount }}現場
+                <template v-if="row.chekiCount > 0"> ・ チェキ{{ row.chekiCount }}枚</template>
+              </span>
+            </div>
           </div>
-          <span class="font-bold text-primary">¥{{ row.totalAmount.toLocaleString() }}</span>
+          <span class="shrink-0 font-bold text-primary">¥{{ row.totalAmount.toLocaleString() }}</span>
         </UCard>
       </div>
     </template>
