@@ -67,7 +67,6 @@ const toggleTicketPaid = async () => {
 
 // 予定の現場に出すホテル予約への導線（アフィリエイトID設定時は成果リンクにする）
 const config = useRuntimeConfig()
-const rakutenHotelUrl = computed(() => buildRakutenAffiliateUrl('https://travel.rakuten.co.jp/', config.public.rakutenAffiliateId))
 const tripHotelUrl = computed(() => buildTripAffiliateUrl('https://jp.trip.com/hotels/', config.public.tripAllianceId, config.public.tripSid))
 
 const photos = ref<GenbaPhoto[]>([])
@@ -304,24 +303,14 @@ const deleteEvent = async () => {
           </div>
           <div class="flex flex-wrap gap-2">
             <UButton
-              :to="rakutenHotelUrl"
+              :to="tripHotelUrl"
               external
               target="_blank"
               icon="i-lucide-bed-double"
               variant="soft"
               size="sm"
             >
-              楽天トラベル
-            </UButton>
-            <UButton
-              :to="tripHotelUrl"
-              external
-              target="_blank"
-              icon="i-lucide-plane"
-              variant="soft"
-              size="sm"
-            >
-              Trip.com
+              Trip.comで宿を探す
             </UButton>
           </div>
         </div>

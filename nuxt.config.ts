@@ -30,9 +30,9 @@ export default defineNuxtConfig({
     },
     public: {
       // アフィリエイトID（未設定でもリンク自体は表示され、通常リンクになる）
-      rakutenAffiliateId: process.env.NUXT_PUBLIC_RAKUTEN_AFFILIATE_ID || '',
       tripAllianceId: process.env.NUXT_PUBLIC_TRIP_ALLIANCE_ID || '',
-      tripSid: process.env.NUXT_PUBLIC_TRIP_SID || ''
+      tripSid: process.env.NUXT_PUBLIC_TRIP_SID || '',
+      amazonAssociateTag: process.env.NUXT_PUBLIC_AMAZON_ASSOCIATE_TAG || ''
     }
   },
 

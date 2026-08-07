@@ -51,31 +51,22 @@ const config = useRuntimeConfig()
 
 const prLinks = computed(() => [
   {
-    label: 'rakuten-travel',
-    title: '楽天トラベル',
-    subtitle: '遠征の宿をポイントも貯めながら探す',
-    icon: 'i-lucide-bed-double',
-    iconBg: 'bg-red-500/10',
-    iconColor: 'text-red-500',
-    url: buildRakutenAffiliateUrl('https://travel.rakuten.co.jp/', config.public.rakutenAffiliateId)
-  },
-  {
     label: 'trip-com',
     title: 'Trip.com',
-    subtitle: '海外・国内ともに安いプランを比較',
-    icon: 'i-lucide-plane',
+    subtitle: '遠征の宿を安いプランで比較',
+    icon: 'i-lucide-bed-double',
     iconBg: 'bg-blue-500/10',
     iconColor: 'text-blue-500',
     url: buildTripAffiliateUrl('https://jp.trip.com/hotels/', config.public.tripAllianceId, config.public.tripSid)
   },
   {
-    label: 'rakuten-ichiba',
-    title: '楽天市場',
+    label: 'amazon',
+    title: 'Amazon',
     subtitle: 'チェキ帳・スリーブなど推し活グッズ',
     icon: 'i-lucide-shopping-bag',
     iconBg: 'bg-amber-500/10',
     iconColor: 'text-amber-500',
-    url: buildRakutenAffiliateUrl('https://search.rakuten.co.jp/search/mall/%E6%8E%A8%E3%81%97%E6%B4%BB%E3%82%B0%E3%83%83%E3%82%BA/', config.public.rakutenAffiliateId)
+    url: buildAmazonAffiliateUrl('https://www.amazon.co.jp/s?k=' + encodeURIComponent('推し活 グッズ'), config.public.amazonAssociateTag)
   }
 ])
 </script>
