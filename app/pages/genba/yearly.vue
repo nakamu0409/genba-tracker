@@ -187,7 +187,7 @@ const shareImage = async () => {
         :ui="{ body: 'p-5 text-center bg-gradient-to-br from-primary-500/15 via-transparent to-transparent' }"
       >
         <p class="mb-2 text-xs font-semibold text-muted">
-          {{ year }}年のオタ活診断
+          {{ year }}年の現場診断
         </p>
         <p class="text-4xl">
           {{ diagnosis.emoji }}

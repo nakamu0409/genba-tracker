@@ -14,7 +14,7 @@ export type GenbaDiagnosis = {
 }
 
 /**
-現場記録から「オタ活診断」タイプを1つ判定する（Spotify Wrapped的な遊び要素）。
+現場記録から「現場診断」タイプを1つ判定する（Spotify Wrapped的な遊び要素）。
 ルールは上から順に判定し、最初に条件を満たしたものを採用する
  */
 export function computeGenbaDiagnosis(input: GenbaDiagnosisInput): GenbaDiagnosis {

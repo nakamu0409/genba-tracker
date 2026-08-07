@@ -174,7 +174,7 @@ const prLinks = computed(() => [
             name="i-lucide-sparkles"
             class="text-primary"
           />
-          オタ活のお供
+          現場のお供
           <UBadge
             color="neutral"
             variant="subtle"
