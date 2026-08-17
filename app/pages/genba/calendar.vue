@@ -10,6 +10,11 @@ const router = useRouter()
 
 const { idols, groups, fetchMasters } = useGenbaMasters()
 
+// サイリウム・ペンライト探しのAmazon導線（アソシエイトタグ設定時は成果リンクになる）
+const config = useRuntimeConfig()
+const amazonGoodsUrl = computed(() =>
+  buildAmazonAffiliateUrl('https://www.amazon.co.jp/s?k=' + encodeURIComponent('サイリウム ペンライト'), config.public.amazonAssociateTag))
+
 const events = ref<GenbaEvent[]>([])
 const errorMessage = ref('')
 
@@ -383,6 +388,39 @@ onMounted(async () => {
         </div>
       </UCard>
     </div>
+
+    <a
+      :href="amazonGoodsUrl"
+      target="_blank"
+      rel="noopener"
+      class="mt-4 flex items-center gap-3 rounded-xl border border-default p-3 transition hover:border-primary"
+    >
+      <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-500/10">
+        <UIcon
+          name="i-lucide-shopping-bag"
+          class="text-amber-500"
+        />
+      </div>
+      <div class="min-w-0 flex-1">
+        <p class="flex items-center gap-1.5 text-sm font-semibold">
+          サイリウム・ペンライトをAmazonで探す
+          <UBadge
+            color="neutral"
+            variant="subtle"
+            size="sm"
+          >
+            PR
+          </UBadge>
+        </p>
+        <p class="truncate text-xs text-muted">
+          ライブの必需品。予備の電池も忘れずに
+        </p>
+      </div>
+      <UIcon
+        name="i-lucide-chevron-right"
+        class="shrink-0 text-muted"
+      />
+    </a>
   </div>
 </template>
 

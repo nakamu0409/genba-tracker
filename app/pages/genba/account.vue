@@ -164,6 +164,22 @@ const prLinks = computed(() => [
       </NuxtLink>
     </UCard>
 
+    <UCard class="mt-4">
+      <NuxtLink
+        to="/genba/help"
+        class="flex items-center justify-between gap-2"
+      >
+        <div class="flex items-center gap-2 font-semibold">
+          <UIcon name="i-lucide-circle-help" />
+          使い方ガイド
+        </div>
+        <UIcon
+          name="i-lucide-chevron-right"
+          class="text-muted"
+        />
+      </NuxtLink>
+    </UCard>
+
     <UCard
       class="mt-4 overflow-hidden"
       :ui="{ body: 'p-0' }"
