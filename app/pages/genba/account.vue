@@ -62,11 +62,11 @@ const prLinks = computed(() => [
   {
     label: 'amazon',
     title: 'Amazon',
-    subtitle: 'チェキ帳・スリーブなど推し活グッズ',
+    subtitle: 'サイリウム・ペンライトなどライブの必需品',
     icon: 'i-lucide-shopping-bag',
     iconBg: 'bg-amber-500/10',
     iconColor: 'text-amber-500',
-    url: buildAmazonAffiliateUrl('https://www.amazon.co.jp/s?k=' + encodeURIComponent('推し活 グッズ'), config.public.amazonAssociateTag)
+    url: buildAmazonAffiliateUrl('https://www.amazon.co.jp/s?k=' + encodeURIComponent('サイリウム ペンライト'), config.public.amazonAssociateTag)
   }
 ])
 </script>
