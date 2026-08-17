@@ -393,33 +393,14 @@ onMounted(async () => {
       :href="amazonGoodsUrl"
       target="_blank"
       rel="noopener"
-      class="mt-4 flex items-center gap-3 rounded-xl border border-default p-3 transition hover:border-primary"
+      class="mt-4 flex items-center gap-2 text-xs text-muted transition hover:text-primary"
     >
-      <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-500/10">
-        <UIcon
-          name="i-lucide-shopping-bag"
-          class="text-amber-500"
-        />
-      </div>
-      <div class="min-w-0 flex-1">
-        <p class="flex items-center gap-1.5 text-sm font-semibold">
-          サイリウム・ペンライトをAmazonで探す
-          <UBadge
-            color="neutral"
-            variant="subtle"
-            size="sm"
-          >
-            PR
-          </UBadge>
-        </p>
-        <p class="truncate text-xs text-muted">
-          ライブの必需品。予備の電池も忘れずに
-        </p>
-      </div>
       <UIcon
-        name="i-lucide-chevron-right"
-        class="shrink-0 text-muted"
+        name="i-lucide-shopping-bag"
+        class="shrink-0 text-amber-500"
       />
+      <span class="truncate">サイリウム・ペンライトをAmazonで探す</span>
+      <span class="shrink-0 rounded bg-elevated px-1 text-[10px]">PR</span>
     </a>
   </div>
 </template>
