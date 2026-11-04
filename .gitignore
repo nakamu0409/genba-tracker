@@ -23,5 +23,7 @@ logs
 .env.*
 !.env.example
 
-# Local Claude Code settings/session state
-.claude/
+# Local Claude Code settings/session state（株リサーチ用のコマンドとスクリプトだけ共有）
+.claude/*
+!.claude/commands/
+!.claude/scripts/
