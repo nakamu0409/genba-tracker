@@ -1,0 +1,649 @@
+// This source code is released under the MIT License: https://opensource.org/licenses/MIT
+// 株レンズ (Kabu Lens): 日本株向けに作り直した「AIエージェントが読むためのインジケーター」
+//
+// 元にしたもの
+//   AI Agent Lens (MIT License, Copyright (c) 2026 roan-maverick)
+//   https://github.com/roan-maverick/tradingview-indicator-for-ai-agents
+//
+// 元版との違い（株・現物・数週間〜数か月の保有向け）
+//   1. 日足が基本。上位足は週足。移動平均は日本で一般的な 25日・75日・200日（SMA/EMA 切替）
+//   2. 買い専用（ロングのみ）。ショートのスコアとシグナルは出さない
+//   3. 「高値づかみ危険度（過熱度）」スコアを追加。25日線乖離率・RSI・週足RSI・安値からの上昇率・
+//      連騰日数・吹き値（大商い＋長い上ヒゲ）から0〜100で採点し、基準以上なら買いシグナルを止める
+//   4. 対TOPIX（既定は TSE:1306）の相対強度を採点要素に追加。DMI はスコアから外し参考値として残す
+//   5. 52週高値・安値、前週高値・安値、売買代金、次の決算日までの日数をパケットに追加
+//   6. 決算直前は買いシグナルを止められる（既定: 5日前から）
+//   7. 買い方を「押し目（PULLBACK）」「ブレイク（BREAKOUT）」「モメンタム（MOMENTUM）」に分類
+//   8. 75日線割れで保有終了（任意）、目標1到達でストップを建値へ移動（任意）
+//
+// 設計ルール（元版と同じ）
+//   - リペイントしない: シグナル・保有追跡・パケットは確定足のみ
+//   - 上位足・日足データは [1] + lookahead_on で取得し、未来を覗かない
+//
+// 投資助言ではありません。インジケーターは決まったルールでチャートを数値にするだけで、未来は予測しません。
+
+//@version=6
+indicator("株レンズ (Kabu Lens)", shorttitle = "株レンズ", overlay = true, max_labels_count = 500, max_boxes_count = 500, max_lines_count = 500)
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 入力
+// ═════════════════════════════════════════════════════════════════════════════
+string G_SIG  = "シグナル"
+string G_HOT  = "高値づかみ防止（過熱度）"
+string G_TRD  = "トレンド・モメンタム"
+string G_RS   = "相対強度・決算"
+string G_RSK  = "リスク（損切り・目標）"
+string G_AGT  = "AIエージェント用パケット"
+string G_VIS  = "表示"
+
+int    scoreThreshold = input.int(70, "買いスコアの基準", minval = 50, maxval = 100, group = G_SIG, tooltip = "買いスコアが確定足でこの値を上抜けたら買いシグナル候補。", display = display.none)
+int    pullbackMin    = input.int(55, "押し目買いに必要な最低スコア", minval = 30, maxval = 100, group = G_SIG, tooltip = "上昇トレンド中に短期線まで押して反発した足は、このスコア以上で押し目買い候補。", display = display.none)
+bool   blockHighVol   = input.bool(true, "値動きが荒い局面（HIGH_VOLATILITY）は買わない", group = G_SIG, display = display.none)
+string htfTf          = input.timeframe("W", "上位足", group = G_SIG, tooltip = "日足チャートなら週足(W)、週足チャートなら月足(M)。チャートより長い足を選ぶこと。", display = display.none)
+int    htfMaLen       = input.int(26, "上位足の移動平均（本）", minval = 2, group = G_SIG, tooltip = "週足なら26週線（約半年）。", display = display.none)
+
+int    overheatBlock  = input.int(60, "この過熱度以上なら買いシグナルを止める", minval = 10, maxval = 100, group = G_HOT, display = display.none)
+float  devWarn        = input.float(10, "短期線からの乖離率: 注意（%）", minval = 1, group = G_HOT, display = display.none)
+float  devHeavy       = input.float(20, "短期線からの乖離率: 過熱（%）", minval = 1, group = G_HOT, display = display.none)
+float  runUpWarn      = input.float(50, "52週安値からの上昇率: 注意（%）", minval = 5, group = G_HOT, display = display.none)
+float  runUpHeavy     = input.float(100, "52週安値からの上昇率: 過熱（%）", minval = 10, group = G_HOT, display = display.none)
+
+string maType         = input.string("SMA", "移動平均の種類", options = ["SMA", "EMA"], group = G_TRD, tooltip = "日本の証券会社のチャートは SMA（単純移動平均）が一般的。", display = display.none)
+int    maFastLen      = input.int(25, "短期線（日）", minval = 2, group = G_TRD, display = display.none)
+int    maMidLen       = input.int(75, "中期線（日）", minval = 2, group = G_TRD, display = display.none)
+int    maSlowLen      = input.int(200, "長期線（日）", minval = 2, group = G_TRD, display = display.none)
+int    slopeLen       = input.int(10, "長期線の傾きを見る本数", minval = 1, group = G_TRD, display = display.none)
+int    rsiLen         = input.int(14, "RSI の期間", minval = 2, group = G_TRD, display = display.none)
+float  rsiOB          = input.float(75, "RSI 買われすぎ", group = G_TRD, display = display.none)
+int    adxLen         = input.int(14, "ADX / DMI の期間", minval = 2, group = G_TRD, display = display.none)
+float  adxTrend       = input.float(20, "トレンドとみなす ADX", group = G_TRD, display = display.none)
+int    volLen         = input.int(20, "出来高平均の期間", minval = 2, group = G_TRD, display = display.none)
+int    atrLen         = input.int(14, "ATR の期間", minval = 2, group = G_TRD, display = display.none)
+int    atrPctLen      = input.int(250, "ATR パーセンタイルの期間", minval = 10, group = G_TRD, display = display.none)
+float  highVolPct     = input.float(90, "ATR パーセンタイルがこれ以上で HIGH_VOLATILITY", minval = 50, maxval = 100, group = G_TRD, display = display.none)
+int    swingLen       = input.int(5, "スイング高値・安値の判定（左右の本数）", minval = 1, group = G_TRD, display = display.none)
+
+string benchSym       = input.symbol("TSE:1306", "比較する指数（TOPIX連動ETF）", group = G_RS, tooltip = "相対強度の比較対象。日経平均で比べたいなら TSE:1321 など。", display = display.none)
+int    rsLen          = input.int(60, "相対強度を測る期間（本）", minval = 5, group = G_RS, tooltip = "日足60本 ≒ 3か月。", display = display.none)
+bool   blockEarnings  = input.bool(true, "決算発表の直前は買わない", group = G_RS, display = display.none)
+int    earnDays       = input.int(5, "決算の何日前から止めるか", minval = 0, group = G_RS, display = display.none)
+
+float  stopAtr        = input.float(2.0, "損切り幅（ATR の何倍）", minval = 0.1, step = 0.1, group = G_RSK, display = display.none)
+float  t1R            = input.float(2.0, "目標1（R の何倍）", minval = 0.1, step = 0.1, group = G_RSK, display = display.none)
+float  t2R            = input.float(4.0, "目標2（R の何倍）", minval = 0.1, step = 0.1, group = G_RSK, display = display.none)
+bool   beAfterT1      = input.bool(true, "目標1到達で損切りを建値へ移動", group = G_RSK, display = display.none)
+bool   exitOnTrend    = input.bool(true, "終値が中期線を割ったら保有終了", group = G_RSK, display = display.none)
+
+string packetMode     = input.string("足の確定ごと", "JSONパケットを送る", options = ["足の確定ごと", "シグナルと保有の変化のみ", "送らない"], group = G_AGT, tooltip = "アラートを1つ作り、条件は「alert() 関数の呼び出しのみ」、Webhook URL にエージェントのURLを入れる。", display = display.none)
+int    recentCount    = input.int(5, "パケットに入れる直近の足の数", minval = 1, maxval = 10, group = G_AGT, display = display.none)
+bool   showPreview    = input.bool(false, "パケットをチャート上に表示（確認用）", group = G_AGT, display = display.none)
+
+bool   showPanel      = input.bool(true, "パネルを表示", group = G_VIS, display = display.none)
+string panelModeIn    = input.string("詳細", "パネルの表示量", options = ["詳細", "簡易"], group = G_VIS, display = display.none)
+string panelPosIn     = input.string("右上", "パネルの位置", options = ["右上", "左上", "右下", "左下", "右中央"], group = G_VIS, display = display.none)
+string panelSizeIn    = input.string("小", "パネルの文字サイズ", options = ["極小", "小", "中"], group = G_VIS, display = display.none)
+bool   showMarkers    = input.bool(true, "買いシグナル・見送りのラベル", group = G_VIS, display = display.none)
+bool   showTrade      = input.bool(true, "ポジションの箱（建値・損切り・目標）", group = G_VIS, display = display.none)
+bool   showMas        = input.bool(true, "移動平均線", group = G_VIS, display = display.none)
+bool   showLevels     = input.bool(true, "52週高値・安値", group = G_VIS, display = display.none)
+bool   showStructure  = input.bool(true, "スイング高値・安値とブレイク", group = G_VIS, display = display.none)
+bool   showHotBg      = input.bool(true, "過熱中は背景を黄色に", group = G_VIS, display = display.none)
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 色
+// ═════════════════════════════════════════════════════════════════════════════
+color C_BULL   = #00E676
+color C_BEAR   = #FF5252
+color C_NEUT   = #787B86
+color C_WARN   = #FFD740
+color C_CYAN   = #00E5FF
+color C_PURPLE = #B388FF
+color C_HEAD   = #161B26
+color C_TEXT   = #E0E3EB
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 基本の計算
+// ═════════════════════════════════════════════════════════════════════════════
+f_ma(float src, int len) =>
+    float s = ta.sma(src, len)
+    float e = ta.ema(src, len)
+    maType == "SMA" ? s : e
+
+float maF  = f_ma(close, maFastLen)
+float maM  = f_ma(close, maMidLen)
+float maS  = f_ma(close, maSlowLen)
+float rsiV = ta.rsi(close, rsiLen)
+[macdLine, macdSignal, macdHist] = ta.macd(close, 12, 26, 9)
+[diPlus, diMinus, adxV] = ta.dmi(adxLen, adxLen)
+float atrV     = ta.atr(atrLen)
+float atrPct   = ta.percentrank(atrV, atrPctLen)
+float atrOfPx  = close > 0 ? atrV / close * 100 : na
+float volAvg   = ta.sma(volume, volLen)
+float relVol   = volAvg > 0 ? volume / volAvg : na
+float turnover = close * volume
+float turnAvg  = ta.sma(turnover, volLen)
+float devF     = maF > 0 ? (close - maF) / maF * 100 : na
+float devM     = maM > 0 ? (close - maM) / maM * 100 : na
+
+// 52週高値・安値（前日までの確定値 + 今日の足。未来は見ない）
+[d52Hi, d52Lo] = request.security(syminfo.tickerid, "D", [ta.highest(high, 250)[1], ta.lowest(low, 250)[1]], lookahead = barmerge.lookahead_on)
+float hi52 = na(d52Hi) ? high : math.max(d52Hi, high)
+float lo52 = na(d52Lo) ? low : math.min(d52Lo, low)
+float fromHi52 = hi52 > 0 ? (close / hi52 - 1) * 100 : na
+float fromLo52 = lo52 > 0 ? (close / lo52 - 1) * 100 : na
+bool  newHigh52 = not na(d52Hi) and close > d52Hi
+
+// 前週の高値・安値
+float pwh = request.security(syminfo.tickerid, "W", high[1], lookahead = barmerge.lookahead_on)
+float pwl = request.security(syminfo.tickerid, "W", low[1], lookahead = barmerge.lookahead_on)
+
+// 上位足（週足）の向きと RSI（確定済みの足だけ）
+bool htfValid = timeframe.in_seconds(htfTf) > timeframe.in_seconds()
+[htfClose, htfMa, htfRsi] = request.security(syminfo.tickerid, htfTf, [close[1], ta.sma(close, htfMaLen)[1], ta.rsi(close, 14)[1]], lookahead = barmerge.lookahead_on)
+int htfBias = not htfValid ? 0 : htfClose > htfMa ? 1 : htfClose < htfMa ? -1 : 0
+string htfBiasStr = not htfValid ? "N/A" : htfBias == 1 ? "UP" : htfBias == -1 ? "DOWN" : "FLAT"
+float htfRsiV = htfValid ? htfRsi : na
+
+// 対指数の相対強度（同じ期間の騰落率の差、%ポイント）
+float stockRet = close[rsLen] > 0 ? (close / close[rsLen] - 1) * 100 : na
+float benchRet = request.security(benchSym, timeframe.period, (close / close[rsLen] - 1) * 100, ignore_invalid_symbol = true)
+float rsDiff   = na(stockRet) or na(benchRet) ? na : stockRet - benchRet
+
+// 次の決算発表（データがない銘柄は na）
+float nextEarn   = earnings.future_time
+float daysToEarn = na(nextEarn) ? na : (nextEarn - time_close) / 86400000.0
+bool  earnSoon   = not na(daysToEarn) and daysToEarn >= 0 and daysToEarn <= earnDays
+
+// トレンドの説明
+string stackStr = maF > maM and maM > maS ? "BULLISH" : maF < maM and maM < maS ? "BEARISH" : "MIXED"
+string slopeStr = maS > maS[slopeLen] ? "RISING" : maS < maS[slopeLen] ? "FALLING" : "FLAT"
+
+// 連騰日数
+var int upStreak = 0
+upStreak := close > close[1] ? upStreak + 1 : 0
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 地合い（レジーム）
+// ═════════════════════════════════════════════════════════════════════════════
+bool trendUp   = close > maS and maS > maS[slopeLen] and adxV >= adxTrend
+bool trendDown = close < maS and maS < maS[slopeLen] and adxV >= adxTrend
+bool highVol   = atrPct >= highVolPct
+string regime  = highVol ? "HIGH_VOLATILITY" : trendUp ? "TREND_UP" : trendDown ? "TREND_DOWN" : "RANGE"
+int regimeCode = highVol ? 2 : trendUp ? 1 : trendDown ? -1 : 0
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 買いスコア（0〜100。5要素 × 20点）
+// ═════════════════════════════════════════════════════════════════════════════
+bool bullBar = close > open
+bool bearBar = close < open
+
+int fTrend = (maF > maM ? 7 : 0) + (maM > maS ? 7 : 0) + (close > maF ? 6 : 0)
+int fMom   = (rsiV > 50 ? (rsiV >= rsiOB ? 4 : 10) : 0) + (macdHist > 0 ? 5 : 0) + (macdHist > macdHist[1] ? 5 : 0)
+int fVol   = bullBar and relVol >= 1.5 ? 20 : bullBar and relVol >= 1.0 ? 12 : bullBar ? 6 : 0
+int fHtf   = htfBias == 1 ? 20 : htfBias == 0 ? 10 : 0
+int fRs    = na(rsDiff) ? 10 : rsDiff >= 10 ? 20 : rsDiff >= 0 ? 12 : rsDiff >= -5 ? 6 : 0
+int longScore = fTrend + fMom + fVol + fHtf + fRs
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 高値づかみ危険度（過熱度 0〜100）
+// ═════════════════════════════════════════════════════════════════════════════
+float cRng   = high - low
+float cUpPct = cRng > 0 ? (high - math.max(open, close)) / cRng * 100 : 0.0
+
+int hDev    = na(devF) ? 0 : devF >= devHeavy ? 30 : devF >= devWarn ? 18 : devF >= devWarn / 2 ? 8 : 0
+int hRsi    = rsiV >= 80 ? 20 : rsiV >= 70 ? 12 : 0
+int hWkRsi  = na(htfRsiV) ? 0 : htfRsiV >= 75 ? 15 : htfRsiV >= 65 ? 8 : 0
+int hRun    = na(fromLo52) ? 0 : fromLo52 >= runUpHeavy ? 15 : fromLo52 >= runUpWarn ? 8 : 0
+int hStreak = upStreak >= 6 ? 10 : upStreak >= 4 ? 5 : 0
+int hBlow   = relVol >= 2.5 and cUpPct >= 40 ? 10 : 0
+int overheat = hDev + hRsi + hWkRsi + hRun + hStreak + hBlow
+string heatLevel = overheat >= overheatBlock ? "HIGH" : overheat >= overheatBlock - 25 ? "ELEVATED" : "NORMAL"
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 値動きの構造（確定したスイングのみ。リペイントなし）
+// ═════════════════════════════════════════════════════════════════════════════
+float ph = ta.pivothigh(high, swingLen, swingLen)
+float pl = ta.pivotlow(low, swingLen, swingLen)
+var float swingH1 = na
+var float swingH2 = na
+var float swingL1 = na
+var float swingL2 = na
+if not na(ph)
+    swingH2 := swingH1
+    swingH1 := ph
+if not na(pl)
+    swingL2 := swingL1
+    swingL1 := pl
+
+string structBias = swingH1 > swingH2 and swingL1 > swingL2 ? "BULLISH" : swingH1 < swingH2 and swingL1 < swingL2 ? "BEARISH" : "MIXED"
+bool breakUp   = not na(swingH1) and close > swingH1 and close[1] <= swingH1
+bool breakDown = not na(swingL1) and close < swingL1 and close[1] >= swingL1
+string structEvent = breakUp ? "BREAK_UP" : breakDown ? "BREAK_DOWN" : "NONE"
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ローソク足の分解
+// ═════════════════════════════════════════════════════════════════════════════
+f_num(float x, string fmt) =>
+    na(x) ? "null" : str.tostring(x, fmt)
+
+f_bool(bool b) =>
+    b ? "true" : "false"
+
+// 形だけで判定したパターン。位置や文脈の判断はエージェントに任せる
+f_pattern(float a) =>
+    float o   = open
+    float h   = high
+    float l   = low
+    float c   = close
+    float po  = open[1]
+    float pc  = close[1]
+    float pH  = high[1]
+    float pL  = low[1]
+    float rng = h - l
+    float body = math.abs(c - o)
+    float up  = h - math.max(o, c)
+    float dn  = math.min(o, c) - l
+    string p  = "NONE"
+    if rng <= 0
+        p := "FLAT"
+    else if c > o and pc < po and c >= po and o <= pc
+        p := "BULLISH_ENGULFING"
+    else if c < o and pc > po and o >= pc and c <= po
+        p := "BEARISH_ENGULFING"
+    else if body / rng <= 0.1
+        p := "DOJI"
+    else if dn >= 2 * body and up <= 0.15 * rng
+        p := "HAMMER"
+    else if up >= 2 * body and dn <= 0.15 * rng
+        p := "SHOOTING_STAR"
+    else if body / rng >= 0.9
+        p := c > o ? "BULLISH_MARUBOZU" : "BEARISH_MARUBOZU"
+    else if h < pH and l > pL
+        p := "INSIDE_BAR"
+    else if h > pH and l < pL
+        p := "OUTSIDE_BAR"
+    else if a > 0 and rng >= 1.8 * a
+        p := c > o ? "WIDE_RANGE_BULL" : "WIDE_RANGE_BEAR"
+    p
+
+// 1本分のJSON。毎足作り、過去の足はこの系列の履歴から読む
+f_candleBody(string pattern) =>
+    float rng = high - low
+    string dir = close > open ? "bull" : close < open ? "bear" : "flat"
+    string s = '"o":' + f_num(open, format.mintick)
+    s += ',"h":' + f_num(high, format.mintick)
+    s += ',"l":' + f_num(low, format.mintick)
+    s += ',"c":' + f_num(close, format.mintick)
+    s += ',"v":' + f_num(volume, "#")
+    s += ',"dir":"' + dir + '"'
+    s += ',"body_pct":' + f_num(rng > 0 ? math.abs(close - open) / rng * 100 : 0.0, "#.#")
+    s += ',"range_atr":' + f_num(atrV > 0 ? rng / atrV : na, "#.##")
+    s += ',"pattern":"' + pattern + '"'
+    s
+
+float cBody     = math.abs(close - open)
+float cBodyPct  = cRng > 0 ? cBody / cRng * 100 : 0.0
+float cDnPct    = cRng > 0 ? (math.min(open, close) - low) / cRng * 100 : 0.0
+float cRangeAtr = atrV > 0 ? cRng / atrV : na
+float cClosePos = cRng > 0 ? (close - low) / cRng * 100 : 50.0
+float cGapPct   = close[1] > 0 ? (open - close[1]) / close[1] * 100 : na
+string cDir     = bullBar ? "bull" : bearBar ? "bear" : "flat"
+string cPattern = f_pattern(atrV)
+string candleBody = f_candleBody(cPattern)
+max_bars_back(candleBody, 12)
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 買いシグナルと保有の追跡（確定足のみ）
+// ═════════════════════════════════════════════════════════════════════════════
+// 押し目: 中期・長期が上向きの並びで、安値が短期線付近まで下げ、終値は短期線の上で引けた
+bool pullbackNow = maM > maS and close > maM and low <= maF + 0.5 * atrV and close > maF and rsiV >= 40 and rsiV <= 60 and bullBar
+bool scoreCross  = longScore >= scoreThreshold and longScore[1] < scoreThreshold
+string candKind  = pullbackNow and longScore >= pullbackMin ? "PULLBACK" : scoreCross ? (breakUp or newHigh52 ? "BREAKOUT" : "MOMENTUM") : "NONE"
+
+string blockReason = regime == "TREND_DOWN" ? "TREND_DOWN" : overheat >= overheatBlock ? "OVERHEAT" : blockHighVol and regime == "HIGH_VOLATILITY" ? "HIGH_VOLATILITY" : blockEarnings and earnSoon ? "EARNINGS_SOON" : "NONE"
+
+var int    tSide     = 0
+var string tSideStr  = "NONE"
+var string tStatus   = "NONE"
+var string tKind     = "NONE"
+var float  tEntry    = na
+var float  tStop     = na
+var float  tStop0    = na
+var float  tT1       = na
+var float  tT2       = na
+var int    tBar      = na
+var int    lastSigBar  = na
+var string lastSigKind = "NONE"
+bool tradeUpdate = false
+bool opened      = false
+bool blockedNow  = false
+
+if barstate.isconfirmed
+    string statusBefore = tStatus
+    // 1) 保有中の更新（損切りを先に判定: 保守的）
+    if tSide == 1 and bar_index > tBar
+        if low <= tStop
+            tStatus := tStatus == "TARGET_1_HIT" ? "STOPPED_AFTER_T1" : "STOPPED"
+            tSide := 0
+        else if high >= tT2
+            tStatus := "TARGET_2_HIT"
+            tSide := 0
+        else if exitOnTrend and close < maM
+            tStatus := "EXIT_TREND_BREAK"
+            tSide := 0
+        else if high >= tT1 and tStatus == "ACTIVE"
+            tStatus := "TARGET_1_HIT"
+            if beAfterT1
+                tStop := tEntry
+    // 2) 新しい買い（保有中の同方向シグナルは無視）
+    if tSide == 0 and candKind != "NONE"
+        if blockReason == "NONE"
+            opened := true
+            tSide := 1
+            tSideStr := "LONG"
+            tKind := candKind
+            tEntry := close
+            tStop := close - stopAtr * atrV
+            tStop0 := tStop
+            float riskAmt = tEntry - tStop
+            tT1 := tEntry + t1R * riskAmt
+            tT2 := tEntry + t2R * riskAmt
+            tBar := bar_index
+            tStatus := "ACTIVE"
+            lastSigBar := bar_index
+            lastSigKind := candKind
+        else
+            blockedNow := true
+    tradeUpdate := tStatus != statusBefore and not opened
+
+string eventStr = opened ? "BUY_SETUP" : tradeUpdate ? "TRADE_UPDATE" : blockedNow ? "BUY_BLOCKED" : "BAR_CLOSE"
+string stateCode = "KABU|" + syminfo.ticker + "|" + timeframe.period + "|" + regime + "|L" + str.tostring(longScore) + "|H" + str.tostring(overheat) + "|" + tSideStr + ":" + tStatus
+
+// ═════════════════════════════════════════════════════════════════════════════
+// AIエージェント用 JSON パケット（schema: kabu-lens/v1。項目は PACKET_SCHEMA.md）
+// ═════════════════════════════════════════════════════════════════════════════
+f_esc(string s) =>
+    str.replace_all(str.replace_all(s, "\\", "/"), '"', "'")
+
+f_packet() =>
+    string fp = format.mintick
+    string t  = str.format_time(time_close, "yyyy-MM-dd'T'HH:mm:ss'Z'", "UTC")
+    string pk = '{"schema":"kabu-lens/v1"'
+    pk += ',"event":"' + eventStr + '"'
+    pk += ',"symbol":"' + syminfo.prefix + ":" + syminfo.ticker + '"'
+    pk += ',"name":"' + f_esc(syminfo.description) + '"'
+    pk += ',"currency":"' + syminfo.currency + '"'
+    pk += ',"timeframe":"' + timeframe.period + '"'
+    pk += ',"time":"' + t + '"'
+    pk += ',"date_jst":"' + str.format_time(time, "yyyy-MM-dd", "Asia/Tokyo") + '"'
+    pk += ',"state_code":"' + stateCode + '"'
+    // ローソク足
+    pk += ',"candle":{"open":' + f_num(open, fp) + ',"high":' + f_num(high, fp) + ',"low":' + f_num(low, fp) + ',"close":' + f_num(close, fp)
+    pk += ',"volume":' + f_num(volume, "#") + ',"direction":"' + cDir + '"'
+    pk += ',"body_pct":' + f_num(cBodyPct, "#.#") + ',"upper_wick_pct":' + f_num(cUpPct, "#.#") + ',"lower_wick_pct":' + f_num(cDnPct, "#.#")
+    pk += ',"range_atr":' + f_num(cRangeAtr, "#.##") + ',"close_position_pct":' + f_num(cClosePos, "#.#") + ',"gap_pct":' + f_num(cGapPct, "#.##")
+    pk += ',"closed_above_prev_high":' + f_bool(close > high[1]) + ',"closed_below_prev_low":' + f_bool(close < low[1])
+    pk += ',"pattern":"' + cPattern + '"}'
+    // 直近の足（古い順）
+    string rc = "["
+    for k = recentCount - 1 to 0
+        rc += '{"bars_ago":' + str.tostring(k) + "," + candleBody[k] + "}" + (k > 0 ? "," : "")
+    pk += ',"recent_candles":' + rc + "]"
+    // 地合い・トレンド
+    pk += ',"regime":"' + regime + '"'
+    pk += ',"trend":{"ma_type":"' + maType + '","ma_fast_len":' + str.tostring(maFastLen) + ',"ma_mid_len":' + str.tostring(maMidLen) + ',"ma_slow_len":' + str.tostring(maSlowLen)
+    pk += ',"ma_fast":' + f_num(maF, fp) + ',"ma_mid":' + f_num(maM, fp) + ',"ma_slow":' + f_num(maS, fp)
+    pk += ',"dev_fast_pct":' + f_num(devF, "#.##") + ',"dev_mid_pct":' + f_num(devM, "#.##")
+    pk += ',"stack":"' + stackStr + '","slow_slope":"' + slopeStr + '","htf":"' + htfTf + '","htf_bias":"' + htfBiasStr + '","htf_rsi":' + f_num(htfRsiV, "#.#") + '}'
+    pk += ',"momentum":{"rsi":' + f_num(rsiV, "#.##") + ',"macd_hist":' + f_num(macdHist, "#.####") + ',"macd_hist_rising":' + f_bool(macdHist > macdHist[1]) + '}'
+    pk += ',"strength":{"adx":' + f_num(adxV, "#.##") + ',"di_plus":' + f_num(diPlus, "#.##") + ',"di_minus":' + f_num(diMinus, "#.##") + '}'
+    pk += ',"volatility":{"atr":' + f_num(atrV, fp) + ',"atr_pct_of_price":' + f_num(atrOfPx, "#.##") + ',"atr_percentile":' + f_num(atrPct, "#.#") + '}'
+    pk += ',"volume":{"relative":' + f_num(relVol, "#.##") + ',"turnover":' + f_num(turnover, "#") + ',"turnover_avg":' + f_num(turnAvg, "#") + '}'
+    pk += ',"relative_strength":{"benchmark":"' + benchSym + '","lookback_bars":' + str.tostring(rsLen) + ',"stock_return_pct":' + f_num(stockRet, "#.##") + ',"bench_return_pct":' + f_num(benchRet, "#.##") + ',"diff_pct":' + f_num(rsDiff, "#.##") + '}'
+    pk += ',"range_52w":{"high":' + f_num(hi52, fp) + ',"low":' + f_num(lo52, fp) + ',"from_high_pct":' + f_num(fromHi52, "#.##") + ',"from_low_pct":' + f_num(fromLo52, "#.##") + ',"new_high_close":' + f_bool(newHigh52) + '}'
+    pk += ',"structure":{"bias":"' + structBias + '","event":"' + structEvent + '","last_swing_high":' + f_num(swingH1, fp) + ',"last_swing_low":' + f_num(swingL1, fp) + '}'
+    pk += ',"levels":{"prev_week_high":' + f_num(pwh, fp) + ',"prev_week_low":' + f_num(pwl, fp) + '}'
+    pk += ',"earnings":{"next_date":' + (na(nextEarn) ? "null" : '"' + str.format_time(int(nextEarn), "yyyy-MM-dd", "Asia/Tokyo") + '"') + ',"days_to":' + f_num(daysToEarn, "#") + ',"within_block_window":' + f_bool(earnSoon) + '}'
+    // 過熱度とスコア
+    pk += ',"overheat":{"score":' + str.tostring(overheat) + ',"level":"' + heatLevel + '","block_at":' + str.tostring(overheatBlock) + ',"up_streak":' + str.tostring(upStreak)
+    pk += ',"factors":{"deviation":' + str.tostring(hDev) + ',"rsi":' + str.tostring(hRsi) + ',"weekly_rsi":' + str.tostring(hWkRsi) + ',"run_up":' + str.tostring(hRun) + ',"streak":' + str.tostring(hStreak) + ',"blowoff":' + str.tostring(hBlow) + '}}'
+    pk += ',"scores":{"long":' + str.tostring(longScore) + ',"threshold":' + str.tostring(scoreThreshold) + ',"pullback_min":' + str.tostring(pullbackMin)
+    pk += ',"factors":{"trend":' + str.tostring(fTrend) + ',"momentum":' + str.tostring(fMom) + ',"volume":' + str.tostring(fVol) + ',"htf":' + str.tostring(fHtf) + ',"relative_strength":' + str.tostring(fRs) + '}}'
+    pk += ',"setup":{"candidate":"' + candKind + '","blocked_reason":"' + (candKind == "NONE" ? "NONE" : blockReason) + '","pullback_now":' + f_bool(pullbackNow) + '}'
+    // 保有
+    pk += ',"trade":{"side":"' + tSideStr + '","kind":"' + tKind + '","status":"' + tStatus + '","entry":' + f_num(tEntry, fp) + ',"stop":' + f_num(tStop, fp) + ',"initial_stop":' + f_num(tStop0, fp)
+    pk += ',"target_1":' + f_num(tT1, fp) + ',"target_2":' + f_num(tT2, fp) + ',"bars_since_entry":' + (na(tBar) ? "null" : str.tostring(bar_index - tBar)) + '}'
+    pk += ',"last_setup":{"kind":"' + lastSigKind + '","bars_ago":' + (na(lastSigBar) ? "null" : str.tostring(bar_index - lastSigBar)) + '}'
+    pk += '}'
+    pk
+
+bool wantPacket = packetMode == "足の確定ごと" or (packetMode == "シグナルと保有の変化のみ" and eventStr != "BAR_CLOSE")
+string packet = f_packet()
+if barstate.islast and (wantPacket or showPreview)
+    if wantPacket
+        alert(packet, alert.freq_once_per_bar_close)
+    if showPreview
+        var label prev = na
+        label.delete(prev)
+        prev := label.new(bar_index + 14, close, packet, style = label.style_label_left, color = color.new(C_HEAD, 0), textcolor = C_TEXT, size = size.tiny, textalign = text.align_left)
+
+// JSON不要で通知だけ欲しい人向け
+alertcondition(opened, "株レンズ: 買いシグナル", "株レンズ: {{ticker}} ({{interval}}) 買いシグナル 終値 {{close}}")
+alertcondition(blockedNow, "株レンズ: 過熱などで見送り", "株レンズ: {{ticker}} ({{interval}}) 買い候補だが見送り（過熱・決算前など）")
+alertcondition(tradeUpdate, "株レンズ: 保有の変化", "株レンズ: {{ticker}} ({{interval}}) 保有状況が変化（目標到達・損切り・中期線割れ）")
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 描画: 移動平均・52週高安・構造
+// ═════════════════════════════════════════════════════════════════════════════
+pFast = plot(showMas ? maF : na, "短期線", color = color.new(C_CYAN, 10), linewidth = 1, display = display.pane)
+pMid  = plot(showMas ? maM : na, "中期線", color = color.new(C_WARN, 10), linewidth = 1, display = display.pane)
+fill(pFast, pMid, color = maF > maM ? color.new(C_BULL, 85) : color.new(C_BEAR, 85), title = "短期・中期の帯")
+plot(showMas ? maS : na, "長期線", color = color.new(C_PURPLE, 0), linewidth = 2, display = display.pane)
+
+plot(showLevels ? hi52 : na, "52週高値", color = color.new(C_NEUT, 30), style = plot.style_stepline, linewidth = 1, display = display.pane)
+plot(showLevels ? lo52 : na, "52週安値", color = color.new(C_NEUT, 60), style = plot.style_stepline, linewidth = 1, display = display.pane)
+
+plotshape(showStructure and not na(ph) ? ph : na, "スイング高値", shape.circle, location.absolute, color.new(C_BEAR, 30), offset = -swingLen, size = size.tiny, display = display.pane)
+plotshape(showStructure and not na(pl) ? pl : na, "スイング安値", shape.circle, location.absolute, color.new(C_BULL, 30), offset = -swingLen, size = size.tiny, display = display.pane)
+plotshape(showStructure and breakUp and barstate.isconfirmed, "上抜け", shape.triangleup, location.belowbar, color.new(C_BULL, 35), size = size.tiny, text = "BOS", textcolor = color.new(C_BULL, 35), display = display.pane)
+plotshape(showStructure and breakDown and barstate.isconfirmed, "下抜け", shape.triangledown, location.abovebar, color.new(C_BEAR, 35), size = size.tiny, text = "BOS", textcolor = color.new(C_BEAR, 35), display = display.pane)
+
+bgcolor(showHotBg and overheat >= overheatBlock ? color.new(C_WARN, 92) : na, title = "過熱中")
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 描画: シグナルのラベルとポジションの箱
+// ═════════════════════════════════════════════════════════════════════════════
+f_kindJa(string k) =>
+    switch k
+        "PULLBACK"  => "押し目"
+        "BREAKOUT"  => "ブレイク"
+        "MOMENTUM"  => "勢い"
+        => "-"
+
+f_reasonJa(string r) =>
+    switch r
+        "OVERHEAT"        => "過熱"
+        "TREND_DOWN"      => "下降トレンド"
+        "HIGH_VOLATILITY" => "値動き荒い"
+        "EARNINGS_SOON"   => "決算前"
+        => "-"
+
+f_tip() =>
+    "トレンド " + str.tostring(fTrend) + "/20\nモメンタム " + str.tostring(fMom) + "/20\n出来高 " + str.tostring(fVol) + "/20\n週足 " + str.tostring(fHtf) + "/20\n対指数 " + str.tostring(fRs) + "/20\n過熱度 " + str.tostring(overheat) + "\n地合い " + regime
+
+if showMarkers and opened
+    label.new(bar_index, low, "▲ " + f_kindJa(tKind) + " " + str.tostring(longScore), yloc = yloc.belowbar, style = label.style_label_up, color = C_BULL, textcolor = #0B0E14, size = size.small, tooltip = f_tip())
+if showMarkers and blockedNow
+    label.new(bar_index, high, "見送り: " + f_reasonJa(blockReason), yloc = yloc.abovebar, style = label.style_label_down, color = color.new(C_WARN, 20), textcolor = #0B0E14, size = size.tiny, tooltip = f_tip())
+
+var box  riskBox   = na
+var box  rewardBox = na
+var line t1Line    = na
+
+if showTrade and barstate.isconfirmed
+    if opened
+        riskBox   := box.new(bar_index, tEntry, bar_index + 1, tStop, border_color = color.new(C_BEAR, 55), bgcolor = color.new(C_BEAR, 84), text = "損切り 1R", text_color = color.new(C_BEAR, 20), text_size = size.tiny, text_halign = text.align_left, text_valign = text.align_center)
+        rewardBox := box.new(bar_index, tT2, bar_index + 1, tEntry, border_color = color.new(C_BULL, 55), bgcolor = color.new(C_BULL, 86), text = "目標 " + str.tostring(t2R, "#.#") + "R", text_color = color.new(C_BULL, 20), text_size = size.tiny, text_halign = text.align_left, text_valign = text.align_center)
+        t1Line    := line.new(bar_index, tT1, bar_index + 1, tT1, color = color.new(C_BULL, 30), style = line.style_dashed, width = 1)
+    else if tradeUpdate and tSide == 0
+        box.set_right(riskBox, bar_index)
+        box.set_right(rewardBox, bar_index)
+        line.set_x2(t1Line, bar_index)
+    else if tSide != 0
+        box.set_right(riskBox, bar_index + 1)
+        box.set_right(rewardBox, bar_index + 1)
+        line.set_x2(t1Line, bar_index + 1)
+
+var label tagEntry = na
+var label tagStop  = na
+var label tagT1    = na
+var label tagT2    = na
+
+f_tag(float y, string txt, color bg, color tc) =>
+    label.new(bar_index + 4, y, txt, style = label.style_label_left, color = bg, textcolor = tc, size = size.tiny)
+
+if barstate.islast
+    label.delete(tagEntry)
+    label.delete(tagStop)
+    label.delete(tagT1)
+    label.delete(tagT2)
+    if showTrade and tSide != 0
+        box.set_right(riskBox, bar_index + 4)
+        box.set_right(rewardBox, bar_index + 4)
+        line.set_x2(t1Line, bar_index + 4)
+        tagEntry := f_tag(tEntry, "建値  " + str.tostring(tEntry, format.mintick), color.new(C_HEAD, 0), C_TEXT)
+        tagStop  := f_tag(tStop, "損切り  " + str.tostring(tStop, format.mintick), color.new(C_BEAR, 10), color.white)
+        tagT1    := f_tag(tT1, "目標1  " + str.tostring(tT1, format.mintick), color.new(C_BULL, 45), #0B0E14)
+        tagT2    := f_tag(tT2, "目標2  " + str.tostring(tT2, format.mintick), color.new(C_BULL, 10), #0B0E14)
+
+// ═════════════════════════════════════════════════════════════════════════════
+// データウィンドウ
+// ═════════════════════════════════════════════════════════════════════════════
+plot(longScore, "買いスコア", color = C_BULL, display = display.data_window)
+plot(overheat, "過熱度", color = C_WARN, display = display.data_window)
+plot(devF, "短期線乖離率(%)", display = display.data_window)
+plot(rsDiff, "対指数の相対強度(%pt)", display = display.data_window)
+plot(fromHi52, "52週高値から(%)", display = display.data_window)
+plot(daysToEarn, "決算まで(日)", display = display.data_window)
+plot(regimeCode, "地合い (1上昇 -1下降 0レンジ 2荒い)", display = display.data_window)
+plot(htfBias, "週足の向き (1上 -1下 0横)", display = display.data_window)
+plot(rsiV, "RSI", display = display.data_window)
+plot(relVol, "出来高倍率", display = display.data_window)
+plot(tSide, "保有 (1保有中 0なし)", display = display.data_window)
+
+// ═════════════════════════════════════════════════════════════════════════════
+// パネル
+// ═════════════════════════════════════════════════════════════════════════════
+f_pos(string p) =>
+    switch p
+        "左上"   => position.top_left
+        "右下"   => position.bottom_right
+        "左下"   => position.bottom_left
+        "右中央" => position.middle_right
+        => position.top_right
+
+f_size(string s) =>
+    switch s
+        "極小" => size.tiny
+        "中"   => size.normal
+        => size.small
+
+f_regimeJa(string r) =>
+    switch r
+        "TREND_UP"        => "上昇トレンド"
+        "TREND_DOWN"      => "下降トレンド"
+        "HIGH_VOLATILITY" => "値動き荒い"
+        => "レンジ"
+
+f_statusJa(string s) =>
+    switch s
+        "ACTIVE"           => "保有中"
+        "TARGET_1_HIT"     => "目標1到達"
+        "TARGET_2_HIT"     => "目標2到達"
+        "STOPPED"          => "損切り"
+        "STOPPED_AFTER_T1" => "目標1後に建値撤退"
+        "EXIT_TREND_BREAK" => "中期線割れで終了"
+        => "-"
+
+f_pct(float x) =>
+    na(x) ? "n/a" : (x >= 0 ? "+" : "") + str.tostring(x, "0.0") + "%"
+
+f_aligned() =>
+    (fTrend >= 12 ? 1 : 0) + (fMom >= 12 ? 1 : 0) + (fVol >= 12 ? 1 : 0) + (fHtf >= 12 ? 1 : 0) + (fRs >= 12 ? 1 : 0)
+
+color P_BG    = #0E1117
+color P_LINE  = #1C2230
+color P_KEY   = #8B93A7
+color P_VAL   = #E6E9EF
+
+string PANEL_SIZE = f_size(panelSizeIn)
+string HERO_SIZE  = panelSizeIn == "極小" ? size.normal : size.large
+int    PANEL_ROWS = 16
+var table panel = table.new(f_pos(panelPosIn), 2, PANEL_ROWS, bgcolor = P_BG, frame_color = #232A3A, frame_width = 1, border_color = P_LINE, border_width = 1)
+
+f_cell(int c, int r, string txt, color tc, color bg, string sz, string halign) =>
+    table.cell(panel, c, r, txt, text_color = tc, bgcolor = bg, text_halign = halign, text_size = sz)
+
+f_row(int r, string k, string v, color vc) =>
+    f_cell(0, r, k, P_KEY, P_BG, PANEL_SIZE, text.align_left)
+    f_cell(1, r, v, vc, P_BG, PANEL_SIZE, text.align_right)
+
+f_wide(int r, string txt, color tc, color bg, string sz) =>
+    f_cell(0, r, txt, tc, bg, sz, text.align_center)
+    table.merge_cells(panel, 0, r, 1, r)
+
+if showPanel and barstate.islast
+    table.clear(panel, 0, 0, 1, PANEL_ROWS - 1)
+    bool full = panelModeIn == "詳細"
+    string fp = format.mintick
+    bool hot = overheat >= overheatBlock
+
+    string hero = tSide == 1 ? "保有中  " + f_kindJa(tKind) : hot ? "過熱・見送り" : "様子見"
+    color heroBg = tSide == 1 ? C_BULL : hot ? C_WARN : #1A1F2B
+    color heroTc = tSide == 1 or hot ? #0B0E14 : P_VAL
+    string sub = tSide == 1 ? f_statusJa(tStatus) : blockReason != "NONE" and candKind != "NONE" ? "買い候補だが見送り（" + f_reasonJa(blockReason) + "）" : longScore >= scoreThreshold - 15 ? "買いスコア上昇中 " + str.tostring(longScore) + " / " + str.tostring(scoreThreshold) : "条件そろわず"
+    color regimeCol = regime == "TREND_UP" ? C_BULL : regime == "TREND_DOWN" ? C_BEAR : regime == "HIGH_VOLATILITY" ? C_WARN : P_VAL
+    color heatCol = heatLevel == "HIGH" ? C_BEAR : heatLevel == "ELEVATED" ? C_WARN : C_BULL
+    int aligned = f_aligned()
+
+    int r = 0
+    f_cell(0, r, "株レンズ", C_CYAN, P_BG, size.tiny, text.align_left)
+    f_cell(1, r, syminfo.ticker + "  ·  " + timeframe.period, P_KEY, P_BG, size.tiny, text.align_right)
+    r += 1
+    f_wide(r, hero, heroTc, heroBg, HERO_SIZE)
+    r += 1
+    f_wide(r, sub, P_KEY, P_BG, PANEL_SIZE)
+    r += 1
+    f_row(r, "地合い", f_regimeJa(regime), regimeCol)
+    r += 1
+    f_row(r, "買いスコア", str.tostring(longScore) + "（" + str.tostring(aligned) + "/5 一致）", longScore >= scoreThreshold ? C_BULL : P_VAL)
+    r += 1
+    f_row(r, "高値づかみ危険度", str.tostring(overheat) + " / 100", heatCol)
+    r += 1
+
+    if tSide == 1
+        float riskU = tEntry - tStop0
+        float rNow = riskU > 0 ? (close - tEntry) / riskU : na
+        f_row(r, "建値", f_num(tEntry, fp), P_VAL)
+        r += 1
+        f_row(r, "損切り", f_num(tStop, fp), C_BEAR)
+        r += 1
+        f_row(r, "目標1 / 2", f_num(tT1, fp) + "  /  " + f_num(tT2, fp), C_BULL)
+        r += 1
+        f_row(r, "含み損益", na(rNow) ? "n/a" : (rNow >= 0 ? "+" : "") + str.tostring(rNow, "0.00") + "R", na(rNow) ? P_KEY : rNow >= 0 ? C_BULL : C_BEAR)
+        r += 1
+    else if tSideStr != "NONE"
+        f_row(r, "前回の結果", f_statusJa(tStatus), P_KEY)
+        r += 1
+
+    if full
+        f_row(r, str.tostring(maFastLen) + "日線乖離", f_pct(devF), na(devF) ? P_KEY : devF >= devWarn ? C_WARN : P_VAL)
+        r += 1
+        f_row(r, "52週高値から", f_pct(fromHi52), P_VAL)
+        r += 1
+        f_row(r, "対指数（" + str.tostring(rsLen) + "本）", na(rsDiff) ? "n/a" : (rsDiff >= 0 ? "+" : "") + str.tostring(rsDiff, "0.0") + "pt", na(rsDiff) ? P_KEY : rsDiff >= 0 ? C_BULL : C_BEAR)
+        r += 1
+        f_row(r, "決算まで", na(daysToEarn) ? "不明" : str.tostring(daysToEarn, "0") + "日", earnSoon ? C_WARN : P_VAL)
+        r += 1
+        f_row(r, "週足 / RSI", (htfBiasStr == "UP" ? "上向き" : htfBiasStr == "DOWN" ? "下向き" : htfBiasStr == "FLAT" ? "横ばい" : "n/a") + "  ·  RSI " + f_num(rsiV, "0"), htfBias == 1 ? C_BULL : htfBias == -1 ? C_BEAR : P_VAL)
+        r += 1
