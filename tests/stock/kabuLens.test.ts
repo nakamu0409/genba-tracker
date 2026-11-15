@@ -141,9 +141,11 @@ describe('買っていた場合の追跡', () => {
   const mk = (rows: number[][]): Bar[] => rows.map((r, i) => ({ date: dates(rows.length)[i]!, o: r[0]!, h: r[1]!, l: r[2]!, c: r[3]!, v: 1000 }))
   // シグナルの足（終値100）のあと、翌日の始値で買う。損切り90 → 損切り幅10、目標は+2R
   const sig = [100, 101, 99, 100]
+  // 目標は損切り幅の2倍、期限は20営業日で確かめる
+  const opt = { trackRR: 2, trackMaxBars: 20 }
 
   it('目標に届けば +2R', () => {
-    const r = evaluateSignal(mk([sig, [100, 105, 99, 104], [104, 121, 103, 120]]), 0, 90)
+    const r = evaluateSignal(mk([sig, [100, 105, 99, 104], [104, 121, 103, 120]]), 0, 90, opt)
     expect(r.status).toBe('TARGET')
     expect(r.entry).toBe(100)
     expect(r.target).toBe(120)
@@ -152,30 +154,38 @@ describe('買っていた場合の追跡', () => {
   })
 
   it('損切りに届けば −1R。同じ日に両方届いたら損切り扱い', () => {
-    expect(evaluateSignal(mk([sig, [100, 102, 89, 95]]), 0, 90).r).toBe(-1)
-    const both = evaluateSignal(mk([sig, [100, 125, 89, 110]]), 0, 90)
+    expect(evaluateSignal(mk([sig, [100, 102, 89, 95]]), 0, 90, opt).r).toBe(-1)
+    const both = evaluateSignal(mk([sig, [100, 125, 89, 110]]), 0, 90, opt)
     expect(both.status).toBe('STOPPED')
   })
 
   it('損切りより下で寄り付いたら、その始値で売れたものとする', () => {
-    const r = evaluateSignal(mk([sig, [100, 101, 96, 97], [80, 82, 78, 79]]), 0, 90)
+    const r = evaluateSignal(mk([sig, [100, 101, 96, 97], [80, 82, 78, 79]]), 0, 90, opt)
     expect(r.status).toBe('STOPPED')
     expect(r.exit).toBe(80)
     expect(r.r).toBe(-2)
   })
 
   it('翌日の始値が+2%より高ければ買わない', () => {
-    expect(evaluateSignal(mk([sig, [103, 104, 102, 103]]), 0, 90).status).toBe('SKIPPED_GAP')
+    expect(evaluateSignal(mk([sig, [103, 104, 102, 103]]), 0, 90, opt).status).toBe('SKIPPED_GAP')
   })
 
   it('期限まで決着しなければ終値で手じまい、翌日の足がまだ無ければ保留', () => {
     const flat = Array.from({ length: 25 }, () => [100, 103, 97, 105])
-    const r = evaluateSignal(mk([sig, ...flat]), 0, 90)
+    const r = evaluateSignal(mk([sig, ...flat]), 0, 90, opt)
     expect(r.status).toBe('TIME_EXIT')
     expect(r.bars).toBe(20)
     expect(r.r).toBe(0.5)
-    expect(evaluateSignal(mk([sig]), 0, 90).status).toBe('PENDING')
-    expect(evaluateSignal(mk([sig, [100, 103, 97, 105]]), 0, 90).status).toBe('OPEN')
+    expect(evaluateSignal(mk([sig]), 0, 90, opt).status).toBe('PENDING')
+    expect(evaluateSignal(mk([sig, [100, 103, 97, 105]]), 0, 90, opt).status).toBe('OPEN')
+  })
+
+  it('既定では目標は損切り幅の3倍、期限は40営業日', () => {
+    const r = evaluateSignal(mk([sig, [100, 125, 99, 124]]), 0, 90)
+    expect(r.status).toBe('OPEN')
+    expect(r.target).toBe(130)
+    const flat = Array.from({ length: 45 }, () => [100, 103, 97, 105])
+    expect(evaluateSignal(mk([sig, ...flat]), 0, 90).bars).toBe(40)
   })
 
   it('集計は決着したものだけを数える', () => {

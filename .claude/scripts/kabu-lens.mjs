@@ -53,8 +53,10 @@ export const DEFAULTS = {
   candAllowState: false,
   candMaxDevPct: 8, // 25日線からの乖離がこれ以下
   trackGapPct: 2, // 翌日の始値が終値よりこれ以上高ければ買わない
-  trackRR: 2, // 目標 = 買値 + 損切り幅 × これ
-  trackMaxBars: 20 // これだけ持って決着しなければ終値で手じまい
+  // 目標と保有期限。約160銘柄・10年の検証で、「2倍・20営業日」より「3倍・40営業日」のほうが
+  // 前半（2017〜2021年）も後半（2022〜2026年）も1回あたりの成績が良かった（kabu-lens/research/README.md）
+  trackRR: 3, // 目標 = 買値 + 損切り幅 × これ
+  trackMaxBars: 40 // これだけ持って決着しなければ終値で手じまい
 }
 
 // ─── 指標の計算（値が出せない位置は null。Pine の na と同じ扱い） ───────────────
@@ -480,7 +482,10 @@ export function analyze(bars, bench = [], info = {}, options = {}) {
     const candPass = candWhyNot === 'NONE' && ok(atrV[i])
     const candStop = ok(atrV[i]) ? b.c - o.stopAtr * atrV[i] : null
     if (o.history && ok(atrV[i]) && (candPass || candKind !== 'NONE')) {
-      signalHistory.push({ i, date: b.date, pass: candPass, kind: candKind !== 'NONE' ? candKind : 'STATE', reason: candWhyNot, close: b.c, stop: round(candStop, 1), score: longScore, overheat, regime })
+      signalHistory.push({
+        i, date: b.date, pass: candPass, kind: candKind !== 'NONE' ? candKind : 'STATE', reason: candWhyNot, close: b.c, stop: round(candStop, 1), score: longScore, overheat, regime,
+        atr: atrV[i], htf: htfBias, rs: rsDiff, dev: devF, relVol, fromHi: fromHi52, aboveSlow: ok(maS[i]) && b.c > maS[i], slopeUp
+      })
     }
     patterns.push(pattern(b, p, atrV[i]))
     prevScore = longScore
@@ -633,8 +638,9 @@ async function fetchJson(url) {
   return JSON.parse(r.stdout)
 }
 
-async function fetchYahoo(ticker) {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=3y&interval=1d`
+/** Yahoo Finance から日足を取る。range は 3y（既定）や 10y など */
+export async function fetchYahoo(ticker, range = '3y') {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=${range}&interval=1d`
   try {
     return parseYahoo(await fetchJson(url))
   } catch (e) {
