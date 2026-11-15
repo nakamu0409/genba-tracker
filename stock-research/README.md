@@ -19,6 +19,7 @@ ChatGPT 担当だった「探す・読む・疑う」も、Claude Code の Web �
 
 - 計算（PER・DCF・感応度表）は AI に暗算させず `node .claude/scripts/stock-calc.mjs` で確定させます。
 - チャートの計算（移動平均・RSI・買いスコアなど）は `node .claude/scripts/kabu-lens.mjs <銘柄コード>` が Yahoo Finance の日足から行います。
+- `/theme`（10社の今のチャート一覧）、`/bear`（上がりすぎの確認）、`/earnings`（決算後の株価の反応）もこのスクリプトの数字を使い、`/thesis` には `/chart` の判定をもとにした「買い方」の欄があります。
 - コマンドの中身は `.claude/commands/*.md`。プロンプトを自分好みに直せます。
 - ⚠️ このフォルダはリポジトリにコミットされます。リポジトリが公開なら、保有銘柄などの記録が見えてしまう点に注意してください。
 
