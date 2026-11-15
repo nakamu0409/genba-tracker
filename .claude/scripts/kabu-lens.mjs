@@ -507,11 +507,34 @@ export function parseYahoo(json, nowSec = Date.now() / 1000) {
   return { bars, name: r.meta.longName || r.meta.shortName || '', currency: r.meta.currency || 'JPY', droppedUnconfirmed }
 }
 
+// まず Node の fetch で取り、失敗したら curl で取り直す。
+// （プロキシ経由の環境では fetch が通らず curl だけ通ることがある）
+async function fetchJson(url) {
+  let firstError
+  try {
+    const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(20000) })
+    if (res.ok) return await res.json()
+    firstError = new Error(`HTTP ${res.status}`)
+    if (res.status === 404) throw firstError
+  } catch (e) {
+    if (e === firstError && /404/.test(e.message)) throw e
+    firstError = e
+  }
+  const r = spawnSync('curl', ['-sS', '--fail', '--max-time', '25', '-A', 'Mozilla/5.0', url], { encoding: 'utf-8', maxBuffer: 64 * 1024 * 1024 })
+  if (r.status !== 0 || !r.stdout) {
+    const why = (r.stderr || r.error?.message || '').trim().split('\n').pop() || firstError?.message || '不明'
+    throw new Error(/404/.test(why) ? 'HTTP 404' : `接続に失敗（fetch: ${firstError?.message || '-'} / curl: ${why}）`)
+  }
+  return JSON.parse(r.stdout)
+}
+
 async function fetchYahoo(ticker) {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=3y&interval=1d`
-  const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } })
-  if (!res.ok) throw new Error(`${ticker}: 株価を取得できませんでした（HTTP ${res.status}）`)
-  return parseYahoo(await res.json())
+  try {
+    return parseYahoo(await fetchJson(url))
+  } catch (e) {
+    throw new Error(`${ticker}: 株価を取得できませんでした（${e.message}）`)
+  }
 }
 
 async function main() {
