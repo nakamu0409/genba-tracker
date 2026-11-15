@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { analyze, atr, backtest, ema, evaluateSignal, isTseCode, parseYahoo, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { analyze, atr, backtest, ema, evaluateSignal, isTseCode, parseKabutanRanking, parseKabutanStock, parseYahoo, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -244,6 +244,55 @@ describe('好材料の窓開け', () => {
     expect(analyze(base({ o: 1032, h: 1062, l: 1030, c: 1060, v: 1500 }), [], info).gap_up.is_gap_up).toBe(false)
     expect(analyze(base({ o: 1060, h: 1062, l: 1030, c: 1032, v: 3000 }), [], info).gap_up.is_gap_up).toBe(false)
     expect(analyze(base({ o: 1010, h: 1062, l: 1008, c: 1060, v: 3000 }), [], info).gap_up.is_gap_up).toBe(false)
+  })
+})
+
+describe('PTSの読み取り（株探のページ）', () => {
+  const stockHtml = (pts: string) => `
+    <div class="si_i1_1"><h2><span class="inline-block">6721</span><span class="fs0"> </span>ウインテスト</h2>
+      <div class="si_i1_1_rbox"><span class="market">東証Ｓ</span> <time datetime="2026-11-13T15:30+09:00">15:30</time></div></div>
+    <div class="si_i1_2"><span class="kabuka">1,112円</span>
+      <dl class="si_i1_dl1"><dt>前日比</dt><dd><span class="down">-5</span></dd><dd><span class="down">-4.27</span>%</dd></dl></div>
+    ${pts}`
+
+  it('通常取引の株価と PTS の値段・時刻を読む', () => {
+    const r = parseKabutanStock(stockHtml('<div class="si_i1_3"><div class="kabuka1">PTS</div> <div class="kabuka2">1,081.5円</div> <div class="kabuka3">08:24\u300011/16</div></div>'))
+    expect(r.name).toBe('ウインテスト')
+    expect(r.price).toBe(1112)
+    expect(r.price_time).toBe('2026-11-13T15:30+09:00')
+    expect(r.change).toBe(-5)
+    expect(r.change_pct).toBe(-4.27)
+    expect(r.pts_price).toBe(1081.5)
+    expect(r.pts_time).toBe('08:24 11/16')
+    expect(r.pts_vs_price_pct).toBeCloseTo(-2.74, 2)
+  })
+
+  it('PTS の取引が無い銘柄は null', () => {
+    const none = parseKabutanStock(stockHtml(''))
+    expect(none.pts_price).toBeNull()
+    expect(none.pts_time).toBeNull()
+    const dash = parseKabutanStock(stockHtml('<div class="kabuka1">PTS</div> <div class="kabuka2">－円</div> <div class="kabuka3">－</div>'))
+    expect(dash.pts_price).toBeNull()
+  })
+
+  it('ランキングの表を読む', () => {
+    const html = `<div class="meigara_count"><ul><li>2026年11月14日</li><li>06:02現在</li><li>572銘柄</li></ul></div>
+      <table class="stock_table st_market"><thead><tr><th>通常取引<br>13日終値</th></tr></thead><tbody>
+      <tr><td class="tac"><a href="/stock/?code=7522">7522</a></td><th scope="row" class="tal">ワタミ</th><td class="tac">東Ｐ</td>
+        <td class="gaiyou_icon"><a href="/stock/?code=7522"></a></td><td class="chart_icon"><a href="/stock/chart?code=7522"></a></td>
+        <td>1,008</td><td>1,280</td><td class="w61"><span class="up">+272</span></td><td class="w50"><span class="up">+26.98</span>%</td><td>75,700</td><td>－</td></tr>
+      <tr><td class="tac"><a href="/stock/?code=247A">247A</a></td><th scope="row" class="tal">Ａｉロボ</th><td class="tac">東Ｇ</td>
+        <td class="gaiyou_icon"></td><td class="chart_icon"></td>
+        <td>709</td><td>559</td><td class="w61"><span class="down">-150</span></td><td class="w50"><span class="down">-21.16</span>%</td><td>123,400</td><td>－</td></tr>
+      </tbody></table>`
+    const r = parseKabutanRanking(html)
+    expect(r.date).toBe('2026年11月14日')
+    expect(r.as_of).toBe('06:02現在')
+    expect(r.base).toBe('13日終値')
+    expect(r.rows).toEqual([
+      { code: '7522', name: 'ワタミ', market: '東Ｐ', close: 1008, pts_price: 1280, change: 272, change_pct: 26.98, volume: 75700 },
+      { code: '247A', name: 'Ａｉロボ', market: '東Ｇ', close: 709, pts_price: 559, change: -150, change_pct: -21.16, volume: 123400 }
+    ])
   })
 })
 

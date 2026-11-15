@@ -7,6 +7,7 @@
 //   node .claude/scripts/kabu-lens.mjs 7203            # 東証の銘柄コード
 //   node .claude/scripts/kabu-lens.mjs 7203 6758 285A  # 複数まとめて
 //   node .claude/scripts/kabu-lens.mjs 7203 --no-save  # ファイルに保存せず表示だけ
+//   node .claude/scripts/kabu-lens.mjs --pts 7203 6758 # PTS（夜間・朝の時間外取引）の値段とランキング（株探）
 //
 // 株価は Yahoo Finance の日足（株式分割は調整済み、配当は未調整）。取引時間中の未確定の足は使わない。
 // 結果は kabu-lens/packets/latest/TSE_<コード>_D.json に保存する（コミットされない）。
@@ -646,23 +647,104 @@ export function parseYahoo(json, nowSec = Date.now() / 1000) {
 
 // まず Node の fetch で取り、失敗したら curl で取り直す。
 // （プロキシ経由の環境では fetch が通らず curl だけ通ることがある）
-async function fetchJson(url) {
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36'
+async function fetchText(url) {
   let firstError
   try {
-    const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(20000) })
-    if (res.ok) return await res.json()
+    const res = await fetch(url, { headers: { 'User-Agent': UA, 'Accept-Language': 'ja' }, signal: AbortSignal.timeout(20000) })
+    if (res.ok) return await res.text()
     firstError = new Error(`HTTP ${res.status}`)
     if (res.status === 404) throw firstError
   } catch (e) {
     if (e === firstError && /404/.test(e.message)) throw e
     firstError = e
   }
-  const r = spawnSync('curl', ['-sS', '--fail', '--max-time', '25', '-A', 'Mozilla/5.0', url], { encoding: 'utf-8', maxBuffer: 64 * 1024 * 1024 })
+  const r = spawnSync('curl', ['-sSL', '--fail', '--max-time', '25', '-A', UA, '-H', 'Accept-Language: ja', url], { encoding: 'utf-8', maxBuffer: 64 * 1024 * 1024 })
   if (r.status !== 0 || !r.stdout) {
     const why = (r.stderr || r.error?.message || '').trim().split('\n').pop() || firstError?.message || '不明'
     throw new Error(/404/.test(why) ? 'HTTP 404' : `接続に失敗（fetch: ${firstError?.message || '-'} / curl: ${why}）`)
   }
-  return JSON.parse(r.stdout)
+  return r.stdout
+}
+const fetchJson = async url => JSON.parse(await fetchText(url))
+
+// ─── PTS（夜間取引・朝の時間外取引）の値段。株探のページから読む ─────────────
+
+const num = (t) => {
+  const x = Number(String(t ?? '').replace(/[,，円%％\s+＋]/g, '').replace('－', '-').replace('−', '-'))
+  return String(t ?? '').trim() !== '' && Number.isFinite(x) ? x : null
+}
+const strip = t => String(t ?? '').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim()
+
+/** 株探の個別銘柄ページ（kabutan.jp/stock/?code=…）から、通常取引の株価と PTS の値段を読む */
+export function parseKabutanStock(html) {
+  const name = strip(html.match(/<div class="si_i1_1">\s*<h2>([\s\S]*?)<\/h2>/)?.[1]).replace(/^[0-9A-Z]{4}\s*/, '') || null
+  const price = num(html.match(/<span class="kabuka">([^<]*)<\/span>/)?.[1])
+  const priceTime = html.match(/<div class="si_i1_1_rbox">[\s\S]*?<time datetime="([^"]+)"/)?.[1] || null
+  const dl = html.match(/<dl class="si_i1_dl1">([\s\S]*?)<\/dl>/)?.[1] || ''
+  const dds = [...dl.matchAll(/<dd>([\s\S]*?)<\/dd>/g)].map(m => num(strip(m[1])))
+  const pts = html.match(/<div class="kabuka1">PTS<\/div>\s*<div class="kabuka2">([^<]*)<\/div>\s*<div class="kabuka3">([^<]*)<\/div>/)
+  const ptsPrice = pts ? num(pts[1]) : null
+  return {
+    name,
+    price,
+    price_time: priceTime,
+    change: dds[0] ?? null,
+    change_pct: dds[1] ?? null,
+    pts_price: ptsPrice,
+    pts_time: pts && ptsPrice !== null ? pts[2].replace(/\s+/g, ' ').trim() : null,
+    pts_vs_price_pct: ptsPrice !== null && price ? round((ptsPrice / price - 1) * 100) : null
+  }
+}
+
+/** 株探の PTS ランキング（上昇率・下落率）の表を読む */
+export function parseKabutanRanking(html) {
+  const info = [...(html.match(/<div class="meigara_count">([\s\S]*?)<\/div>/)?.[1] || '').matchAll(/<li>([\s\S]*?)<\/li>/g)].map(m => strip(m[1]))
+  const body = html.match(/<table class="stock_table[^"]*">[\s\S]*?<tbody>([\s\S]*?)<\/tbody>/)?.[1] || ''
+  const rows = []
+  for (const tr of body.split(/<tr>/).slice(1)) {
+    const code = tr.match(/\/stock\/\?code=([0-9A-Z]{4})"/)?.[1]
+    if (!code) continue
+    const name = strip(tr.match(/<th scope="row"[^>]*>([\s\S]*?)<\/th>/)?.[1])
+    const tds = [...tr.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map(m => strip(m[1]))
+    // コード, 市場, (概要), (チャート), 終値, PTS株価, 終値比, 終値比%, 出来高, …
+    rows.push({ code, name, market: tds[1] || null, close: num(tds[4]), pts_price: num(tds[5]), change: num(tds[6]), change_pct: num(tds[7]), volume: num(tds[8]) })
+  }
+  return { date: info[0] || null, as_of: info[1] || null, base: strip(html.match(/通常取引<br>\s*([0-9]+日終値)/)?.[1]) || null, rows }
+}
+
+const sleep = ms => new Promise(r => setTimeout(r, ms))
+
+/** 指定した銘柄の PTS と、PTS ランキング（上昇・下落の上位）を取る */
+export async function fetchPts(codes, { ranking = true, pages = 2 } = {}) {
+  const stocks = []
+  for (const code of codes) {
+    try {
+      stocks.push({ code, ...parseKabutanStock(await fetchText(`https://kabutan.jp/stock/?code=${encodeURIComponent(code)}`)) })
+    } catch (e) {
+      stocks.push({ code, error: e.message })
+    }
+    await sleep(400)
+  }
+  const out = { source: '株探（株価は15分以上遅れ）', fetched_at: new Date().toISOString().slice(0, 19) + 'Z', stocks }
+  if (ranking) {
+    out.ranking = {}
+    for (const [key, path] of [['up', 'pts_night_price_increase'], ['down', 'pts_night_price_decrease']]) {
+      const all = { rows: [] }
+      try {
+        for (let pg = 1; pg <= pages; pg++) {
+          const r = parseKabutanRanking(await fetchText(`https://kabutan.jp/warning/${path}?market=0&capitalization=-1&dispmode=normal&stc=&stm=0&page=${pg}`))
+          Object.assign(all, { date: r.date, as_of: r.as_of, base: r.base })
+          all.rows.push(...r.rows)
+          await sleep(400)
+        }
+      } catch (e) {
+        all.error = e.message
+      }
+      out.ranking[key] = all
+    }
+  }
+  return out
 }
 
 /** Yahoo Finance から日足を取る。range は 3y（既定）や 10y など */
@@ -686,9 +768,19 @@ async function main() {
   const save = !args.includes('--no-save')
   const evalAt = args.indexOf('--evaluate')
   if (evalAt >= 0) return evaluateFile(args[evalAt + 1])
+  if (args.includes('--pts')) {
+    const ptsCodes = args.filter(a => !a.startsWith('--')).map(a => a.toUpperCase())
+    const badPts = ptsCodes.filter(c => !isTseCode(c))
+    if (badPts.length) {
+      console.error(`銘柄コードの形が違います: ${badPts.join(', ')}（例: 7203, 285A）`)
+      process.exit(1)
+    }
+    console.log(JSON.stringify(await fetchPts(ptsCodes, { ranking: !args.includes('--no-ranking') }), null, 2))
+    return
+  }
   const codes = args.filter(a => !a.startsWith('--')).map(a => a.toUpperCase())
   if (!codes.length) {
-    console.error('使い方: node .claude/scripts/kabu-lens.mjs <銘柄コード...> [--no-save] [--backtest]\n        node .claude/scripts/kabu-lens.mjs --evaluate <signals.json>')
+    console.error('使い方: node .claude/scripts/kabu-lens.mjs <銘柄コード...> [--no-save] [--backtest]\n        node .claude/scripts/kabu-lens.mjs --evaluate <signals.json>\n        node .claude/scripts/kabu-lens.mjs --pts <銘柄コード...> [--no-ranking]')
     process.exit(1)
   }
   const bad = codes.filter(c => !isTseCode(c))
