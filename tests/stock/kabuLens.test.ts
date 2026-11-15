@@ -188,6 +188,15 @@ describe('買っていた場合の追跡', () => {
     expect(evaluateSignal(mk([sig, ...flat]), 0, 90).bars).toBe(40)
   })
 
+  it('目標なし（trackRR: 0）なら、期限まで持って終値で手じまい', () => {
+    const up = Array.from({ length: 6 }, (_, k) => [100 + k * 10, 112 + k * 10, 99 + k * 10, 110 + k * 10])
+    const r = evaluateSignal(mk([sig, ...up]), 0, 90, { trackRR: 0, trackMaxBars: 5 })
+    expect(r.status).toBe('TIME_EXIT')
+    expect(r.target).toBeNull()
+    expect(r.exit).toBe(150)
+    expect(r.r).toBe(5)
+  })
+
   it('集計は決着したものだけを数える', () => {
     const s = summarize([{ status: 'TARGET', r: 2, bars: 3 }, { status: 'STOPPED', r: -1, bars: 1 }, { status: 'SKIPPED_GAP' }, { status: 'OPEN', r: 0.3, bars: 2 }])
     expect(s.closed).toBe(2)
@@ -208,6 +217,33 @@ describe('買っていた場合の追跡', () => {
       const prev = r.passed[k - 1]
       if (prev.exitDate && r.passed[k].entryDate) expect(r.passed[k].signalDate >= prev.exitDate).toBe(true)
     }
+  })
+})
+
+describe('好材料の窓開け', () => {
+  // 横ばいのあと、最後の日だけ窓を開けて上げる
+  const base = (last: Partial<Bar>): Bar[] => {
+    const bars = barsFrom(Array.from({ length: 300 }, (_, i) => 1000 + (i % 3)), 5, 1000)
+    const d = bars[bars.length - 1]!
+    bars[bars.length - 1] = { ...d, ...last }
+    return bars
+  }
+
+  it('窓+3%・陽線・高値引け・出来高3倍なら、買い候補（GAP）になる', () => {
+    const p = analyze(base({ o: 1032, h: 1062, l: 1030, c: 1060, v: 3000 }), [], { symbol: 'TSE:9999' })
+    expect(p.gap_up.is_gap_up).toBe(true)
+    expect(p.buy_candidate.pass).toBe(true)
+    expect(p.buy_candidate.kind).toBe('GAP')
+    expect(p.buy_candidate.target).toBeNull()
+    expect(p.buy_candidate.hold_days).toBe(40)
+    expect(p.buy_candidate.stop).toBeLessThan(1060)
+  })
+
+  it('出来高が足りない・陰線・窓が小さい場合は GAP にならない', () => {
+    const info = { symbol: 'TSE:9999' }
+    expect(analyze(base({ o: 1032, h: 1062, l: 1030, c: 1060, v: 1500 }), [], info).gap_up.is_gap_up).toBe(false)
+    expect(analyze(base({ o: 1060, h: 1062, l: 1030, c: 1032, v: 3000 }), [], info).gap_up.is_gap_up).toBe(false)
+    expect(analyze(base({ o: 1010, h: 1062, l: 1008, c: 1060, v: 3000 }), [], info).gap_up.is_gap_up).toBe(false)
   })
 })
 
