@@ -169,6 +169,12 @@ describe('データ取得まわり', () => {
     expect(r.name).toBe('Test Corp')
   })
 
+  it('端数つきの値は0.1円単位に丸める', () => {
+    const j = yahoo({ start: 0, end: 0 })
+    j.chart.result[0]!.indicators.quote[0]!.close[1] = 265.79998779296875
+    expect(parseYahoo(j, 1794600000).bars[1].c).toBe(265.8)
+  })
+
   it('値が欠けた日は捨てる', () => {
     const j = yahoo({ start: 0, end: 0 })
     j.chart.result[0]!.indicators.quote[0]!.close[0] = null as unknown as number

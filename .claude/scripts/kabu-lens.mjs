@@ -482,6 +482,8 @@ export function isTseCode(s) {
   return /^[0-9][0-9A-Z]{3}$/.test(s)
 }
 
+const tick = x => (ok(x) ? Math.round(x * 10) / 10 : null)
+
 /** Yahoo Finance のチャートJSONを日足の配列にする。取引時間中の未確定の足は捨てる */
 export function parseYahoo(json, nowSec = Date.now() / 1000) {
   const r = json?.chart?.result?.[0]
@@ -491,7 +493,8 @@ export function parseYahoo(json, nowSec = Date.now() / 1000) {
   let bars = r.timestamp.map((ts, i) => ({
     ts,
     date: new Date((ts + off) * 1000).toISOString().slice(0, 10),
-    o: q.open[i], h: q.high[i], l: q.low[i], c: q.close[i], v: q.volume[i] ?? 0
+    // Yahoo の値は 265.79998... のような端数つきで来るので、呼値の最小単位（0.1円）に丸める
+    o: tick(q.open[i]), h: tick(q.high[i]), l: tick(q.low[i]), c: tick(q.close[i]), v: q.volume[i] ?? 0
   })).filter(b => ok(b.o) && ok(b.h) && ok(b.l) && ok(b.c))
   // 今日の取引が終わっていなければ（終了後30分までは余裕を見る）、最後の足は未確定として外す
   const reg = r.meta.currentTradingPeriod?.regular
