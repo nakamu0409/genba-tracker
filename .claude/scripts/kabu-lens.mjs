@@ -12,7 +12,7 @@
 // 結果は kabu-lens/packets/latest/TSE_<コード>_D.json に保存する（コミットされない）。
 // 決算日はこのデータに含まれないので earnings は null。/catalysts の日付を使うこと。
 
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 
@@ -46,7 +46,15 @@ export const DEFAULTS = {
   t2R: 4.0,
   beAfterT1: true,
   exitOnTrend: true,
-  recentCount: 5
+  recentCount: 5,
+  // 買い候補の判定と、買っていた場合の追跡に使う設定
+  // 「買いの形は出ていないが、スコアが基準以上」の日も候補にするか。
+  // 過去約3年・60銘柄の検証で平均 −0.11R（179回）と成績が悪かったので、既定では候補にしない
+  candAllowState: false,
+  candMaxDevPct: 8, // 25日線からの乖離がこれ以下
+  trackGapPct: 2, // 翌日の始値が終値よりこれ以上高ければ買わない
+  trackRR: 2, // 目標 = 買値 + 損切り幅 × これ
+  trackMaxBars: 20 // これだけ持って決着しなければ終値で手じまい
 }
 
 // ─── 指標の計算（値が出せない位置は null。Pine の na と同じ扱い） ───────────────
@@ -146,6 +154,87 @@ export function percentRank(src, len) {
   })
 }
 
+/**
+ * シグナルの翌営業日の始値で買っていたらどうなったかを、日足でたどる。
+ * 損切りを先に判定する（同じ日に損切りと目標の両方に届いたら損切り扱い）。
+ * @param {{date:string,o:number,h:number,l:number,c:number}[]} bars 日足（古い順）
+ * @param {number} i シグナルが出た足の位置
+ * @param {number} stop 損切りの値段
+ * @param {object} [options] trackGapPct / trackRR / trackMaxBars
+ */
+export function evaluateSignal(bars, i, stop, options = {}) {
+  const o = { ...DEFAULTS, ...options }
+  const sig = bars[i]
+  const base = { signalDate: sig.date, signalClose: sig.c, stop }
+  const e = i + 1
+  if (e >= bars.length) return { ...base, status: 'PENDING', exitIdx: null }
+  const entry = bars[e].o
+  if (entry > sig.c * (1 + o.trackGapPct / 100)) return { ...base, status: 'SKIPPED_GAP', entryDate: bars[e].date, entry, exitIdx: e }
+  if (!(entry > stop)) return { ...base, status: 'SKIPPED_BELOW_STOP', entryDate: bars[e].date, entry, exitIdx: e }
+  const risk = entry - stop
+  const target = entry + o.trackRR * risk
+  let mfe = 0
+  let mae = 0
+  const done = (status, k, exit) => ({
+    ...base, status, entryDate: bars[e].date, entry, target: round(target, 1), exitDate: bars[k].date, exit: round(exit, 1),
+    r: round((exit - entry) / risk), bars: k - e + 1, maxUpR: round(mfe), maxDownR: round(mae), exitIdx: k
+  })
+  for (let k = e; k < bars.length; k++) {
+    const b = bars[k]
+    mfe = Math.max(mfe, (b.h - entry) / risk)
+    mae = Math.min(mae, (b.l - entry) / risk)
+    if (b.l <= stop) return done('STOPPED', k, Math.min(stop, b.o))
+    if (b.h >= target) return done('TARGET', k, Math.max(target, b.o))
+    if (k - e + 1 >= o.trackMaxBars) return done('TIME_EXIT', k, b.c)
+  }
+  const lastBar = bars[bars.length - 1]
+  return {
+    ...base, status: 'OPEN', entryDate: bars[e].date, entry, target: round(target, 1), lastDate: lastBar.date, last: lastBar.c,
+    r: round((lastBar.c - entry) / risk), bars: bars.length - e, maxUpR: round(mfe), maxDownR: round(mae), exitIdx: null
+  }
+}
+
+/** 追跡結果の集計（勝率・平均R など）。決着したものだけを数える */
+export function summarize(results) {
+  const closed = results.filter(r => ['STOPPED', 'TARGET', 'TIME_EXIT'].includes(r.status))
+  const wins = closed.filter(r => r.r > 0)
+  const sum = closed.reduce((a, r) => a + r.r, 0)
+  return {
+    signals: results.length,
+    skipped: results.filter(r => r.status.startsWith('SKIPPED')).length,
+    open: results.filter(r => r.status === 'OPEN' || r.status === 'PENDING').length,
+    closed: closed.length,
+    wins: wins.length,
+    win_rate_pct: closed.length ? round((wins.length / closed.length) * 100, 1) : null,
+    avg_r: closed.length ? round(sum / closed.length) : null,
+    total_r: round(sum),
+    target: closed.filter(r => r.status === 'TARGET').length,
+    stopped: closed.filter(r => r.status === 'STOPPED').length,
+    time_exit: closed.filter(r => r.status === 'TIME_EXIT').length,
+    avg_bars: closed.length ? round(closed.reduce((a, r) => a + r.bars, 0) / closed.length, 1) : null
+  }
+}
+
+/**
+ * 過去の足で「買い候補」が出た日をすべて拾い、買っていた場合の結果を出す。
+ * 通過した候補（passed）と、ルールで見送った候補（blocked）を分けて集計する。
+ * 同じ銘柄で追跡中の間に出た候補は数えない。
+ */
+export function backtest(bars, bench = [], options = {}) {
+  const p = analyze(bars, bench, {}, { ...options, history: true })
+  const out = { passed: [], blocked: [] }
+  for (const key of ['passed', 'blocked']) {
+    let free = -1
+    for (const sg of p.signal_history.filter(x => (key === 'passed' ? x.pass : !x.pass && x.kind !== 'STATE'))) {
+      if (sg.i <= free) continue
+      const r = evaluateSignal(bars, sg.i, sg.stop, options)
+      out[key].push({ kind: sg.kind, reason: sg.reason, score: sg.score, overheat: sg.overheat, regime: sg.regime, ...r })
+      free = r.exitIdx === null ? bars.length : r.exitIdx
+    }
+  }
+  return out
+}
+
 // 月曜の日付をその週のキーにする
 function weekKey(date) {
   const d = new Date(date + 'T00:00:00Z')
@@ -239,6 +328,7 @@ export function analyze(bars, bench = [], info = {}, options = {}) {
   let lastSigBar = null
   let lastSigKind = 'NONE'
   const patterns = []
+  const signalHistory = []
   let last = null
 
   for (let i = 0; i < n; i++) {
@@ -382,6 +472,16 @@ export function analyze(bars, bench = [], info = {}, options = {}) {
       }
     }
     const tradeUpdate = t.status !== statusBefore && !opened
+
+    // 買い候補の判定（通知が使う。A: 今日の足で買いの形が出た / B: スコアが基準以上で落ち着いた上昇・レンジ）
+    const candA = candKind !== 'NONE' && blockReason === 'NONE'
+    const candB = o.candAllowState && longScore >= o.scoreThreshold && (regime === 'TREND_UP' || regime === 'RANGE') && overheat < o.overheatBlock && ok(devF) && devF <= o.candMaxDevPct
+    const candWhyNot = regime === 'TREND_DOWN' ? 'TREND_DOWN' : regime === 'HIGH_VOLATILITY' ? 'HIGH_VOLATILITY' : htfBias === -1 ? 'WEEKLY_DOWN' : overheat >= o.overheatBlock ? 'OVERHEAT' : !(candA || candB) ? 'NO_SETUP' : 'NONE'
+    const candPass = candWhyNot === 'NONE' && ok(atrV[i])
+    const candStop = ok(atrV[i]) ? b.c - o.stopAtr * atrV[i] : null
+    if (o.history && ok(atrV[i]) && (candPass || candKind !== 'NONE')) {
+      signalHistory.push({ i, date: b.date, pass: candPass, kind: candKind !== 'NONE' ? candKind : 'STATE', reason: candWhyNot, close: b.c, stop: round(candStop, 1), score: longScore, overheat, regime })
+    }
     patterns.push(pattern(b, p, atrV[i]))
     prevScore = longScore
 
@@ -390,7 +490,7 @@ export function analyze(bars, bench = [], info = {}, options = {}) {
         b, p, rng, bull, bear, relVol, devF, devM, hi52, lo52, fromHi52, fromLo52, newHigh52, htfBiasStr, htfRsi,
         stockRet, benchRet, rsDiff, slopeUp, slopeDn, regime, fTrend, fMom, fVol, fHtf, fRs, longScore, upPct,
         hDev, hRsi, hWkRsi, hRun, hStreak, hBlow, overheat, heatLevel, structBias, breakUp, breakDown, pullbackNow,
-        candKind, blockReason, opened, blockedNow, tradeUpdate, w
+        candKind, blockReason, opened, blockedNow, tradeUpdate, w, candPass, candWhyNot, candStop
       }
     }
   }
@@ -465,13 +565,18 @@ export function analyze(bars, bench = [], info = {}, options = {}) {
       long: L.longScore, threshold: o.scoreThreshold, pullback_min: o.pullbackMin,
       factors: { trend: L.fTrend, momentum: L.fMom, volume: L.fVol, htf: L.fHtf, relative_strength: L.fRs }
     },
+    buy_candidate: {
+      pass: L.candPass, kind: L.candPass ? (L.candKind !== 'NONE' ? L.candKind : 'STATE') : 'NONE', why_not: L.candWhyNot,
+      entry_ref: b.c, stop: round(L.candStop, 1), target: ok(L.candStop) ? round(b.c + o.trackRR * (b.c - L.candStop), 1) : null
+    },
     setup: { candidate: L.candKind, blocked_reason: L.candKind === 'NONE' ? 'NONE' : L.blockReason, pullback_now: L.pullbackNow },
     trade: {
       side: t.side, kind: t.kind, status: t.status,
       entry: round(t.entry, 1), stop: round(t.stop, 1), initial_stop: round(t.stop0, 1),
       target_1: round(t.t1, 1), target_2: round(t.t2, 1), bars_since_entry: t.bar === null ? null : i - t.bar
     },
-    last_setup: { kind: lastSigKind, bars_ago: lastSigBar === null ? null : i - lastSigBar }
+    last_setup: { kind: lastSigKind, bars_ago: lastSigBar === null ? null : i - lastSigBar },
+    ...(o.history ? { signal_history: signalHistory } : {})
   }
 }
 
@@ -546,9 +651,11 @@ async function main() {
   }
   const args = process.argv.slice(2)
   const save = !args.includes('--no-save')
+  const evalAt = args.indexOf('--evaluate')
+  if (evalAt >= 0) return evaluateFile(args[evalAt + 1])
   const codes = args.filter(a => !a.startsWith('--')).map(a => a.toUpperCase())
   if (!codes.length) {
-    console.error('使い方: node .claude/scripts/kabu-lens.mjs <銘柄コード...> [--no-save]')
+    console.error('使い方: node .claude/scripts/kabu-lens.mjs <銘柄コード...> [--no-save] [--backtest]\n        node .claude/scripts/kabu-lens.mjs --evaluate <signals.json>')
     process.exit(1)
   }
   const bad = codes.filter(c => !isTseCode(c))
@@ -562,6 +669,7 @@ async function main() {
   } catch (e) {
     console.error(`注意: 指数(1306)を取得できず、相対強度は null になります: ${e.message}`)
   }
+  if (args.includes('--backtest')) return runBacktest(codes, bench, args.includes('--trades'))
   const out = []
   for (const code of codes) {
     try {
@@ -580,6 +688,62 @@ async function main() {
   }
   console.log(JSON.stringify(out.length === 1 ? out[0] : out, null, 2))
   if (out.some(p => p.error)) process.exitCode = 1
+}
+
+// 過去約3年の足で、買い候補のルールの成績を出す
+async function runBacktest(codes, bench, withTrades) {
+  const all = { passed: [], blocked: [] }
+  const errors = []
+  for (const code of codes) {
+    try {
+      const d = await fetchYahoo(`${code}.T`)
+      const r = backtest(d.bars, bench)
+      for (const k of ['passed', 'blocked']) all[k].push(...r[k].map(x => ({ code, ...x })))
+    } catch (e) {
+      errors.push(e.message)
+    }
+  }
+  const by = (list, f) => Object.fromEntries([...new Set(list.map(f))].sort().map(k => [k, summarize(list.filter(x => f(x) === k))]))
+  const out = {
+    codes: codes.length,
+    errors,
+    assumptions: `翌営業日の始値で買う（終値より+${DEFAULTS.trackGapPct}%超なら見送り）。損切り=終値−${DEFAULTS.stopAtr}×ATR、目標=買値+損切り幅×${DEFAULTS.trackRR}、${DEFAULTS.trackMaxBars}営業日で決着しなければ終値で手じまい。手数料・税は含まない`,
+    passed: summarize(all.passed),
+    passed_by_kind: by(all.passed, x => x.kind),
+    passed_by_year: by(all.passed, x => x.signalDate.slice(0, 4)),
+    blocked: summarize(all.blocked),
+    blocked_by_reason: by(all.blocked, x => x.reason)
+  }
+  if (withTrades) out.trades = all
+  console.log(JSON.stringify(out, null, 2))
+}
+
+// 記録した買い候補（[{id, code, date, stop}]）が、その後どうなったかを出す
+async function evaluateFile(file) {
+  if (!file) {
+    console.error('使い方: node .claude/scripts/kabu-lens.mjs --evaluate <signals.json>')
+    process.exit(1)
+  }
+  const sigs = JSON.parse(readFileSync(file, 'utf-8'))
+  const cache = new Map()
+  const out = []
+  for (const sg of sigs) {
+    const code = String(sg.code || '').toUpperCase()
+    try {
+      if (!isTseCode(code)) throw new Error(`銘柄コードの形が違います: ${code}`)
+      if (!cache.has(code)) cache.set(code, (await fetchYahoo(`${code}.T`)).bars)
+      const bars = cache.get(code)
+      const i = bars.findIndex(b => b.date === sg.date)
+      if (i < 0) throw new Error(`${sg.date} の足が見つかりません`)
+      if (!(sg.stop > 0)) throw new Error('stop がありません')
+      const r = evaluateSignal(bars, i, Number(sg.stop))
+      delete r.exitIdx
+      out.push({ id: sg.id, code, ...r })
+    } catch (e) {
+      out.push({ id: sg.id, code, error: e.message })
+    }
+  }
+  console.log(JSON.stringify(out, null, 2))
 }
 
 // CLI として直接実行されたときだけ動く（テストから import されたときは動かない）

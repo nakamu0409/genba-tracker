@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { analyze, atr, ema, isTseCode, parseYahoo, percentRank, rma, rsi, sma } from '../../.claude/scripts/kabu-lens.mjs'
+import { analyze, atr, backtest, ema, evaluateSignal, isTseCode, parseYahoo, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -134,6 +134,70 @@ describe('analyze', () => {
 
   it('日足が少なすぎるとエラー', () => {
     expect(() => analyze(barsFrom([1, 2, 3]), [])).toThrow()
+  })
+})
+
+describe('買っていた場合の追跡', () => {
+  const mk = (rows: number[][]): Bar[] => rows.map((r, i) => ({ date: dates(rows.length)[i]!, o: r[0]!, h: r[1]!, l: r[2]!, c: r[3]!, v: 1000 }))
+  // シグナルの足（終値100）のあと、翌日の始値で買う。損切り90 → 損切り幅10、目標は+2R
+  const sig = [100, 101, 99, 100]
+
+  it('目標に届けば +2R', () => {
+    const r = evaluateSignal(mk([sig, [100, 105, 99, 104], [104, 121, 103, 120]]), 0, 90)
+    expect(r.status).toBe('TARGET')
+    expect(r.entry).toBe(100)
+    expect(r.target).toBe(120)
+    expect(r.r).toBe(2)
+    expect(r.bars).toBe(2)
+  })
+
+  it('損切りに届けば −1R。同じ日に両方届いたら損切り扱い', () => {
+    expect(evaluateSignal(mk([sig, [100, 102, 89, 95]]), 0, 90).r).toBe(-1)
+    const both = evaluateSignal(mk([sig, [100, 125, 89, 110]]), 0, 90)
+    expect(both.status).toBe('STOPPED')
+  })
+
+  it('損切りより下で寄り付いたら、その始値で売れたものとする', () => {
+    const r = evaluateSignal(mk([sig, [100, 101, 96, 97], [80, 82, 78, 79]]), 0, 90)
+    expect(r.status).toBe('STOPPED')
+    expect(r.exit).toBe(80)
+    expect(r.r).toBe(-2)
+  })
+
+  it('翌日の始値が+2%より高ければ買わない', () => {
+    expect(evaluateSignal(mk([sig, [103, 104, 102, 103]]), 0, 90).status).toBe('SKIPPED_GAP')
+  })
+
+  it('期限まで決着しなければ終値で手じまい、翌日の足がまだ無ければ保留', () => {
+    const flat = Array.from({ length: 25 }, () => [100, 103, 97, 105])
+    const r = evaluateSignal(mk([sig, ...flat]), 0, 90)
+    expect(r.status).toBe('TIME_EXIT')
+    expect(r.bars).toBe(20)
+    expect(r.r).toBe(0.5)
+    expect(evaluateSignal(mk([sig]), 0, 90).status).toBe('PENDING')
+    expect(evaluateSignal(mk([sig, [100, 103, 97, 105]]), 0, 90).status).toBe('OPEN')
+  })
+
+  it('集計は決着したものだけを数える', () => {
+    const s = summarize([{ status: 'TARGET', r: 2, bars: 3 }, { status: 'STOPPED', r: -1, bars: 1 }, { status: 'SKIPPED_GAP' }, { status: 'OPEN', r: 0.3, bars: 2 }])
+    expect(s.closed).toBe(2)
+    expect(s.win_rate_pct).toBe(50)
+    expect(s.avg_r).toBe(0.5)
+    expect(s.skipped).toBe(1)
+    expect(s.open).toBe(1)
+  })
+
+  it('過去の足から候補を拾い、通過と見送りに分ける', () => {
+    const closes = Array.from({ length: 400 }, (_, i) => 1000 + i * 2 + Math.round(Math.sin(i / 7) * 25))
+    const r = backtest(barsFrom(closes, 6), [])
+    expect(Array.isArray(r.passed)).toBe(true)
+    expect(Array.isArray(r.blocked)).toBe(true)
+    for (const x of r.passed) expect(x.stop).toBeLessThan(x.signalClose)
+    // 同じ銘柄で追跡中に次の候補を数えない（買った日が前の決着より後）
+    for (let k = 1; k < r.passed.length; k++) {
+      const prev = r.passed[k - 1]
+      if (prev.exitDate && r.passed[k].entryDate) expect(r.passed[k].signalDate >= prev.exitDate).toBe(true)
+    }
   })
 })
 
