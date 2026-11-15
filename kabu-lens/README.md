@@ -1,6 +1,7 @@
 # 株レンズ（Kabu Lens）
 
-TradingView の日足を、確定した足ごとに AI が読める JSON にして送るインジケーターです。日本株の現物を数週間〜数か月持つ人向けです。
+日本株の日足を、AI が読める数字（買いスコア・高値づかみ危険度など）にする道具です。現物を数週間〜数か月持つ人向けです。
+TradingView なしで動く**スクリプト版**と、チャートに表示する **TradingView 版**の2つがあり、計算ルールは同じです。
 [AI Agent Lens](https://github.com/roan-maverick/tradingview-indicator-for-ai-agents)（MIT License, © 2026 roan-maverick）を元に作り直しました。
 
 5ステップ（探す→読む→疑う→値付け→記録）は「何を買うか」を決めます。株レンズはその間に入り、**「いつ買うか」と「今は高すぎないか」** を判断します。
@@ -49,28 +50,52 @@ TradingView の日足を、確定した足ごとに AI が読める JSON にし�
 
 買いシグナルが出るのは次のどちらかで、さらに「下降トレンドでない・過熱していない・決算直前でない」とき。
 - スコアが確定足で70を上抜けた（ブレイク／勢い）
-- 中期線と長期線が上向きの並びで、安値が25日線付近まで下げ、終値は25日線の上の陽線で引け、スコア55以上（押し目）
+- 中期線が長期線の上にあり長期線が上向きで、安値が25日線付近まで下げ、終値は25日線の上の陽線で引け、スコア55以上（押し目）
 
-## 使い方
+## 使い方（スクリプト版・おすすめ）
+
+TradingView は要りません。Claude Code で次のように打つだけです。
+
+```
+/chart さくら食品 9999
+```
+
+裏では `node .claude/scripts/kabu-lens.mjs 9999` が Yahoo Finance の日足（約3年分）を取り、下の TradingView 版と同じルールで計算します。
+その結果と `stock-research/さくら食品/` の DCF（理論株価）・投資仮説（売る条件）・決算日を合わせて、
+**BUY / WAIT_PULLBACK（押し目待ち）/ WAIT / AVOID** のどれかと理由を `stock-research/さくら食品/chart.md` に記録します。
+
+スクリプトだけ動かすこともできます。
+
+```bash
+node .claude/scripts/kabu-lens.mjs 7203            # 1銘柄
+node .claude/scripts/kabu-lens.mjs 7203 6758 285A  # まとめて
+```
+
+- 取引時間中に動かすと、今日の足は未確定として使いません（前営業日までで判断）。
+- 決算日はこのデータに入っていないので `earnings` は null です。`/catalysts` の日付を使います。
+- 株価は株式分割を調整済み、配当は未調整です。
+- Claude Code のクラウド環境では、環境のネットワーク設定で `query1.finance.yahoo.com` を許可しておく必要があります。
+- 「保有中」「目標1到達」などは、過去の足をルールどおりにたどった**仮の売買の状態**です。実際の自分の保有とは関係ありません。
+
+## 使い方（TradingView 版・チャートで見たい人向け）
 
 ### 1. TradingView に入れる（1分）
 
 1. [kabu-lens.pine](kabu-lens.pine) をすべてコピー
-2. TradingView の **Pine エディタ** に貼って **保存** → **チャートに追加**
+2. パソコンの TradingView で **Pine エディタ** に貼って **保存** → **チャートに追加**（スマホのアプリでは貼れません）
 3. 日本株の **日足** チャートで使う（例: `TSE:7203`）
 
 パネル（右上）に「様子見 / 保有中 / 過熱・見送り」、地合い、買いスコア、高値づかみ危険度、25日線乖離、52週高値からの位置、対指数、決算までの日数が出ます。
-**パネルとデータウィンドウは無料プランでも使えます。** 下の2〜3がなくても、パネルの数字を見ながら `/chart` に貼れば判断できます。
+パネルとデータウィンドウは無料プランでも使えます。
 
-### 2. アラートを1つ作る（Webhook を使う場合）
+### 2. アラートを1つ作る（データを自動で送りたい場合）
 
 1. アラート作成（`Alt + A`）
 2. 条件: `株レンズ` → `alert() 関数の呼び出しのみ`
 3. 通知: **Webhook URL** に手順3のURLを入れる。メッセージ欄はそのまま
 4. 作成
 
-1つのアラートは1銘柄・1つの足です。見たい銘柄ごとに作ります。
-Webhook は TradingView の有料プラン＋2段階認証が必要です。日足なら1銘柄1日1通です。
+1つのアラートは1銘柄・1つの足です。Webhook は TradingView の有料プラン＋2段階認証が必要です。
 
 ### 3. 受け取る
 
@@ -82,35 +107,29 @@ cloudflared tunnel --url http://localhost:8080   # 別のターミナルで。HT
 Webhook URL は `https://<トンネルのURL>/webhook?token=好きな合言葉`。
 届いたパケットは `kabu-lens/packets/` に保存されます（`.gitignore` 済みでコミットされません）。
 
-### 4. Claude Code で判断する
-
-```
-/chart さくら食品 9999
-```
-
-`kabu-lens/packets/` から該当銘柄のパケットを読み、`stock-research/さくら食品/` の DCF（理論株価）・投資仮説（売る条件）・決算日と合わせて、
-**BUY / WAIT_PULLBACK（押し目待ち）/ WAIT / AVOID** のどれかと理由を `stock-research/さくら食品/chart.md` に記録します。
-Webhook がなければ、パケットの JSON（「パケットをチャート上に表示」で確認可）やパネルの数字を会話に貼っても使えます。
-
 例: [sample_packet.json](sample_packet.json)（架空銘柄）は、上昇トレンドでスコア86でも、25日線から+20%離れていて過熱度63のため `BUY_BLOCKED` になった例です。
 
 ## ファイル
 
 ```
 kabu-lens/
-├── kabu-lens.pine       インジケーター本体（Pine Script v6）
+├── kabu-lens.pine       TradingView 版のインジケーター（Pine Script v6）
 ├── AGENT_PROMPT.md      エージェント用の指示（/chart が使う）
 ├── receiver.py          Webhook の受け取り（Python 3、追加インストール不要）
 ├── sample_packet.json   パケットの例（架空銘柄）
 └── packets/             受け取ったパケット（コミットされない）
-.claude/commands/chart.md   /chart コマンド
+.claude/scripts/kabu-lens.mjs   スクリプト版（Yahoo Finance の日足から同じ計算をする）
+.claude/commands/chart.md       /chart コマンド
+tests/stock/kabuLens.test.ts    スクリプト版のテスト
 ```
 
 ## 注意
 
-- **TradingView 上でのコンパイル確認はまだしていません。** エラーが出たら、表示された行番号とメッセージを貼ってください。
-- 決算日（`earnings.future_time`）は TradingView にデータがある銘柄だけ出ます。出ない銘柄は `/catalysts` の日付を使います。
-- 指数との比較は既定で `TSE:1306`（TOPIX連動ETF）です。設定で変えられます。
+- スクリプト版はテスト済みで、移動平均・RSI・ATR・52週高安は別の計算と突き合わせて一致を確認しています。
+- **TradingView 版（.pine）は TradingView 上でのコンパイル確認をまだしていません。** エラーが出たら、表示された行番号とメッセージを貼ってください。
+- TradingView 版の決算日（`earnings.future_time`）は、TradingView にデータがある銘柄だけ出ます。
+- 指数との比較は `TSE:1306`（TOPIX連動ETF）です。TradingView 版は設定で変えられます。
+- スクリプト版と TradingView 版は同じルールですが、元の株価データが違うので数字が少しずれることがあります。
 - リペイントしません。シグナル・保有追跡・パケットは確定足だけ、週足・52週高値は確定済みのデータだけを使います。
 - 決まったルールでチャートを数値にするだけで、未来は予測しません。投資助言ではありません。少額で、まず紙の上で試してください。
 

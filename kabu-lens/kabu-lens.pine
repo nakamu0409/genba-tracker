@@ -295,8 +295,8 @@ max_bars_back(candleBody, 12)
 // ═════════════════════════════════════════════════════════════════════════════
 // 買いシグナルと保有の追跡（確定足のみ）
 // ═════════════════════════════════════════════════════════════════════════════
-// 押し目: 中期・長期が上向きの並びで、安値が短期線付近まで下げ、終値は短期線の上で引けた
-bool pullbackNow = maM > maS and close > maM and low <= maF + 0.5 * atrV and close > maF and rsiV >= 40 and rsiV <= 60 and bullBar
+// 押し目: 中期線が長期線の上・長期線が上向きで、安値が短期線付近まで下げ、終値は短期線の上で引けた
+bool pullbackNow = maM > maS and maS > maS[slopeLen] and close > maM and low <= maF + 0.5 * atrV and close > maF and rsiV >= 40 and rsiV <= 60 and bullBar
 bool scoreCross  = longScore >= scoreThreshold and longScore[1] < scoreThreshold
 string candKind  = pullbackNow and longScore >= pullbackMin ? "PULLBACK" : scoreCross ? (breakUp or newHigh52 ? "BREAKOUT" : "MOMENTUM") : "NONE"
 
