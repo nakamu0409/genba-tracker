@@ -955,21 +955,36 @@ export async function moversResult(records, prevStats = null) {
       if (ok(rec.afternoon_pct)) return rec
       try {
         const res = afternoonResult(await fetchJson(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(rec.code)}.T?range=1mo&interval=60m`), rec.date)
-        return res ? { ...rec, ...res, updated: true } : { ...rec, pending: '後場の値がまだありません' }
+        if (!res) return { ...rec, pending: '後場の値がまだありません' }
+        // 朝（寄り付き直後）の記録は「記録したときの株価 → 終値」で見る。昼の記録は「後場の始値 → 終値」
+        if (rec.slot === 'open') return ok(rec.price) && rec.price > 0 ? { ...rec, close: res.close, afternoon_pct: round((res.close / rec.price - 1) * 100), basis: '朝の株価→終値', updated: true } : { ...rec, pending: '朝の株価の記録がありません' }
+        return { ...rec, ...res, updated: true }
       } catch (e) {
         return { ...rec, pending: e.message }
       }
     })))
   }
-  const stats = mergeMoverStats(prevStats, out.filter(x => ok(x.afternoon_pct)))
-  return { note: '後場の寄り付きで買って引けで売った場合。件数が少ないうちは偶然の影響が大きい（目安は各30件以上）', today: summarizeMoverStats(mergeMoverStats(null, out.filter(x => ok(x.afternoon_pct)))), total: summarizeMoverStats(stats), stats, records: out }
+  const done = out.filter(x => ok(x.afternoon_pct))
+  const noon = done.filter(x => x.slot !== 'open')
+  const open = done.filter(x => x.slot === 'open')
+  const stats = mergeMoverStats(prevStats, noon)
+  stats.open = mergeMoverStats(prevStats?.open, open)
+  const today = summarizeMoverStats(mergeMoverStats(null, noon))
+  const total = summarizeMoverStats(stats)
+  today.morning_slot = summarizeMoverStats(mergeMoverStats(null, open))
+  total.morning_slot = summarizeMoverStats(stats.open)
+  return {
+    note: '昼の記録は「後場の寄り付きで買って引けで売った場合」。morning_slot は朝（寄り付き直後）の記録で、「記録したときの株価で買って引けで売った場合」。朝の点数は昼の検証をそのまま当てはめた参考値なので、昼とは分けて報告する。件数が少ないうちは偶然の影響が大きい（目安は各30件以上）',
+    today, total, stats, records: out
+  }
 }
 
 const MOVER_KEYS = ['LOW', 'MID', 'HIGH', 'with_news', 'no_news']
 
 /** 答え合わせの累計（件数・合計・勝ち・3%以上の下げ）に、新しい日の結果を足す。同じ日は二重に足さない */
 export function mergeMoverStats(prev, done) {
-  const stats = prev && prev.up ? JSON.parse(JSON.stringify(prev)) : { dates: [], up: {}, down: {} }
+  const stats = prev && prev.up ? JSON.parse(JSON.stringify({ ...prev, open: undefined })) : { dates: [], up: {}, down: {} }
+  if (prev && prev.open) stats.open = JSON.parse(JSON.stringify(prev.open))
   for (const dir of ['up', 'down']) for (const k of MOVER_KEYS) stats[dir][k] ||= { n: 0, sum: 0, win: 0, drop3: 0 }
   for (const date of [...new Set(done.map(x => x.date))].sort()) {
     if (stats.dates.includes(date)) continue

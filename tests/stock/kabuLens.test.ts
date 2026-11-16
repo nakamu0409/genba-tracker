@@ -492,4 +492,14 @@ describe('値下がり株の危険度・材料ニュース・答え合わせ', (
     expect(sum.down.LOW.count).toBe(1)
     expect(sum.down.no_news.count).toBe(0)
   })
+
+  it('mergeMoverStats: 朝の記録の累計（open）を持ち越しても、昼の累計に混ざらない', () => {
+    const noon = mergeMoverStats(null, [{ date: '2026-11-16', dir: 'up', risk_level: 'LOW', has_news: true, afternoon_pct: 1 }])
+    const withOpen = { ...noon, open: mergeMoverStats(null, [{ date: '2026-11-16', dir: 'down', risk_level: 'HIGH', has_news: false, afternoon_pct: -5 }]) }
+    const next = mergeMoverStats(withOpen, [{ date: '2026-11-17', dir: 'up', risk_level: 'LOW', has_news: true, afternoon_pct: -1 }])
+    expect(next.dates).toEqual(['2026-11-16', '2026-11-17'])
+    expect(next.up.LOW).toMatchObject({ n: 2, sum: 0, win: 1 })
+    expect(next.down.HIGH.n).toBe(0)
+    expect(next.open.down.HIGH).toMatchObject({ n: 1, drop3: 1 })
+  })
 })

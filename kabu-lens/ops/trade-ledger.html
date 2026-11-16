@@ -117,6 +117,8 @@ details.more p { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere
 fieldset { border: 1px dashed var(--line); border-radius: 8px; padding: 12px; margin: 0; display: grid; gap: 12px; min-width: 0; }
 legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4px; }
 .sig-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+#mov-panel th, #mov-panel td { padding-left: .28rem; padding-right: .28rem; white-space: nowrap; }
+#mov-panel[hidden], #mov-empty[hidden] { display: none; }
 .sig-table th { text-align: left; font-weight: 500; color: var(--muted); font-size: .72rem; padding: 4px 6px 4px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
 .sig-table td { padding: 6px 6px 6px 0; border-bottom: 1px dashed var(--line); vertical-align: baseline; }
 .sig-table td.num, .sig-table th.num { text-align: right; padding-right: 0; }
@@ -238,6 +240,13 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
       <div class="empty" id="sig-empty">まだ記録はありません。夜の点検が買い候補を挙げると、ここに並びます。</div>
       <div class="bar"><button class="small" id="sig-more" type="button" hidden>もっと見る</button></div>
     </div>
+  </section>
+
+  <section aria-labelledby="h-mov">
+    <div class="sec-head"><h2 id="h-mov">ランキングの危険度の答え合わせ</h2><span class="count" id="mov-count"></span></div>
+    <p class="sub">通知が出した「いま買う危険度」が当たっていたか。危険度は「大きく下げる割合」を見るものなので、高いほど「3%下げ」（買ったあと3%以上下げた件数と割合）が多ければ当たりです。「過去」は記録を始める前の検証での割合です。平均が良い・悪いは目安にしません。各30件たまるまでは偶然の影響が大きいです。</p>
+    <div class="panel" id="mov-panel" hidden><div class="sig-scroll"><table class="sig-table" aria-label="危険度ごとの成績"><thead><tr><th>向き</th><th>危険度</th><th class="num">件数</th><th class="num">平均</th><th class="num">勝率</th><th class="num">3%下げ</th><th class="num">過去</th></tr></thead><tbody id="mov-body"></tbody></table></div></div>
+    <div class="panel" id="mov-empty"><div class="empty">まだ記録はありません。昼の通知がランキングを記録し、夜の点検が結果を足すと、ここに並びます。</div></div>
   </section>
 
   <section aria-labelledby="h-log">
@@ -843,6 +852,31 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
 
   renderMoney();
 
+  var MOV_PAST = { up: { LOW: 4, MID: 13, HIGH: 27 }, down: { LOW: 4, MID: 12, HIGH: 23 } };
+  function renderMovers(st) {
+    var body = $("mov-body"); body.textContent = "";
+    var days = st && st.dates ? st.dates.length : 0, odays = st && st.open && st.open.dates ? st.open.dates.length : 0;
+    $("mov-panel").hidden = !(days || odays); $("mov-empty").hidden = !!(days || odays);
+    $("mov-count").textContent = days || odays ? "昼 " + days + " 日・朝 " + odays + " 日" : "";
+    var cell = function (tr, text, num) { var td = document.createElement("td"); td.textContent = text; if (num) td.className = "num"; tr.appendChild(td); };
+    var block = function (label, src, past) {
+      if (!src) return;
+      [["up", "上げ"], ["down", "下げ"]].forEach(function (d) {
+        [["LOW", "低"], ["MID", "中"], ["HIGH", "高"], ["with_news", "材料あり"], ["no_news", "材料なし"]].forEach(function (k) {
+          var c = src[d[0]] && src[d[0]][k[0]]; if (!c || !c.n) return;
+          var tr = document.createElement("tr");
+          cell(tr, label + " " + d[1]); cell(tr, k[1]); cell(tr, String(c.n), true);
+          var avg = c.sum / c.n; cell(tr, (avg > 0 ? "+" : "") + avg.toFixed(2) + "%", true);
+          cell(tr, Math.round(c.win / c.n * 100) + "%", true);
+          cell(tr, c.drop3 + "件 " + Math.round(c.drop3 / c.n * 100) + "%", true);
+          cell(tr, past && past[d[0]][k[0]] != null ? past[d[0]][k[0]] + "%" : "—", true);
+          body.appendChild(tr);
+        });
+      });
+    };
+    block("昼", st, MOV_PAST); block("朝", st && st.open, null);
+  }
+
   function unavailable(text) { ["open-empty", "w-empty", "empty"].forEach(function (i) { $(i).textContent = text; $(i).hidden = false; }); }
   function byDate(a, b) { return String(b.date || b.createdAt || "") < String(a.date || a.createdAt || "") ? -1 : 1; }
 
@@ -865,6 +899,7 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
         signals = snap.docs.map(function (doc) { var o = Object.assign({}, doc.data()); o.id = doc.id; return o; });
         renderSignals();
       }, function () {});
+      db.doc("settings/movers_stats").onSnapshot(function (snap) { renderMovers(snap.exists ? snap.data() : null); }, function () {});
       db.doc("settings/backtest").onSnapshot(function (snap) { baseline = snap.exists ? snap.data() : null; renderSignals(); }, function () {});
     });
   } else {
