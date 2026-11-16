@@ -14,6 +14,7 @@
 //   node .claude/scripts/kabu-lens.mjs --dip            # 今日の値下がり率ランキング上位を「いま買う危険度」
 //   node .claude/scripts/kabu-lens.mjs --movers         # 値上がり・値下がりの両方（材料ニュースつき）
 //   node .claude/scripts/kabu-lens.mjs --movers --open  # 同じ。朝（寄り付き後）用で、過去の結果を朝の検証の数字にする
+//   node .claude/scripts/kabu-lens.mjs --kessan [YYYYMMDD]  # その日の決算・業績修正の見出し（上方修正・下方修正などに分類）
 //   node .claude/scripts/kabu-lens.mjs --check 7203 3100 --state state.json  # 買う前チェック（株数・損切り・止める理由）
 //   node .claude/scripts/kabu-lens.mjs --movers-result <記録.json> [--stats <累計.json>]  # 昼に出した危険度の答え合わせ（後場の結果）
 //
@@ -1145,6 +1146,53 @@ export async function fetchChase(codes = [], { pages = 4, minTurnover = 1e8, max
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
+/** 決算・業績修正の見出しを分類する（株探の決算速報の言い回しに合わせている） */
+export function classifyKessan(title) {
+  const t = String(title)
+  let kind = 'OTHER'
+  if (/上方修正/.test(t)) kind = 'REVISE_UP'
+  else if (/下方修正/.test(t)) kind = 'REVISE_DOWN'
+  else if (/最高益|増益|黒字浮上|黒字転換|赤字縮小/.test(t) && !/減益|赤字転落|赤字拡大/.test(t)) kind = 'GOOD'
+  else if (/減益|赤字/.test(t)) kind = 'BAD'
+  const m = t.match(/([\d.]+)[％%](?:上方|下方)修正/)
+  return { kind, revise_pct: m ? Number(m[1]) : null }
+}
+
+/** 株探の「決算速報」の一覧（1ページ分）を読む */
+export function parseKabutanKessanList(html) {
+  const table = String(html).match(/<table class="s_news_list[^"]*">([\s\S]*?)<\/table>/)?.[1] || ''
+  const rows = []
+  for (const tr of table.split(/<tr>/).slice(1)) {
+    const time = tr.match(/<time datetime="([^"]+)"/)?.[1]
+    const code = tr.match(/data-code="([0-9A-Z]{4})"/)?.[1]
+    const category = strip(tr.match(/<div class="newslist_ctg[^"]*"[^>]*>([\s\S]*?)<\/div>/)?.[1])
+    const title = strip(tr.match(/<a [^>]*>([\s\S]*?)<\/a>/)?.[1])
+    if (!time || !code || !title || /…$/.test(title)) continue
+    rows.push({ code, time: time.slice(0, 16), category, title, ...classifyKessan(title) })
+  }
+  const pages = [...String(html).matchAll(/[?&]page=(\d+)/g)].map(m => Number(m[1]))
+  return { rows, last_page: pages.length ? Math.max(...pages) : 1 }
+}
+
+/** ある日の決算・業績修正の見出しをまとめて取る（date は YYYYMMDD。省略で今日） */
+export async function fetchKessan(date, { maxPages = 100 } = {}) {
+  const ymd = date || new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10).replace(/-/g, '')
+  const out = { date: `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}`, source: '株探 決算速報', rows: [] }
+  let last = 1
+  for (let pg = 1; pg <= Math.min(last, maxPages); pg++) {
+    const r = parseKabutanKessanList(await fetchText(`https://kabutan.jp/news/?category=3&date=${ymd}&page=${pg}`))
+    if (pg === 1) last = r.last_page
+    // 日付を指定しても、件数が少ない日は前日の見出しが混ざるので、その日のものだけ残す
+    const mine = r.rows.filter(x => x.time.slice(0, 10) === out.date)
+    out.rows.push(...mine)
+    if (!mine.length) break
+    await sleep(300)
+  }
+  out.count = out.rows.length
+  out.by_kind = out.rows.reduce((a, x) => ({ ...a, [x.kind]: (a[x.kind] || 0) + 1 }), {})
+  return out
+}
+
 /** 株探の銘柄ページから「決算発表予定日」を読む（載っていなければ null） */
 export function parseKabutanEarningsDate(html) {
   const m = String(html).replace(/<[^>]*>/g, ' ').match(/決算発表予定日\s*(\d{4})\/(\d{1,2})\/(\d{1,2})/)
@@ -1285,6 +1333,11 @@ async function main() {
   const save = !args.includes('--no-save')
   const evalAt = args.indexOf('--evaluate')
   if (evalAt >= 0) return evaluateFile(args[evalAt + 1])
+  if (args.includes('--kessan')) {
+    const d = args[args.indexOf('--kessan') + 1]
+    console.log(JSON.stringify(await fetchKessan(/^\d{8}$/.test(d || '') ? d : undefined), null, 2))
+    return
+  }
   if (args.includes('--check')) {
     const ci = args.indexOf('--check')
     const code = String(args[ci + 1] || '').toUpperCase()

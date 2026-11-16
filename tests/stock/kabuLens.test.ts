@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { afternoonResult, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { afternoonResult, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -543,5 +543,25 @@ describe('買う前チェック', () => {
     expect(businessDaysBetween('2026-11-13', '2026-11-16')).toBe(1)
     expect(businessDaysBetween('2026-11-17', '2026-11-17')).toBe(0)
     expect(businessDaysBetween('2026-11-17', '2026-11-13')).toBe(-2)
+  })
+})
+
+describe('決算の見出し', () => {
+  it('classifyKessan: 上方修正・下方修正・良い決算・悪い決算に分ける', () => {
+    expect(classifyKessan('光陽社、今期最終を61％上方修正、配当も6円増額')).toEqual({ kind: 'REVISE_UP', revise_pct: 61 })
+    expect(classifyKessan('ジェネパ、前期経常を17％下方修正')).toEqual({ kind: 'REVISE_DOWN', revise_pct: 17 })
+    expect(classifyKessan('データセク、今期最終を一転赤字に下方修正').kind).toBe('REVISE_DOWN')
+    expect(classifyKessan('平山、7-9月期(1Q)経常は83％増益で着地').kind).toBe('GOOD')
+    expect(classifyKessan('フロンテオ、上期経常が赤字拡大で着地・7-9月期は赤字転落').kind).toBe('BAD')
+    expect(classifyKessan('浅沼組、今期配当を1.5円増額修正').kind).toBe('OTHER')
+  })
+
+  it('parseKabutanKessanList: 一覧の行とページ数を読み、途中で切れた見出しは捨てる', () => {
+    const row = (time: string, code: string, title: string) => `<tr><td class="news_time"><time datetime="${time}">x</time></td><td><div class="newslist_ctg newsctg3_kk_b oncodetip_code-data1" data-code="${code}">決算</div></td><td class="oncodetip_code-data1" data-code="${code}"></td><td><a href="/news/?&b=k1">${title}</a></td></tr>`
+    const html = `<table class="s_news_list mgbt0">${row('2026-11-13T21:00:00+09:00', '3719', 'Ａ社、今期最終を一転赤字に下方修正')}${row('2026-11-13T15:30:00+09:00', '285A', 'Ｂ社、今期経常を10％上方修正')}${row('2022-05-13T19:30:00+09:00', '4760', 'Ｃ社、今期最終は…')}</table><a href="?category=3&page=2">2</a><a href="?category=3&page=7">»</a>`
+    const r = parseKabutanKessanList(html)
+    expect(r.last_page).toBe(7)
+    expect(r.rows).toHaveLength(2)
+    expect(r.rows[1]).toMatchObject({ code: '285A', time: '2026-11-13T15:30', category: '決算', kind: 'REVISE_UP', revise_pct: 10 })
   })
 })

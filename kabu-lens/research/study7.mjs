@@ -64,3 +64,5 @@ cut(up, '上方修正: 直前20日の動き', x => x.run20, [-100, -10, 0, 10, 1
 cut(up, '上方修正: 売買代金', x => x.turnover, [0, 2e8, 1e9, 1e15], ['2億円未満', '2〜10億円', '10億円以上'])
 cut(ev.filter(x => x.kind === '下方修正'), '下方修正: 発表への最初の反応', x => x.react, [-100, -10, -5, -2, 0, 1e9], ['−10%より下', '−10〜−5%', '−5〜−2%', '−2〜0%', '0%以上'])
 console.log('見出しの例:', ev.filter(x => x.kind === 'その他').slice(0, 6).map(x => x.title).join(' / '))
+console.log('--- 時期ごとの確認: 上方修正の5日 / 上方修正で最初の反応が+12%以上の5日・損切りつき40日 / 基準の5日・損切りつき40日')
+for (const [a, b] of seasons) { const f = x => x.date >= a && x.date < b; const u = up.filter(f), big = u.filter(x => x.react >= 12), bs = base.filter(f); console.log(' ', a, `上方5日 ${fm(av(u, 'r5'))}  +12%以上 n=${String(big.length).padStart(3)} ${fm(av(big, 'r5'))} / ${fm(av(big, 'rs'))}  基準 ${fm(av(bs, 'r5'))} / ${fm(av(bs, 'rs'))}`) }
