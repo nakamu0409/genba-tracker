@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { analyze, atr, backtest, ema, evaluateSignal, isTseCode, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { analyze, atr, backtest, chaseFeatures, chaseRisk, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -322,6 +322,80 @@ describe('取引時間中の今の株価', () => {
     expect(r.is_today).toBe(false)
     expect(r.open).toBeNull()
     expect(r.prev_close).toBe(114)
+  })
+})
+
+describe('飛びつく危険度', () => {
+  it('特徴が無ければ0点で「低」', () => {
+    const r = chaseRisk({ gainPct: 6, price: 1500, volSurge: 3, offHighPct: -0.5, run5Pct: 2, range20Pct: 3 })
+    expect(r.score).toBe(0)
+    expect(r.level).toBe('LOW')
+    expect(r.reasons).toEqual([])
+  })
+
+  it('急騰・低位株・大商い・高値からの下げ・連騰・荒い値動きは点が積み上がる', () => {
+    const r = chaseRisk({ gainPct: 81, price: 58, volSurge: 16, offHighPct: -4.9, run5Pct: 14, range20Pct: 13.5 })
+    // 25（+20%以上）+ 25（100円未満）+ 6（出来高10倍）+ 5（高値から3%）+ 20（普段8%以上）
+    expect(r.score).toBe(81)
+    expect(r.level).toBe('HIGH')
+    expect(r.reasons).toHaveLength(5)
+  })
+
+  it('境目の点数と、100点の上限', () => {
+    expect(chaseRisk({ gainPct: 15, price: 300 }).score).toBe(15)
+    expect(chaseRisk({ gainPct: 15, price: 300 }).level).toBe('MID')
+    expect(chaseRisk({ gainPct: 25, price: 50, volSurge: 40, offHighPct: -9, run5Pct: 35, range20Pct: 9 }).score).toBe(100)
+    // 値が取れなかった項目は点を付けない
+    expect(chaseRisk({ gainPct: null, price: undefined }).score).toBe(0)
+  })
+
+  it('1時間ごとの株価から、検証と同じ特徴を出す', () => {
+    // 6営業日ぶんの前場2本。最後の日（11/16）が今日
+    const J = 9 * 3600
+    const day = (d: string, h: number) => Date.parse(`${d}T${String(h).padStart(2, '0')}:00:00Z`) / 1000 - J
+    const ds = ['2026-11-06', '2026-11-09', '2026-11-10', '2026-11-11', '2026-11-12', '2026-11-13', '2026-11-16']
+    const ts: number[] = []
+    const o: number[] = []
+    const h: number[] = []
+    const l: number[] = []
+    const c: number[] = []
+    const v: number[] = []
+    ds.forEach((d, k) => {
+      const last = k === ds.length - 1
+      ts.push(day(d, 9), day(d, 10))
+      o.push(100, 100)
+      h.push(last ? 130 : 102, last ? 130 : 102)
+      l.push(98, 98)
+      c.push(100, last ? 120 : 100)
+      v.push(0, last ? 5000 : 1000)
+    })
+    const json = { chart: { result: [{ meta: { gmtoffset: 32400, longName: 'Test', regularMarketPrice: 120 }, timestamp: ts, indicators: { quote: [{ open: o, high: h, low: l, close: c, volume: v }] } }] } }
+    const f = chaseFeatures(json, day('2026-11-16', 11))
+    expect(f.is_today).toBe(true)
+    expect(f.prev_close).toBe(100)
+    expect(f.gainPct).toBe(20)
+    expect(f.offHighPct).toBeCloseTo(-7.69, 2)
+    expect(f.volSurge).toBe(5)
+    expect(f.run5Pct).toBe(0)
+    expect(f.range20Pct).toBeCloseTo(4.08, 2)
+    // 今日の足が無ければ、今日の値として扱わない
+    expect(chaseFeatures(json, day('2026-11-17', 11)).is_today).toBe(false)
+  })
+
+  it('値上がり率ランキングの表を読む（ストップ高の印つき）', () => {
+    const html = `<div class="meigara_count"><ul><li>2026年11月16日</li><li>11:15現在</li><li>1706銘柄</li></ul></div>
+      <table class="stock_table"><thead><tr><th>コード</th></tr></thead><tbody>
+      <tr><td class="tac"><a href="/stock/?code=3624">3624</a></td><th scope="row" class="tal">アクセルＭ</th><td class="tac">東Ｇ</td>
+        <td class="gaiyou_icon"></td><td class="chart_icon"></td><td>58</td><td></td><td><span class="up">+27</span></td><td><span class="up">+87.10</span>%</td><td>8,741,100</td><td>－</td></tr>
+      <tr><td class="tac"><a href="/stock/?code=6317">6317</a></td><th scope="row" class="tal">北川鉄</th><td class="tac">東Ｓ</td>
+        <td class="gaiyou_icon"></td><td class="chart_icon"></td><td>2,785</td><td>S</td><td><span class="up">+472</span></td><td><span class="up">+20.41</span>%</td><td>120,300</td><td>12.1</td></tr>
+      </tbody></table>`
+    const r = parseKabutanMovers(html)
+    expect(r.date).toBe('2026年11月16日')
+    expect(r.as_of).toBe('11:15現在')
+    expect(r.rows[0]).toEqual({ code: '3624', name: 'アクセルＭ', market: '東Ｇ', price: 58, mark: '', change: 27, change_pct: 87.1, volume: 8741100 })
+    expect(r.rows[1]!.mark).toBe('S')
+    expect(r.rows[1]!.price).toBe(2785)
   })
 })
 

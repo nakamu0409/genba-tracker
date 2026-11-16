@@ -9,6 +9,8 @@
 //   node .claude/scripts/kabu-lens.mjs 7203 --no-save  # ファイルに保存せず表示だけ
 //   node .claude/scripts/kabu-lens.mjs --pts 7203 6758 # PTS（夜間・朝の時間外取引）の値段とランキング（株探）
 //   node .claude/scripts/kabu-lens.mjs --now 7203 6758 # 取引時間中の今の株価と、上げ下げの大きい銘柄
+//   node .claude/scripts/kabu-lens.mjs --chase          # 今日の値上がり率ランキング上位の「飛びつく危険度」
+//   node .claude/scripts/kabu-lens.mjs --chase 3624 7522 # 指定した銘柄の危険度
 //
 // 株価は Yahoo Finance の日足（株式分割は調整済み、配当は未調整）。取引時間中の未確定の足は使わない。
 // 結果は kabu-lens/packets/latest/TSE_<コード>_D.json に保存する（コミットされない）。
@@ -646,6 +648,51 @@ export function parseYahoo(json, nowSec = Date.now() / 1000) {
   return { bars, name: r.meta.longName || r.meta.shortName || '', currency: r.meta.currency || 'JPY', droppedUnconfirmed }
 }
 
+/**
+ * 前場に急騰した株に昼から飛びつく場合の「危険度」（0〜100）。
+ * 約1,400銘柄・3年分（前場+5%以上の約23,000回）の検証で、後場に−3%以上下げる割合が
+ * 前半・後半の両方で高かった特徴にだけ点を付けている（kabu-lens/research/day/）。
+ * 点数が低くても、後場の平均はほぼ0%で、勝率は半分に届かない。「安全」を意味しない。
+ * @param {object} f gainPct（前場の上げ%）, price（株価）, volSurge（前場の出来高が普段の何倍か）,
+ *   offHighPct（今日の高値からの下げ%。負の数）, run5Pct（直前5日の上げ%）, range20Pct（普段の1日の値幅%）
+ */
+export function chaseRisk(f) {
+  const reasons = []
+  let score = 0
+  const add = (pts, why) => {
+    score += pts
+    reasons.push(why)
+  }
+  if (ok(f.gainPct)) {
+    if (f.gainPct >= 20) add(25, '前場で+20%以上の急騰')
+    else if (f.gainPct >= 15) add(15, '前場で+15%以上の急騰')
+    else if (f.gainPct >= 10) add(8, '前場で+10%以上の上げ')
+  }
+  if (ok(f.price)) {
+    if (f.price < 100) add(25, '株価100円未満')
+    else if (f.price < 300) add(12, '株価300円未満')
+  }
+  if (ok(f.volSurge)) {
+    if (f.volSurge >= 30) add(20, '出来高が普段の30倍以上')
+    else if (f.volSurge >= 10) add(6, '出来高が普段の10倍以上')
+  }
+  if (ok(f.offHighPct)) {
+    if (f.offHighPct <= -8) add(25, '高値から8%以上下げている')
+    else if (f.offHighPct <= -5) add(12, '高値から5%以上下げている')
+    else if (f.offHighPct <= -3) add(5, '高値から3%以上下げている')
+  }
+  if (ok(f.run5Pct)) {
+    if (f.run5Pct >= 30) add(25, '直前5日で+30%以上上げている')
+    else if (f.run5Pct >= 15) add(12, '直前5日で+15%以上上げている')
+  }
+  if (ok(f.range20Pct)) {
+    if (f.range20Pct >= 8) add(20, '普段から1日8%以上動く')
+    else if (f.range20Pct >= 5) add(8, '普段から1日5%以上動く')
+  }
+  score = Math.min(100, score)
+  return { score, level: score >= 35 ? 'HIGH' : score >= 15 ? 'MID' : 'LOW', reasons }
+}
+
 /** Yahoo Finance のチャートJSONから、取引時間中の今の株価を読む（約15〜20分遅れ） */
 export function parseYahooNow(json, nowSec = Date.now() / 1000) {
   const r = json?.chart?.result?.[0]
@@ -785,6 +832,117 @@ export function parseKabutanRanking(html) {
   return { date: info[0] || null, as_of: info[1] || null, base: strip(html.match(/通常取引<br>\s*([0-9]+日終値)/)?.[1]) || null, rows }
 }
 
+/** 株探の「今日の株価上昇率ランキング」「ストップ高銘柄」の表を読む */
+export function parseKabutanMovers(html) {
+  const info = [...(html.match(/<div class="meigara_count">([\s\S]*?)<\/div>/)?.[1] || '').matchAll(/<li>([\s\S]*?)<\/li>/g)].map(m => strip(m[1]))
+  const body = html.match(/<table class="stock_table[^"]*">[\s\S]*?<tbody>([\s\S]*?)<\/tbody>/)?.[1] || ''
+  const rows = []
+  for (const tr of body.split(/<tr>/).slice(1)) {
+    const code = tr.match(/\/stock\/\?code=([0-9A-Z]{4})"/)?.[1]
+    if (!code) continue
+    const name = strip(tr.match(/<th scope="row"[^>]*>([\s\S]*?)<\/th>/)?.[1])
+    const tds = [...tr.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map(m => strip(m[1]))
+    // コード, 市場, (概要), (チャート), 株価, 印（S=ストップ高、ｹ=気配）, 前日比, 前日比%, 出来高, …
+    rows.push({ code, name, market: tds[1] || null, price: num(tds[4]), mark: tds[5] || '', change: num(tds[6]), change_pct: num(tds[7]), volume: num(tds[8]) })
+  }
+  return { date: info[0] || null, as_of: info[1] || null, rows }
+}
+
+// 危険度ごとの、過去の結果（kabu-lens/research/day/。後場の寄り付きで買って引けで売った場合）
+const CHASE_HISTORY = {
+  LOW: { share_pct: 75, avg_pct: 0.02, win_rate_pct: 49, drop3_pct: 4, drop5_pct: 1, bad_decile_pct: -1.9, avg_worst_dip_pct: -1.4 },
+  MID: { share_pct: 17, avg_pct: -0.1, win_rate_pct: 44, drop3_pct: 13, drop5_pct: 4, bad_decile_pct: -3.5, avg_worst_dip_pct: -2.3 },
+  HIGH: { share_pct: 8, avg_pct: -0.86, win_rate_pct: 39, drop3_pct: 27, drop5_pct: 17, bad_decile_pct: -7.1, avg_worst_dip_pct: -4.5 }
+}
+
+/** 1時間ごとの株価（Yahoo）から、危険度の計算に使う特徴を出す。検証（research/day）と同じ計算 */
+export function chaseFeatures(json, nowSec = Date.now() / 1000) {
+  const r = json?.chart?.result?.[0]
+  if (!r || !r.timestamp) throw new Error(json?.chart?.error?.description || '株価データが空です')
+  const q = r.indicators.quote[0]
+  const off = r.meta.gmtoffset ?? 32400
+  const days = new Map()
+  r.timestamp.forEach((ts, i) => {
+    const o = q.open[i]
+    const c = q.close[i]
+    if (!ok(o) || !ok(c)) return
+    const d = new Date((ts + off) * 1000)
+    const date = d.toISOString().slice(0, 10)
+    const x = days.get(date) || { date, h: -Infinity, l: Infinity, o, c, mv: 0 }
+    x.h = Math.max(x.h, q.high[i])
+    x.l = Math.min(x.l, q.low[i])
+    x.c = c
+    if (d.getUTCHours() < 12) x.mv += q.volume[i] ?? 0
+    days.set(date, x)
+  })
+  const list = [...days.values()]
+  const today = new Date((nowSec + off) * 1000).toISOString().slice(0, 10)
+  const t = list[list.length - 1]
+  if (!t || t.date !== today) return { is_today: false }
+  const past = list.slice(0, -1)
+  if (past.length < 6) return { is_today: true, short_history: true }
+  const prev = past[past.length - 1]
+  const last20 = past.slice(-20)
+  const price = tick(r.meta.regularMarketPrice) ?? tick(t.c)
+  const mvAvg = last20.reduce((a, x) => a + x.mv, 0) / last20.length
+  return {
+    is_today: true,
+    name: r.meta.longName || r.meta.shortName || '',
+    price,
+    prev_close: tick(prev.c),
+    gainPct: round((price / prev.c - 1) * 100),
+    open: tick(t.o),
+    high: tick(t.h),
+    low: tick(t.l),
+    offHighPct: round((price / t.h - 1) * 100),
+    volSurge: mvAvg > 0 ? round(t.mv / mvAvg, 1) : null,
+    run5Pct: round((prev.c / past[past.length - 5].c - 1) * 100),
+    range20Pct: round(last20.reduce((a, x) => a + (x.h / x.l - 1) * 100, 0) / last20.length)
+  }
+}
+
+/**
+ * 伸びている株の危険度をまとめて出す。
+ * codes を渡せばその銘柄、渡さなければ株探の「今日の株価上昇率ランキング」の上位を対象にする。
+ */
+export async function fetchChase(codes = [], { pages = 3, minTurnover = 1e8, max = 15 } = {}) {
+  const out = { source: 'ランキング=株探（15分以上遅れ）、株価の履歴=Yahoo Finance（約15〜20分遅れ）', fetched_at: new Date().toISOString().slice(0, 19) + 'Z', history: CHASE_HISTORY }
+  let targets = codes.map(code => ({ code }))
+  if (!codes.length) {
+    const rows = []
+    for (let pg = 1; pg <= pages; pg++) {
+      const r = parseKabutanMovers(await fetchText(`https://kabutan.jp/warning/?mode=2_1&market=0&capitalization=-1&stc=&stm=0&page=${pg}`))
+      Object.assign(out, { ranking_date: r.date, ranking_as_of: r.as_of })
+      rows.push(...r.rows)
+      await sleep(400)
+    }
+    // 株だけ（ETFなどを除く）。売買代金が少なすぎるものは、買っても売れないので外す
+    const stocksOnly = rows.filter(x => ['東Ｐ', '東Ｓ', '東Ｇ'].includes(x.market))
+    out.skipped_thin = stocksOnly.filter(x => !(x.price * x.volume >= minTurnover)).length
+    targets = stocksOnly.filter(x => x.price * x.volume >= minTurnover).slice(0, max)
+  }
+  const one = async (tg) => {
+    try {
+      const f = chaseFeatures(await fetchJson(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(tg.code)}.T?range=2mo&interval=60m`))
+      if (!f.is_today) return { ...tg, error: '今日の取引がまだありません' }
+      if (f.short_history) return { ...tg, error: '上場して間もないため計算できません' }
+      const risk = chaseRisk(f)
+      return {
+        code: tg.code, name: tg.name || f.name, market: tg.market || null, stop_high: /[SＳ]/.test(tg.mark || ''), bid_only: /ｹ|ケ/.test(tg.mark || ''),
+        price: f.price, gain_pct: f.gainPct, open: f.open, high: f.high, low: f.low, off_high_pct: f.offHighPct,
+        volume_vs_usual: f.volSurge, run_5d_pct: f.run5Pct, usual_daily_range_pct: f.range20Pct,
+        turnover_today: tg.volume && tg.price ? Math.round(tg.price * tg.volume) : null,
+        risk_score: risk.score, risk_level: risk.level, reasons: risk.reasons
+      }
+    } catch (e) {
+      return { ...tg, error: e.message }
+    }
+  }
+  out.stocks = []
+  for (let k = 0; k < targets.length; k += 6) out.stocks.push(...await Promise.all(targets.slice(k, k + 6).map(one)))
+  return out
+}
+
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 /** 指定した銘柄の PTS と、PTS ランキング（上昇・下落の上位）を取る */
@@ -840,6 +998,16 @@ async function main() {
   const save = !args.includes('--no-save')
   const evalAt = args.indexOf('--evaluate')
   if (evalAt >= 0) return evaluateFile(args[evalAt + 1])
+  if (args.includes('--chase')) {
+    const chaseCodes = args.filter(a => !a.startsWith('--')).map(a => a.toUpperCase())
+    const badChase = chaseCodes.filter(c => !isTseCode(c))
+    if (badChase.length) {
+      console.error(`銘柄コードの形が違います: ${badChase.join(', ')}（例: 7203, 285A）`)
+      process.exit(1)
+    }
+    console.log(JSON.stringify(await fetchChase(chaseCodes), null, 2))
+    return
+  }
   if (args.includes('--now')) {
     const nowCodes = args.filter(a => !a.startsWith('--')).map(a => a.toUpperCase())
     const badNow = nowCodes.filter(c => !isTseCode(c))
@@ -862,7 +1030,7 @@ async function main() {
   }
   const codes = args.filter(a => !a.startsWith('--')).map(a => a.toUpperCase())
   if (!codes.length) {
-    console.error('使い方: node .claude/scripts/kabu-lens.mjs <銘柄コード...> [--no-save] [--backtest]\n        node .claude/scripts/kabu-lens.mjs --evaluate <signals.json>\n        node .claude/scripts/kabu-lens.mjs --pts <銘柄コード...> [--no-ranking]\n        node .claude/scripts/kabu-lens.mjs --now <銘柄コード...>')
+    console.error('使い方: node .claude/scripts/kabu-lens.mjs <銘柄コード...> [--no-save] [--backtest]\n        node .claude/scripts/kabu-lens.mjs --evaluate <signals.json>\n        node .claude/scripts/kabu-lens.mjs --pts <銘柄コード...> [--no-ranking]\n        node .claude/scripts/kabu-lens.mjs --now <銘柄コード...>\n        node .claude/scripts/kabu-lens.mjs --chase [銘柄コード...]')
     process.exit(1)
   }
   const bad = codes.filter(c => !isTseCode(c))
