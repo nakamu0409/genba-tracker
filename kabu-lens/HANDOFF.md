@@ -61,19 +61,20 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
   - `settings/movers_stats`: 答え合わせの累計（危険度ごと・材料の有無ごとの件数など）。朝の分は中の `open` に分けて持つ。記録帳のページの「ランキングの危険度の答え合わせ」がこれを表示する
 - 本人が資金や保有を変えたと言ったら、ここを更新する。
 
-### 定期実行（4つ。平日・日本時間）
+### 定期実行（5つ。平日・日本時間）
 
 | 名前 | 時刻 | 内容 |
 |---|---|---|
 | 朝の株ウォッチ | 8:22 | 保有の確認、PTS、今日の注意点 |
 | 朝のランキング（寄り付き後） | 9:36 | 9:15ごろの値上がり・値下がりランキングの危険度と材料。`movers` に `slot: "open"` で記録 |
 | 昼の状況確認 | 11:47 | 相場、保有の含み損益、今朝の候補、値上がり・値下がりランキング（各20銘柄）の危険度と材料。`movers` に記録 |
+| 決算の記録（上方修正の追跡） | 21:38 | その日の上方修正を `kessan` に記録し、次の営業日の始値で買った場合の1・5・20日後を足す。累計は `settings/kessan_stats` |
 | 夜の点検（保有と買い候補） | 22:20 | 買い候補の判定、追跡の答え合わせ、昼のランキングの答え合わせ、記録帳への書き戻し、PTS |
 
 - `list_triggers` で名前から探す。どれも「毎回新しいセッション」「環境はデフォルト」「スマホ通知あり」。
 - 指示文を直すときは `get_trigger` で全文を取り、直した全文を `update_trigger` で送る（一部だけの差し替えはできない）。
 - 指示文には銘柄・資金を書かない。すべて記録帳から読ませる。
-- 指示文の控えは `kabu-lens/ops/prompt-morning.md`・`prompt-open.md`（朝のランキング）・`prompt-midday.md`・`prompt-night.md`（記録帳のURLは `<記録帳のURL>` に置き換えてある）。指示文を直したら控えも直す。
+- 指示文の控えは `kabu-lens/ops/prompt-morning.md`・`prompt-open.md`（朝のランキング）・`prompt-kessan.md`（決算の記録）・`prompt-midday.md`・`prompt-night.md`（記録帳のURLは `<記録帳のURL>` に置き換えてある）。指示文を直したら控えも直す。
 - 名前に「旧」が付いた無効の2つは、Yahoo に繋がらない環境で動いていた古いもの。消さずに置いてある。
 
 ## 実装のくわしい中身
@@ -93,7 +94,7 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 | PTS | `fetchPts` `parseKabutanStock` `parseKabutanRanking` | `--pts`。株探の個別ページとPTSランキング |
 | 危険度 | `chaseRisk` `dipRisk` `chaseFeatures` `parseKabutanMovers` `parseKabutanNews` `fetchChase` | `--chase`（値上がり）`--dip`（値下がり）`--movers`（両方）。株探のランキングと銘柄ニュース＋Yahoo の1時間足 |
 | 答え合わせ | `afternoonResult` `moversResult` `mergeMoverStats` `summarizeMoverStats` | `--movers-result`。昼の記録に後場の結果を足し、危険度ごとの累計を出す |
-| 決算の見出し | `fetchKessan` `parseKabutanKessanList` `classifyKessan` | `--kessan [YYYYMMDD]`。その日の決算・業績修正の見出しを分類つきで取る |
+| 決算の見出し | `fetchKessan` `parseKabutanKessanList` `classifyKessan` `kessanOutcome` `kessanResult` `mergeKessanStats` | `--kessan [YYYYMMDD]`（その日の決算・業績修正の見出しを分類つきで取る）、`--kessan-result`（上方修正の記録のその後と累計） |
 | 買う前チェック | `preTradeCheck` `parseKabutanEarningsDate` `businessDaysBetween` | `--check <コード> <値段> --state <状態.json>`。株数・損切り・止める理由を出す。`/kau` が使う |
 | 通信 | `fetchText` `fetchJson` | fetch が失敗したら curl で取り直す |
 | 入口 | `main` `runBacktest` `evaluateFile` | コマンドの引数を見て振り分ける |
@@ -204,5 +205,5 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 - 追跡がたまったら（目安は30件以上）、候補の種類ごとの成績を見てルールを見直す。
 - 決算発表予定日は、株探の銘柄ページに載っているときだけ取れる（発表が近い時期だけ出るらしい）。載っていなければ null で、「遠い」という意味ではない。朝と夜の定期実行にはまだ組み込んでいない。
 - 記録帳のページに「今日の買いの回数」の表示は無い（`/kau` が記録帳の今日の記録を数える）。本人が記録を入れないと歯止めが効かないので、入れ忘れが続くようなら、ページに「今日◯回目」を大きく出す。
-- **決算の見出しをためる仕組みは、取るところまで。** 夜の点検に組み込むなら: `--kessan` の結果のうち REVISE_UP を記録帳の新しい collection（例 `kessan`、ID は `<日付>-<コード>`）に入れ、翌営業日の始値から1日・5日・20日の結果を足して、基準と比べる。本人に結果を見せてから夜の指示文を直す（まだ見せていない）。株探の決算記事の見出しは、古い日付だと途中で切れるので、ためるなら当日のうちに取る。
+- **上方修正の追跡は 2026年11月17日 21:38 が初回。** 記録帳の `kessan` に記録ができたか、翌営業日に最初の反応（react）が入ったか、約1週間後に5日後の結果と `settings/kessan_stats` ができたかを確認する。確かめたいのは2つ: (a) 上方修正の直後5日は基準より良いか、(b) 最初の反応が+12%以上の株は5日後も上がるか（過去2年の検証では+4.3%、勝率約3割）。各30件たまるまで結論を出さない。記録帳のページにはまだ表示が無い。
 - 本人がまだ決めていないこと: 損失の上限を変えるか／資金を追加したときの設定／保有株の損切りの値段の入力／決算をまたいだ保有株のその後の方針。くわしい中身は記録帳の `settings/main` と `trades` の note を見る。
