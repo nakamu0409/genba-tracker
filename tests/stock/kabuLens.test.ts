@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { afternoonResult, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { afternoonResult, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -563,5 +563,38 @@ describe('決算の見出し', () => {
     expect(r.last_page).toBe(7)
     expect(r.rows).toHaveLength(2)
     expect(r.rows[1]).toMatchObject({ code: '285A', time: '2026-11-13T15:30', category: '決算', kind: 'REVISE_UP', revise_pct: 10 })
+  })
+})
+
+describe('上方修正のその後', () => {
+  const mk = (closes: number[], start = 2) => closes.map((c, k) => ({ date: `2026-11-${String(start + k).padStart(2, '0')}`, o: c - 1, h: c + 2, l: c - 3, c }))
+  const bars = mk([100, 102, 104, 110, 112, 115, 113, 118, 120])
+  const bench = mk([200, 200, 200, 201, 202, 203, 204, 205, 206])
+
+  it('引け後の発表は、翌営業日の始値で買い、最初の反応は始値と前日終値の差', () => {
+    const r = kessanOutcome({ date: '2026-11-04', time: '15:30' }, bars, bench)
+    expect(r).toMatchObject({ entryDate: '2026-11-05', entry: 109, react: 4.81, r1: 0.92, r5: 8.26, final: false })
+    expect(r.ex5).toBe(5.76)
+    expect(r.r20).toBeUndefined()
+  })
+
+  it('場中の発表は、その日の終値までを最初の反応とする', () => {
+    expect(kessanOutcome({ date: '2026-11-04', time: '11:00' }, bars, bench).react).toBe(1.96)
+  })
+
+  it('次の営業日がまだ無ければ pending', () => {
+    expect(kessanOutcome({ date: '2026-11-10', time: '15:30' }, bars, bench).pending).toBeTruthy()
+  })
+
+  it('mergeKessanStats: 5日後が出た記録を1回だけ数える', () => {
+    const recs = [{ id: 'a', react: 15, r5: 6, ex5: 5 }, { id: 'b', react: 2, r5: -1, ex5: -2 }, { id: 'c', react: 3 }]
+    const m1 = mergeKessanStats(null, recs)
+    const m2 = mergeKessanStats(m1.stats, m1.records)
+    expect(m2.stats).toEqual(m1.stats)
+    expect(m1.records.map(r => r.counted)).toEqual([true, true, undefined])
+    const sum = summarizeKessanStats(m1.stats)
+    expect(sum.all).toEqual({ count: 2, avg_5d_pct: 2.5, win_rate_pct: 50, avg_vs_topix_5d_pct: 1.5, beat_topix_pct: 50 })
+    expect(sum.react12.count).toBe(1)
+    expect(sum.react_under12.count).toBe(1)
   })
 })

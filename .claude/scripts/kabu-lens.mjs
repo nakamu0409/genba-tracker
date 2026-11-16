@@ -15,6 +15,7 @@
 //   node .claude/scripts/kabu-lens.mjs --movers         # 値上がり・値下がりの両方（材料ニュースつき）
 //   node .claude/scripts/kabu-lens.mjs --movers --open  # 同じ。朝（寄り付き後）用で、過去の結果を朝の検証の数字にする
 //   node .claude/scripts/kabu-lens.mjs --kessan [YYYYMMDD]  # その日の決算・業績修正の見出し（上方修正・下方修正などに分類）
+//   node .claude/scripts/kabu-lens.mjs --kessan-result <記録.json> [--stats <累計.json>]  # 上方修正の記録の、その後（1・5・20日）
 //   node .claude/scripts/kabu-lens.mjs --check 7203 3100 --state state.json  # 買う前チェック（株数・損切り・止める理由）
 //   node .claude/scripts/kabu-lens.mjs --movers-result <記録.json> [--stats <累計.json>]  # 昼に出した危険度の答え合わせ（後場の結果）
 //
@@ -1193,6 +1194,102 @@ export async function fetchKessan(date, { maxPages = 100 } = {}) {
   return out
 }
 
+/**
+ * 上方修正などの記録1件について、その後の株価を出す。
+ * 買うのは「発表の次の営業日の始値」。react は発表への最初の反応（引け後の発表なら翌営業日の始値÷発表日の終値、場中なら発表日の終値÷前日の終値）。
+ * ex は、同じ期間の TOPIX連動ETF（1306）との差。
+ * @param {object} rec {date: 'YYYY-MM-DD'（発表日）, time: 'HH:MM'}
+ * @param {Array} bars 日足 [{date, o, h, l, c}]（古い順）
+ * @param {Array} bench 1306 の日足
+ */
+export function kessanOutcome(rec, bars, bench = []) {
+  let i = -1
+  for (let k = 0; k < bars.length; k++) if (bars[k].date <= rec.date) i = k
+  if (i < 1) return { pending: '発表日より前の株価がありません' }
+  const sameDay = bars[i].date === rec.date
+  const after = !sameDay || String(rec.time || '15:30') >= '15:00'
+  const e = i + 1
+  if (e >= bars.length) return { pending: '次の営業日の株価がまだありません' }
+  const entry = bars[e].o
+  const bi = bench.findIndex(x => x.date === bars[e].date)
+  const out = {
+    entryDate: bars[e].date,
+    entry: tick(entry),
+    react: round(after ? (entry / bars[i].c - 1) * 100 : (bars[i].c / bars[i - 1].c - 1) * 100),
+    last: tick(bars[bars.length - 1].c),
+    lastDate: bars[bars.length - 1].date
+  }
+  for (const n of [1, 5, 20]) {
+    const k = e + n - 1
+    if (k >= bars.length) continue
+    out['r' + n] = round((bars[k].c / entry - 1) * 100)
+    const bk = bi >= 0 ? bench.findIndex(x => x.date === bars[k].date) : -1
+    if (bi >= 0 && bk >= 0) out['ex' + n] = round(out['r' + n] - (bench[bk].c / bench[bi].o - 1) * 100)
+  }
+  out.final = out.r20 !== undefined
+  return out
+}
+
+const KESSAN_KEYS = ['all', 'react12', 'react_under12']
+
+/** 5日後の結果が出た記録を、累計に1回だけ足す（足した記録には counted: true が付く） */
+export function mergeKessanStats(prev, records) {
+  const stats = prev && prev.all ? JSON.parse(JSON.stringify(prev)) : {}
+  for (const k of KESSAN_KEYS) stats[k] ||= { n: 0, sum5: 0, sumEx5: 0, nEx: 0, win5: 0, beat5: 0 }
+  const out = records.map((r) => {
+    if (r.counted || !ok(r.r5)) return r
+    for (const k of ['all', ok(r.react) && r.react >= 12 ? 'react12' : 'react_under12']) {
+      const c = stats[k]
+      c.n++
+      c.sum5 = round(c.sum5 + r.r5)
+      if (r.r5 > 0) c.win5++
+      if (ok(r.ex5)) {
+        c.nEx++
+        c.sumEx5 = round(c.sumEx5 + r.ex5)
+        if (r.ex5 > 0) c.beat5++
+      }
+    }
+    return { ...r, counted: true }
+  })
+  return { stats, records: out }
+}
+
+export function summarizeKessanStats(stats) {
+  const out = {}
+  for (const k of KESSAN_KEYS) {
+    const c = stats[k]
+    out[k] = c && c.n ? { count: c.n, avg_5d_pct: round(c.sum5 / c.n), win_rate_pct: round(c.win5 / c.n * 100, 0), avg_vs_topix_5d_pct: c.nEx ? round(c.sumEx5 / c.nEx) : null, beat_topix_pct: c.nEx ? round(c.beat5 / c.nEx * 100, 0) : null } : { count: 0 }
+  }
+  return out
+}
+
+/** 記録（[{id, code, date, time, ...}]）のその後を取りに行き、累計を更新する。final（20日後まで出た）の記録は取りに行かない */
+export async function kessanResult(records, prevStats = null) {
+  let bench = []
+  try {
+    bench = (await fetchYahoo('1306.T', '1y')).bars
+  } catch {
+    bench = []
+  }
+  const done = []
+  for (let k = 0; k < records.length; k += 6) {
+    done.push(...await Promise.all(records.slice(k, k + 6).map(async (rec) => {
+      if (rec.final) return rec
+      try {
+        const res = kessanOutcome(rec, (await fetchYahoo(`${rec.code}.T`, '1y')).bars, bench)
+        return res.pending ? { ...rec, pending: res.pending } : { ...rec, ...res, updated: true }
+      } catch (e) {
+        return { ...rec, pending: e.message }
+      }
+    })))
+  }
+  const m = mergeKessanStats(prevStats, done)
+  return {
+    note: '上方修正の発表の次の営業日の始値で買った場合。react12 は最初の反応が+12%以上、react_under12 はそれ未満。過去約2年の検証では、5日後の平均は 全体+1.1%（TOPIX連動ETFではなく「いつでも買う」基準が+0.45%）、最初の反応が+12%以上は+4.3%（270回、勝率は約3割）。件数が少ないうちは偶然の影響が大きい（目安は各30件以上）',
+    total: summarizeKessanStats(m.stats), stats: m.stats, records: m.records
+  }
+}
+
 /** 株探の銘柄ページから「決算発表予定日」を読む（載っていなければ null） */
 export function parseKabutanEarningsDate(html) {
   const m = String(html).replace(/<[^>]*>/g, ' ').match(/決算発表予定日\s*(\d{4})\/(\d{1,2})\/(\d{1,2})/)
@@ -1333,6 +1430,20 @@ async function main() {
   const save = !args.includes('--no-save')
   const evalAt = args.indexOf('--evaluate')
   if (evalAt >= 0) return evaluateFile(args[evalAt + 1])
+  if (args.includes('--kessan-result')) {
+    const file = args[args.indexOf('--kessan-result') + 1]
+    const si = args.indexOf('--stats')
+    let prev = null
+    if (si >= 0) {
+      try {
+        prev = JSON.parse(readFileSync(args[si + 1], 'utf-8'))
+      } catch {
+        prev = null
+      }
+    }
+    console.log(JSON.stringify(await kessanResult(JSON.parse(readFileSync(file, 'utf-8')), prev), null, 2))
+    return
+  }
   if (args.includes('--kessan')) {
     const d = args[args.indexOf('--kessan') + 1]
     console.log(JSON.stringify(await fetchKessan(/^\d{8}$/.test(d || '') ? d : undefined), null, 2))
