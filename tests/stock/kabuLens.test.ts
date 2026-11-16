@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { analyze, atr, backtest, chaseFeatures, chaseRisk, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { afternoonResult, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -441,5 +441,55 @@ describe('データ取得まわり', () => {
     const j = yahoo({ start: 0, end: 0 })
     j.chart.result[0]!.indicators.quote[0]!.close[0] = null as unknown as number
     expect(parseYahoo(j, 1794600000).bars).toHaveLength(1)
+  })
+})
+
+describe('値下がり株の危険度・材料ニュース・答え合わせ', () => {
+  it('dipRisk: 危ない特徴が無ければ低、重なれば高', () => {
+    expect(dipRisk({ gainPct: -6, price: 1500, offLowPct: 0.5, run5Pct: 0, range20Pct: 3 })).toMatchObject({ score: 0, level: 'LOW' })
+    const r = dipRisk({ gainPct: -12, price: 80, offLowPct: 6, run5Pct: 40, range20Pct: 9 })
+    expect(r.level).toBe('HIGH')
+    expect(r.score).toBe(98)
+    expect(dipRisk({ gainPct: -7, price: 500, offLowPct: 1, run5Pct: -20, range20Pct: 6 })).toMatchObject({ score: 20, level: 'MID' })
+  })
+
+  it('parseKabutanNews: 自動記事・まとめ記事・古い記事を外し、記事を開示より先に出す', () => {
+    const row = (time: string, ctg: string, title: string) => `<tr> <td class="news_time"><time datetime="${time}">x</time></td> <td><div class="newslist_ctg newsctg2_b">${ctg}</div></td> <td><a href="/stock/news?code=7522&b=n1">${title}</a></td> </tr>`
+    const html = `<table class="s_news_list mgbt0">${[
+      row('2026-11-16T15:38:31+09:00', 'テク', '本日の【ボリンジャー】'),
+      row('2026-11-16T08:00:00+09:00', '開示', 'ＭＢＯの実施に関するお知らせ'),
+      row('2026-11-16T10:10:00+09:00', '材料', 'ワタミは急騰、ＴＯＢ価格にサヤ寄せ'),
+      row('2026-11-16T09:00:00+09:00', '材料', '前日に動いた銘柄 part1'),
+      row('2026-11-16T09:00:00+09:00', '開示', 'Notice Regarding MBO'),
+      row('2026-11-12T10:00:00+09:00', '材料', '古い記事')
+    ].join('')}</table>`
+    const n = parseKabutanNews(html, '2026-11-13T15:00:00+09:00')
+    expect(n.map(v => v.title)).toEqual(['ワタミは急騰、ＴＯＢ価格にサヤ寄せ', 'ＭＢＯの実施に関するお知らせ'])
+    expect(n[0]).toMatchObject({ category: '材料', time: '2026-11-16T10:10' })
+  })
+
+  it('afternoonResult: 後場の始値から終値までを出す', () => {
+    const base = Date.UTC(2026, 10, 16, 0, 0, 0) / 1000 // 日本時間 9:00
+    const hours = [0, 1, 2, 3.5, 4.5, 5.5] // 9時, 10時, 11時, 12:30, 13:30, 14:30
+    const json = { chart: { result: [{ meta: { gmtoffset: 32400 }, timestamp: hours.map(h => base + h * 3600), indicators: { quote: [{ open: [100, 104, 106, 110, 108, 105], high: [105, 107, 111, 112, 109, 106], low: [99, 103, 105, 107, 104, 101], close: [104, 106, 110, 108, 105, 104.5], volume: [1, 1, 1, 1, 1, 1] }] } }] } }
+    expect(afternoonResult(json, '2026-11-16')).toEqual({ morning_close: 110, afternoon_open: 110, close: 104.5, afternoon_pct: -5, worst_dip_pct: -8.18, best_pop_pct: 1.82 })
+    expect(afternoonResult(json, '2026-11-17')).toBeNull()
+  })
+
+  it('mergeMoverStats: 危険度ごとに足し、同じ日は二重に足さない', () => {
+    const recs = [
+      { date: '2026-11-16', dir: 'up', risk_level: 'HIGH', has_news: true, afternoon_pct: -4 },
+      { date: '2026-11-16', dir: 'up', risk_level: 'HIGH', has_news: false, afternoon_pct: 1 },
+      { date: '2026-11-16', dir: 'down', risk_level: 'LOW', has_news: null, afternoon_pct: 0.5 }
+    ]
+    const s1 = mergeMoverStats(null, recs)
+    const s2 = mergeMoverStats(s1, recs)
+    expect(s2).toEqual(s1)
+    const sum = summarizeMoverStats(s1)
+    expect(sum.days).toBe(1)
+    expect(sum.up.HIGH).toEqual({ count: 2, avg_pct: -1.5, win_rate_pct: 50, drop3_count: 1, drop3_pct: 50 })
+    expect(sum.up.with_news.count).toBe(1)
+    expect(sum.down.LOW.count).toBe(1)
+    expect(sum.down.no_news.count).toBe(0)
   })
 })

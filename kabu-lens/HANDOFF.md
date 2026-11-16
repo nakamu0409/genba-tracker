@@ -33,6 +33,9 @@ node .claude/scripts/kabu-lens.mjs 7203 6758      # 日足の分析（kabu-lens/
 node .claude/scripts/kabu-lens.mjs --now 7203     # 今の株価（15〜20分遅れ）
 node .claude/scripts/kabu-lens.mjs --pts 7203     # PTS（夜間取引）
 node .claude/scripts/kabu-lens.mjs --chase [コード] # 急騰株に飛びつく危険度。省略でランキング上位
+node .claude/scripts/kabu-lens.mjs --dip [コード]   # 急落株をいま買う危険度
+node .claude/scripts/kabu-lens.mjs --movers        # 値上がり・値下がりの両方（各20銘柄、材料ニュースつき）
+node .claude/scripts/kabu-lens.mjs --movers-result recs.json [--stats stats.json]  # 昼の記録の答え合わせ
 node .claude/scripts/kabu-lens.mjs --backtest 7203 --trades
 node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の「買っていたら」の答え合わせ
 ```
@@ -52,6 +55,8 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
   - `trades`: 売買の記録。status が open は保有中。entry, qty, stop, target, events, note
   - `watchlist`: 監視リスト
   - `signals`: 買い候補の追跡。ID は `<コード>-<日付>-pass|blocked`
+  - `movers`: 昼のランキングの記録。ID は `<日付>-<up|down>-<コード>`。昼が書き、夜が後場の結果（afternoon_pct など）を足す
+  - `settings/movers_stats`: 答え合わせの累計（危険度ごと・材料の有無ごとの件数など）
 - 本人が資金や保有を変えたと言ったら、ここを更新する。
 
 ### 定期実行（3つ。平日・日本時間）
@@ -59,8 +64,8 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 | 名前 | 時刻 | 内容 |
 |---|---|---|
 | 朝の株ウォッチ | 8:22 | 保有の確認、PTS、今日の注意点 |
-| 昼の状況確認 | 11:47 | 相場、保有の含み損益、今朝の候補、値上がりランキングと飛びつく危険度 |
-| 夜の点検（保有と買い候補） | 22:20 | 買い候補の判定、追跡の答え合わせ、記録帳への書き戻し、PTS |
+| 昼の状況確認 | 11:47 | 相場、保有の含み損益、今朝の候補、値上がり・値下がりランキング（各20銘柄）の危険度と材料。`movers` に記録 |
+| 夜の点検（保有と買い候補） | 22:20 | 買い候補の判定、追跡の答え合わせ、昼のランキングの答え合わせ、記録帳への書き戻し、PTS |
 
 - `list_triggers` で名前から探す。どれも「毎回新しいセッション」「環境はデフォルト」「スマホ通知あり」。
 - 指示文を直すときは `get_trigger` で全文を取り、直した全文を `update_trigger` で送る（一部だけの差し替えはできない）。
@@ -83,7 +88,8 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 | 株価 | `fetchYahoo` `parseYahoo` | Yahoo の chart API（`/v8/finance/chart/<コード>.T`）。取引時間中は今日の足を外す。株価は0.1円に丸める |
 | 今の株価 | `fetchNow` `parseYahooNow` | `--now`。日経平均・TOPIX連動ETF（1306）と、上げ・下げの上位 |
 | PTS | `fetchPts` `parseKabutanStock` `parseKabutanRanking` | `--pts`。株探の個別ページとPTSランキング |
-| 危険度 | `chaseRisk` `chaseFeatures` `parseKabutanMovers` `fetchChase` | `--chase`。株探の値上がり率ランキング＋Yahoo の1時間足 |
+| 危険度 | `chaseRisk` `dipRisk` `chaseFeatures` `parseKabutanMovers` `parseKabutanNews` `fetchChase` | `--chase`（値上がり）`--dip`（値下がり）`--movers`（両方）。株探のランキングと銘柄ニュース＋Yahoo の1時間足 |
+| 答え合わせ | `afternoonResult` `moversResult` `mergeMoverStats` `summarizeMoverStats` | `--movers-result`。昼の記録に後場の結果を足し、危険度ごとの累計を出す |
 | 通信 | `fetchText` `fetchJson` | fetch が失敗したら curl で取り直す |
 | 入口 | `main` `runBacktest` `evaluateFile` | コマンドの引数を見て振り分ける |
 
@@ -121,6 +127,14 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 | 普段の値幅 | 5%以上 8、8%以上 20 |
 
 合計（上限100）が 15未満は LOW、35未満は MID、35以上は HIGH。出力には過去の検証の数字（`history`）も付く。根拠と限界は `kabu-lens/research/day/README.md`。
+
+### 急落株の危険度（`dipRisk`）
+
+前場に5%以上下げた株を後場に買った場合の検証から作った。**反発しやすい特徴は見つからず**、「さらに崩れやすい特徴」にだけ点を付けている: 10%以上の急落 8／株価100円未満 25／安値から3%以上戻している 5・5%以上 20／直前5日で+15%以上 8・+30%以上 25・−15%以下 12／普段の値幅5%以上 8・8%以上 20。区切りは急騰と同じ（15・35）。日経平均が−2%以下の日（相場全体の崩れ）は、点数があてにならない（`market_wide_selloff`）。
+
+### 材料ニュース
+
+株探の銘柄ニュース（`/stock/news?code=`）から、前営業日15時以降の見出しを最大3つ取る。自動のテクニカル記事・まとめ記事・英語の開示は外す。上げ材料か下げ材料かは、通知を書く側が見出しから判断する。**点数には入れていない**（`has_news` を記録して、答え合わせで差を見る）。
 
 ### 検証スクリプト（`kabu-lens/research/`）
 
@@ -162,9 +176,9 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 
 ## 続きでやること・決まっていないこと
 
-- **あとでやる（本人の希望。2026年11月16日。使用量に余裕があるときに）**:
-  1. **値下がりランキングの株にも指標を付ける。** 「下がっているが、ここから大きくは崩れにくい（買っても危なくない）」かどうかの点数。急騰株の危険度と同じ手順で作る: `research/day/` の1時間足のデータで「前場に5%以上下げた株を後場の寄り付きで買って引けで売る」を調べ、前半・後半の両方で効く特徴だけに点を付ける。株探の値下がり率ランキングは `https://kabutan.jp/warning/?mode=2_2`（急騰は `2_1`。使う前にページを確かめる）。「安全」と言い切れる結果が出なければ、急騰のときと同じく「大きくやられる割合が低い」という言い方にとどめる。翌日以降の戻り（数日持つ場合）も合わせて見ると良い。
-  2. **ランキングの表示を8銘柄より広げる。** `fetchChase` は今も最大15銘柄を見ている（`max: 15`、`pages: 3`）。昼の通知の指示文の「最大8銘柄」を増やし、`max` も上げる。通知が長くなるので、危険度が低・中のものを先に出し、「高」は銘柄名と点数だけに縮める、買えない金額の「（資金外）」は全部が対象なら1回だけ書く、などで行数を抑える。
+- 昼のランキング（値上がり・値下がり各20銘柄、材料つき）と、夜の答え合わせは 2026年11月17日 が初回。昼に `movers` へ記録できたか、夜に後場の結果が書き戻されて `settings/movers_stats` ができたかを確認する。
+- 答え合わせがたまったら（目安は各30件以上）、危険度ごとの「3%以上下げた割合」が過去の検証どおりかを見る。材料あり・なしで差があれば、そのとき初めて点数に入れることを検討する（今は材料を点数に入れていない。過去のニュースのデータが無く、検証できないため）。
+- 記録帳のページには、まだランキングの答え合わせの表示が無い（夜の通知だけ）。必要ならページに `movers` と `settings/movers_stats` の表を足す。
 - 夜の点検は 2026年11月16日 22:20 が初回。追跡の書き戻しがうまく動いたか、翌日に確認する。
 - 追跡がたまったら（目安は30件以上）、候補の種類ごとの成績を見てルールを見直す。
 - 本人がまだ決めていないこと: 損失の上限を変えるか／資金を追加したときの設定／保有株の損切りの値段の入力／決算をまたいだ保有株のその後の方針。くわしい中身は記録帳の `settings/main` と `trades` の note を見る。
