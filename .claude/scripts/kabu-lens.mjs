@@ -13,6 +13,7 @@
 //   node .claude/scripts/kabu-lens.mjs --chase 3624 7522 # 指定した銘柄の危険度
 //   node .claude/scripts/kabu-lens.mjs --dip            # 今日の値下がり率ランキング上位を「いま買う危険度」
 //   node .claude/scripts/kabu-lens.mjs --movers         # 値上がり・値下がりの両方（材料ニュースつき）
+//   node .claude/scripts/kabu-lens.mjs --movers --open  # 同じ。朝（寄り付き後）用で、過去の結果を朝の検証の数字にする
 //   node .claude/scripts/kabu-lens.mjs --movers-result <記録.json> [--stats <累計.json>]  # 昼に出した危険度の答え合わせ（後場の結果）
 //
 // 株価は Yahoo Finance の日足（株式分割は調整済み、配当は未調整）。取引時間中の未確定の足は使わない。
@@ -898,6 +899,22 @@ const DIP_HISTORY = {
   HIGH: { share_pct: 8, avg_pct: -0.27, win_rate_pct: 36, drop3_pct: 23, drop5_pct: 10, bad_decile_pct: -5.0, avg_worst_dip_pct: -3.3 }
 }
 
+// 朝（寄り付き後15分・9:15ごろ）に同じ点数を当てはめた場合の、過去の結果（直近60日・約2,400回。そこで買って引けで売った場合）。
+// 点数の向きは朝でも同じだったが、引けまで長く持つぶん、どの危険度でも大きく下げる割合が昼より高い。
+// 期間が短く、前半・後半に分けた確認はできていない（kabu-lens/research/day/README.md）
+const OPEN_HISTORY = {
+  up: {
+    LOW: { share_pct: 77, avg_pct: -0.07, win_rate_pct: 50, drop3_pct: 13, drop5_pct: 5, bad_decile_pct: -3.5 },
+    MID: { share_pct: 17, avg_pct: -0.77, win_rate_pct: 41, drop3_pct: 34, drop5_pct: 22, bad_decile_pct: -8.1 },
+    HIGH: { share_pct: 6, avg_pct: -0.24, win_rate_pct: 42, drop3_pct: 38, drop5_pct: 32, bad_decile_pct: -12.1 }
+  },
+  down: {
+    LOW: { share_pct: 81, avg_pct: 0.08, win_rate_pct: 50, drop3_pct: 17, drop5_pct: 8, bad_decile_pct: -4.3 },
+    MID: { share_pct: 15, avg_pct: 0.18, win_rate_pct: 47, drop3_pct: 27, drop5_pct: 17, bad_decile_pct: -6.9 },
+    HIGH: { share_pct: 4, avg_pct: -1.28, win_rate_pct: 32, drop3_pct: 40, drop5_pct: 28, bad_decile_pct: -10.4 }
+  }
+}
+
 /**
  * 株探の銘柄ニュース一覧から、指定した時刻以降の「材料になりうる」見出しを取る。
  * テクニカルの自動記事（テク）と、まとめ記事（注目・特集）は材料として扱わない。
@@ -1067,9 +1084,10 @@ export function chaseFeatures(json, nowSec = Date.now() / 1000) {
  * 伸びている株の危険度をまとめて出す。
  * codes を渡せばその銘柄、渡さなければ株探の「今日の株価上昇率ランキング」の上位を対象にする。
  */
-export async function fetchChase(codes = [], { pages = 4, minTurnover = 1e8, max = 20, dir = 'up', news = true } = {}) {
+export async function fetchChase(codes = [], { pages = 4, minTurnover = 1e8, max = 20, dir = 'up', news = true, open = false } = {}) {
   const down = dir === 'down'
-  const out = { dir, source: 'ランキング・ニュース=株探（15分以上遅れ）、株価の履歴=Yahoo Finance（約15〜20分遅れ）', fetched_at: new Date().toISOString().slice(0, 19) + 'Z', history: down ? DIP_HISTORY : CHASE_HISTORY }
+  const out = { dir, source: 'ランキング・ニュース=株探（15分以上遅れ）、株価の履歴=Yahoo Finance（約15〜20分遅れ）', fetched_at: new Date().toISOString().slice(0, 19) + 'Z', history: open ? OPEN_HISTORY[dir] : down ? DIP_HISTORY : CHASE_HISTORY }
+  if (open) out.slot = 'open'
   // 材料は「前営業日の15時以降」に出たものを見る（引け後の発表を含めるため）
   const since = new Date(Date.now() + 9 * 3600e3)
   do {
@@ -1194,8 +1212,9 @@ async function main() {
     return
   }
   if (args.includes('--movers')) {
-    const up = await fetchChase([], { dir: 'up' })
-    const dn = await fetchChase([], { dir: 'down' })
+    const openSlot = args.includes('--open')
+    const up = await fetchChase([], { dir: 'up', open: openSlot })
+    const dn = await fetchChase([], { dir: 'down', open: openSlot })
     let nikkei = null
     try {
       nikkei = parseYahooNow(await fetchJson('https://query1.finance.yahoo.com/v8/finance/chart/%5EN225?range=5d&interval=1d')).change_pct
@@ -1204,6 +1223,8 @@ async function main() {
     }
     console.log(JSON.stringify({
       nikkei_change_pct: nikkei,
+      slot: openSlot ? 'open' : 'noon',
+      history_note: openSlot ? 'history は朝（9:15ごろ）に買って引けで売った場合の、直近60日の結果。昼より大きく下げる割合が高い' : 'history は昼（後場の寄り付き）に買って引けで売った場合の、過去3年の結果',
       market_wide_selloff: ok(nikkei) ? nikkei <= -2 : null,
       selloff_note: '日経平均が−2%以下の日は相場全体の崩れ。その日は値下がり株の点数があてにならない（過去は、日によって後場の結果が大きく違った）',
       up, down: dn

@@ -874,7 +874,7 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
         });
       });
     };
-    block("昼", st, MOV_PAST); block("朝", st && st.open, null);
+    block("昼", st, MOV_PAST); block("朝", st && st.open, { up: { LOW: 13, MID: 34, HIGH: 38 }, down: { LOW: 17, MID: 27, HIGH: 40 } });
   }
 
   function unavailable(text) { ["open-empty", "w-empty", "empty"].forEach(function (i) { $(i).textContent = text; $(i).hidden = false; }); }
