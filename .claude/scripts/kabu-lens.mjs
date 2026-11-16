@@ -14,6 +14,7 @@
 //   node .claude/scripts/kabu-lens.mjs --dip            # 今日の値下がり率ランキング上位を「いま買う危険度」
 //   node .claude/scripts/kabu-lens.mjs --movers         # 値上がり・値下がりの両方（材料ニュースつき）
 //   node .claude/scripts/kabu-lens.mjs --movers --open  # 同じ。朝（寄り付き後）用で、過去の結果を朝の検証の数字にする
+//   node .claude/scripts/kabu-lens.mjs --check 7203 3100 --state state.json  # 買う前チェック（株数・損切り・止める理由）
 //   node .claude/scripts/kabu-lens.mjs --movers-result <記録.json> [--stats <累計.json>]  # 昼に出した危険度の答え合わせ（後場の結果）
 //
 // 株価は Yahoo Finance の日足（株式分割は調整済み、配当は未調整）。取引時間中の未確定の足は使わない。
@@ -1144,6 +1145,93 @@ export async function fetchChase(codes = [], { pages = 4, minTurnover = 1e8, max
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
+/** 株探の銘柄ページから「決算発表予定日」を読む（載っていなければ null） */
+export function parseKabutanEarningsDate(html) {
+  const m = String(html).replace(/<[^>]*>/g, ' ').match(/決算発表予定日\s*(\d{4})\/(\d{1,2})\/(\d{1,2})/)
+  return m ? `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}` : null
+}
+
+/** 営業日（土日だけ除く。祝日は見ない）で、from から to まで何日あるか。過ぎていれば負の数 */
+export function businessDaysBetween(from, to) {
+  const a = new Date(from + 'T00:00:00Z')
+  const b = new Date(to + 'T00:00:00Z')
+  if (b < a) return -businessDaysBetween(to, from)
+  let n = 0
+  for (const d = new Date(a); d < b;) {
+    d.setUTCDate(d.getUTCDate() + 1)
+    if (![0, 6].includes(d.getUTCDay())) n++
+  }
+  return n
+}
+
+/**
+ * 買う前チェック。決めたルールに照らして、買ってよい株数と、止める理由・注意を出す。
+ * 止める理由（blocks）が1つでもあれば ok は false。
+ * @param {object} a code, price（買う値段）, atr（1日の値幅の目安・円）, regime, overheat, today（YYYY-MM-DD）, earningsDate,
+ *   settings {capital, cash, riskPct, maxPosPct, maxPositions, dayTradeMax},
+ *   positions [{code, name, entry, last, qty}]（保有中）, buysToday（今日すでに買った回数）
+ */
+export function preTradeCheck(a) {
+  const st = a.settings || {}
+  const blocks = []
+  const warnings = []
+  const price = a.price
+  const stop = ok(a.atr) && ok(price) ? tick(Math.max(1, price - 2 * a.atr)) : null
+  const riskPerShare = ok(stop) ? price - stop : null
+  const lossLimit = ok(st.capital) && ok(st.riskPct) ? Math.floor(st.capital * st.riskPct / 100) : null
+  const posLimit = ok(st.capital) && ok(st.maxPosPct) ? Math.floor(st.capital * st.maxPosPct / 100) : null
+  const caps = []
+  if (ok(lossLimit) && riskPerShare > 0) caps.push(['損失の上限', Math.floor(lossLimit / riskPerShare)])
+  if (ok(posLimit) && price > 0) caps.push(['1銘柄の上限', Math.floor(posLimit / price)])
+  if (ok(st.cash) && price > 0) caps.push(['現金', Math.floor(st.cash / price)])
+  caps.sort((x, y) => x[1] - y[1])
+  const maxShares = caps.length ? caps[0][1] : null
+  const lots = ok(maxShares) ? Math.floor(maxShares / 100) * 100 : null
+
+  const held = (a.positions || []).find(x => x.code === a.code)
+  if (held) {
+    const cur = ok(held.last) ? held.last : price
+    if (ok(held.entry) && cur < held.entry) blocks.push(`買い増し禁止：${held.name || a.code} はすでに ${held.qty}株 持っていて、含み損（買値 ${held.entry}円 → 今 ${cur}円）。下がっている株は買い足さない`)
+    else warnings.push(`${held.name || a.code} はすでに ${held.qty}株 持っている。買い足すと1銘柄の上限を超えないか確認`)
+    if (ok(posLimit) && ok(held.qty) && cur * held.qty >= posLimit) blocks.push(`1銘柄の上限：すでに ${Math.round(cur * held.qty).toLocaleString('ja-JP')}円 分を持っていて、上限 ${posLimit.toLocaleString('ja-JP')}円 に達している`)
+  }
+  if (ok(a.buysToday) && ok(st.dayTradeMax) && a.buysToday >= st.dayTradeMax) blocks.push(`1日の回数の上限：今日はすでに ${a.buysToday}回 買っている（上限 ${st.dayTradeMax}回）。今日は終わり`)
+  if (!held && ok(st.maxPositions) && (a.positions || []).length >= st.maxPositions) blocks.push(`銘柄数の上限：すでに ${(a.positions || []).length}銘柄 持っている（上限 ${st.maxPositions}）`)
+  if (ok(maxShares) && maxShares < 1) blocks.push(`買える株数が0：${caps[0][0]}が足りない`)
+  else if (lots === 0) warnings.push(`100株では${caps[0][0]}を超える。1株単位（かぶミニ）なら ${maxShares}株 まで`)
+
+  const atrPct = ok(a.atr) && price > 0 ? round(a.atr / price * 100, 1) : null
+  if (ok(atrPct) && atrPct >= 8) warnings.push(`値動きがとても荒い：1日に約${atrPct}%動く株。損切りが遠くなり、買える株数が少なくなる`)
+  if (ok(price) && price < 100) warnings.push('株価100円未満：1円の動きが1%以上になる')
+  if (a.regime === 'TREND_DOWN') warnings.push('下降トレンド中（ルールでは新しく買わない地合い）')
+  if (a.regime === 'HIGH_VOLATILITY') warnings.push('値動きが荒い地合い（ルールでは新しく買わない地合い）')
+  if (ok(a.overheat) && a.overheat >= 60) warnings.push(`高値づかみ危険度が${a.overheat}（60以上は見送りの基準）`)
+  if (a.earningsDate && a.today) {
+    const n = businessDaysBetween(a.today, a.earningsDate)
+    if (n >= 0 && n <= 3) blocks.push(`決算前：決算発表予定日が ${a.earningsDate}（${n === 0 ? '今日' : n + '営業日後'}）。決算の3営業日前から当日までは新しく買わない`)
+  } else if (!a.earningsDate) warnings.push('決算発表予定日は確認できず。自分で確認を')
+
+  const shares = lots || 0
+  return {
+    ok: blocks.length === 0,
+    blocks,
+    warnings,
+    price,
+    stop,
+    stop_basis: '買う値段 − 1日の値幅の目安（ATR）× 2',
+    loss_limit_jpy: lossLimit,
+    position_limit_jpy: posLimit,
+    limited_by: caps.length ? caps[0][0] : null,
+    shares_100_unit: shares,
+    cost_jpy: shares ? Math.round(shares * price) : 0,
+    loss_if_stopped_jpy: shares && riskPerShare ? Math.round(shares * riskPerShare) : 0,
+    mini_shares_max: ok(maxShares) ? Math.max(0, maxShares) : null,
+    target_3r: ok(riskPerShare) ? tick(price + 3 * riskPerShare) : null,
+    daily_range_pct: atrPct,
+    earnings_date: a.earningsDate || null
+  }
+}
+
 /** 指定した銘柄の PTS と、PTS ランキング（上昇・下落の上位）を取る */
 export async function fetchPts(codes, { ranking = true, pages = 2 } = {}) {
   const stocks = []
@@ -1197,6 +1285,35 @@ async function main() {
   const save = !args.includes('--no-save')
   const evalAt = args.indexOf('--evaluate')
   if (evalAt >= 0) return evaluateFile(args[evalAt + 1])
+  if (args.includes('--check')) {
+    const ci = args.indexOf('--check')
+    const code = String(args[ci + 1] || '').toUpperCase()
+    const price = Number(args[ci + 2])
+    const si = args.indexOf('--state')
+    if (!isTseCode(code) || !(price > 0) || si < 0) {
+      console.error('使い方: node .claude/scripts/kabu-lens.mjs --check <銘柄コード> <買う値段> --state <状態.json>\n  状態.json: {"settings": {...}, "positions": [{"code","name","entry","last","qty"}], "buysToday": 0}')
+      process.exit(1)
+    }
+    const state = JSON.parse(readFileSync(args[si + 1], 'utf-8'))
+    let bench = []
+    try {
+      bench = (await fetchYahoo('1306.T')).bars
+    } catch {
+      bench = []
+    }
+    const d = await fetchYahoo(`${code}.T`)
+    const pk = analyze(d.bars, bench, { symbol: `TSE:${code}`, name: d.name, currency: d.currency, benchmark: 'TSE:1306' })
+    let earningsDate = null
+    try {
+      earningsDate = parseKabutanEarningsDate(await fetchText(`https://kabutan.jp/stock/?code=${code}`))
+    } catch {
+      earningsDate = null
+    }
+    const today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10)
+    const res = preTradeCheck({ code, price, atr: pk.volatility.atr, regime: pk.regime, overheat: pk.overheat.score, today, earningsDate, settings: state.settings, positions: state.positions, buysToday: state.buysToday })
+    console.log(JSON.stringify({ code, name: d.name, as_of: pk.date_jst, last_close: pk.candle.close, regime: pk.regime, score: pk.scores.long, overheat: pk.overheat.score, buy_candidate: pk.buy_candidate, ...res }, null, 2))
+    return
+  }
   if (args.includes('--movers-result')) {
     const file = args[args.indexOf('--movers-result') + 1]
     const si = args.indexOf('--stats')

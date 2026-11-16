@@ -36,6 +36,7 @@ node .claude/scripts/kabu-lens.mjs --chase [コード] # 急騰株に飛びつ�
 node .claude/scripts/kabu-lens.mjs --dip [コード]   # 急落株をいま買う危険度
 node .claude/scripts/kabu-lens.mjs --movers        # 値上がり・値下がりの両方（各20銘柄、材料ニュースつき）
 node .claude/scripts/kabu-lens.mjs --movers-result recs.json [--stats stats.json]  # 昼の記録の答え合わせ
+node .claude/scripts/kabu-lens.mjs --check 7203 3100 --state state.json  # 買う前チェック
 node .claude/scripts/kabu-lens.mjs --backtest 7203 --trades
 node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の「買っていたら」の答え合わせ
 ```
@@ -52,6 +53,7 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 - データベース（ArtifactData ツール。読み書きは本人だけ）:
   - `settings/main`: capital, cash, riskPct, maxPosPct, maxPositions, dayTradeMax, dayLossPct, extra（本人の決めごと。1行に1つ）, universe（基本の約170銘柄）
   - `settings/backtest`: 検証結果の要約
+  - `settings/history`: 証券会社の取引履歴を集計したもの（銘柄ごとの損益、1日の買いの回数）。金額はここにだけ置き、リポジトリには書かない
   - `trades`: 売買の記録。status が open は保有中。entry, qty, stop, target, events, note
   - `watchlist`: 監視リスト
   - `signals`: 買い候補の追跡。ID は `<コード>-<日付>-pass|blocked`
@@ -91,6 +93,7 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 | PTS | `fetchPts` `parseKabutanStock` `parseKabutanRanking` | `--pts`。株探の個別ページとPTSランキング |
 | 危険度 | `chaseRisk` `dipRisk` `chaseFeatures` `parseKabutanMovers` `parseKabutanNews` `fetchChase` | `--chase`（値上がり）`--dip`（値下がり）`--movers`（両方）。株探のランキングと銘柄ニュース＋Yahoo の1時間足 |
 | 答え合わせ | `afternoonResult` `moversResult` `mergeMoverStats` `summarizeMoverStats` | `--movers-result`。昼の記録に後場の結果を足し、危険度ごとの累計を出す |
+| 買う前チェック | `preTradeCheck` `parseKabutanEarningsDate` `businessDaysBetween` | `--check <コード> <値段> --state <状態.json>`。株数・損切り・止める理由を出す。`/kau` が使う |
 | 通信 | `fetchText` `fetchJson` | fetch が失敗したら curl で取り直す |
 | 入口 | `main` `runBacktest` `evaluateFile` | コマンドの引数を見て振り分ける |
 
@@ -167,6 +170,18 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 4. `kabu-lens/ops/prompt-*.md` の指示文で、`<記録帳のURL>` を実際のURLに置き換えて、定期実行を3つ作る（`create_trigger`、`create_new_session_on_fire: true`、通知は push）。
 5. 1つを手で動かし（`fire_trigger`）、通知の中身を確かめる。
 
+## 本人の売買の傾向（くわしい数字は記録帳の `settings/history`。リポジトリには金額を書かない）
+
+証券会社の取引履歴を集計してわかったこと。
+
+- **負けのほとんどは「下がった株の買い増し」から出ている。** 値動きの荒い低位株を、下がるたびに買い足した少数の銘柄に損失が集中している。
+- **1日の買いの回数が、決めた上限を超える日が半分以上あった。**
+- **勝ったのは、1回で買って待った取引。** 検証の結論（買い方より持ち方）と同じ。
+
+だから、道具の優先順位は「良い銘柄を探す」より「ルールを破る買いを止める」。`/kau`（買う前チェック）はそのためのもの。止める理由（blocks）を弱めたり、抜け道を示したりしない。
+
+記録帳に入っていない売買が多かったので、記録帳の数字だけで成績を語らない（一度、実態より良い成績を伝えてしまった）。成績は取引履歴と突き合わせる。取引履歴は、証券会社のサイトの取引履歴の画面をPDFで保存して送ってもらうと読める（`pdfplumber` で読む。`pdftotext` は日本語の対応が入っていない。ページ全体の長いスクリーンショットは縮小されて読めない）。受渡金額だけの一覧で、株数と単価は載っていない。
+
 ## 検証でわかったこと（くわしくは research の README）
 
 - 買い方の条件は、「いつ買っても同じ」とほぼ差が無かった。効いたのは売り方で、**長く持つほうが良い**（目標は損切り幅の3倍・最長40営業日で追跡）。
@@ -184,4 +199,6 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 - 夜が読む `movers` は1日100件まで（昼40＋朝40＝80件）。ランキングをさらに広げるなら、夜の指示文の limit も上げる。
 - 夜の点検は 2026年11月16日 22:20 が初回。追跡の書き戻しがうまく動いたか、翌日に確認する。
 - 追跡がたまったら（目安は30件以上）、候補の種類ごとの成績を見てルールを見直す。
+- 決算発表予定日は、株探の銘柄ページに載っているときだけ取れる（発表が近い時期だけ出るらしい）。載っていなければ null で、「遠い」という意味ではない。朝と夜の定期実行にはまだ組み込んでいない。
+- 記録帳のページに「今日の買いの回数」の表示は無い（`/kau` が記録帳の今日の記録を数える）。本人が記録を入れないと歯止めが効かないので、入れ忘れが続くようなら、ページに「今日◯回目」を大きく出す。
 - 本人がまだ決めていないこと: 損失の上限を変えるか／資金を追加したときの設定／保有株の損切りの値段の入力／決算をまたいだ保有株のその後の方針。くわしい中身は記録帳の `settings/main` と `trades` の note を見る。

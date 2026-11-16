@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { afternoonResult, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { afternoonResult, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -501,5 +501,47 @@ describe('値下がり株の危険度・材料ニュース・答え合わせ', (
     expect(next.up.LOW).toMatchObject({ n: 2, sum: 0, win: 1 })
     expect(next.down.HIGH.n).toBe(0)
     expect(next.open.down.HIGH).toMatchObject({ n: 1, drop3: 1 })
+  })
+})
+
+describe('買う前チェック', () => {
+  const settings = { capital: 400000, cash: 150000, riskPct: 2, maxPosPct: 40, maxPositions: 3, dayTradeMax: 2 }
+  const base = { code: '7203', price: 1000, atr: 20, regime: 'TREND_UP', overheat: 10, today: '2026-11-17', earningsDate: '2027-02-05', settings, positions: [], buysToday: 0 }
+
+  it('損切りと株数を、損失の上限・1銘柄の上限・現金のいちばん厳しいもので決める', () => {
+    const r = preTradeCheck(base)
+    expect(r).toMatchObject({ ok: true, stop: 960, loss_limit_jpy: 8000, shares_100_unit: 100, cost_jpy: 100000, loss_if_stopped_jpy: 4000, target_3r: 1120 })
+    expect(r.limited_by).toBe('現金')
+    expect(r.blocks).toEqual([])
+  })
+
+  it('含み損の保有銘柄の買い増しを止める', () => {
+    const r = preTradeCheck({ ...base, code: '6721', price: 117, atr: 23, positions: [{ code: '6721', name: 'テスト', entry: 188.72, last: 117, qty: 1300 }] })
+    expect(r.ok).toBe(false)
+    expect(r.blocks.some(b => b.includes('買い増し禁止'))).toBe(true)
+    expect(r.warnings.some(w => w.includes('値動きがとても荒い'))).toBe(true)
+  })
+
+  it('1日の回数・銘柄数・決算前で止める', () => {
+    expect(preTradeCheck({ ...base, buysToday: 2 }).blocks.some(b => b.includes('1日の回数'))).toBe(true)
+    const pos = [1, 2, 3].map(n => ({ code: '100' + n, entry: 100, last: 110, qty: 100 }))
+    expect(preTradeCheck({ ...base, positions: pos }).blocks.some(b => b.includes('銘柄数の上限'))).toBe(true)
+    expect(preTradeCheck({ ...base, earningsDate: '2026-11-19' }).blocks.some(b => b.includes('決算前'))).toBe(true)
+    expect(preTradeCheck({ ...base, earningsDate: '2026-11-16' }).blocks).toEqual([])
+  })
+
+  it('100株で上限を超えるときは、1株単位の株数を出す', () => {
+    const r = preTradeCheck({ ...base, price: 5000, atr: 150 })
+    expect(r.shares_100_unit).toBe(0)
+    expect(r.mini_shares_max).toBe(26)
+    expect(r.warnings.some(w => w.includes('かぶミニ'))).toBe(true)
+  })
+
+  it('決算発表予定日の読み取りと、営業日の数え方', () => {
+    expect(parseKabutanEarningsDate('<div>決算発表予定日 <time>2026/11/16</time></div>')).toBe('2026-11-16')
+    expect(parseKabutanEarningsDate('<div>なし</div>')).toBeNull()
+    expect(businessDaysBetween('2026-11-13', '2026-11-16')).toBe(1)
+    expect(businessDaysBetween('2026-11-17', '2026-11-17')).toBe(0)
+    expect(businessDaysBetween('2026-11-17', '2026-11-13')).toBe(-2)
   })
 })
