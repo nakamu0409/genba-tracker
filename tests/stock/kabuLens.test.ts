@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { analyze, atr, backtest, ema, evaluateSignal, isTseCode, parseKabutanRanking, parseKabutanStock, parseYahoo, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { analyze, atr, backtest, ema, evaluateSignal, isTseCode, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -293,6 +293,35 @@ describe('PTSの読み取り（株探のページ）', () => {
       { code: '7522', name: 'ワタミ', market: '東Ｐ', close: 1008, pts_price: 1280, change: 272, change_pct: 26.98, volume: 75700 },
       { code: '247A', name: 'Ａｉロボ', market: '東Ｇ', close: 709, pts_price: 559, change: -150, change_pct: -21.16, volume: 123400 }
     ])
+  })
+})
+
+describe('取引時間中の今の株価', () => {
+  // 2026-11-13 と 2026-11-16 の足。11/16 は取引中
+  const json = (ts: number[]) => ({
+    chart: { result: [{
+      meta: { gmtoffset: 32400, longName: 'Test Corp', regularMarketPrice: 114.04, regularMarketTime: 1794794530 },
+      timestamp: ts,
+      indicators: { quote: [{ open: [115, 109], high: [117, 121], low: [110, 109], close: [112, 114], volume: [1000, 2000] }] }
+    }] }
+  })
+
+  it('今日の足があれば、前日終値との比と、寄り付きからの比を出す', () => {
+    const r = parseYahooNow(json([1794528000, 1794787200]), 1794794600)
+    expect(r.is_today).toBe(true)
+    expect(r.price).toBe(114)
+    expect(r.prev_close).toBe(112)
+    expect(r.change_pct).toBeCloseTo(1.79, 2)
+    expect(r.open).toBe(109)
+    expect(r.from_open_pct).toBeCloseTo(4.59, 2)
+    expect(r.time).toBe('2026-11-16 11:02')
+  })
+
+  it('今日の足がまだ無いときは、今日の値として扱わない', () => {
+    const r = parseYahooNow(json([1794441600, 1794528000]), 1794794600)
+    expect(r.is_today).toBe(false)
+    expect(r.open).toBeNull()
+    expect(r.prev_close).toBe(114)
   })
 })
 

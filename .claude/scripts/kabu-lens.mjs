@@ -8,6 +8,7 @@
 //   node .claude/scripts/kabu-lens.mjs 7203 6758 285A  # 複数まとめて
 //   node .claude/scripts/kabu-lens.mjs 7203 --no-save  # ファイルに保存せず表示だけ
 //   node .claude/scripts/kabu-lens.mjs --pts 7203 6758 # PTS（夜間・朝の時間外取引）の値段とランキング（株探）
+//   node .claude/scripts/kabu-lens.mjs --now 7203 6758 # 取引時間中の今の株価と、上げ下げの大きい銘柄
 //
 // 株価は Yahoo Finance の日足（株式分割は調整済み、配当は未調整）。取引時間中の未確定の足は使わない。
 // 結果は kabu-lens/packets/latest/TSE_<コード>_D.json に保存する（コミットされない）。
@@ -645,6 +646,77 @@ export function parseYahoo(json, nowSec = Date.now() / 1000) {
   return { bars, name: r.meta.longName || r.meta.shortName || '', currency: r.meta.currency || 'JPY', droppedUnconfirmed }
 }
 
+/** Yahoo Finance のチャートJSONから、取引時間中の今の株価を読む（約15〜20分遅れ） */
+export function parseYahooNow(json, nowSec = Date.now() / 1000) {
+  const r = json?.chart?.result?.[0]
+  if (!r || !r.timestamp) throw new Error(json?.chart?.error?.description || '株価データが空です')
+  const q = r.indicators.quote[0]
+  const off = r.meta.gmtoffset ?? 32400
+  const day = ts => new Date((ts + off) * 1000).toISOString().slice(0, 10)
+  const rows = r.timestamp.map((ts, i) => ({ date: day(ts), o: tick(q.open[i]), h: tick(q.high[i]), l: tick(q.low[i]), c: tick(q.close[i]), v: q.volume[i] ?? 0 })).filter(b => ok(b.c))
+  const last = rows[rows.length - 1]
+  const prev = rows[rows.length - 2]
+  if (!last) throw new Error('株価データが空です')
+  const price = tick(r.meta.regularMarketPrice) ?? last.c
+  const t = r.meta.regularMarketTime
+  const isToday = last.date === day(nowSec)
+  // 今日の足がまだ無い（寄り付き前・休場日）ときは、最後の足が「前の営業日」
+  const prevClose = isToday ? prev?.c ?? null : last.c
+  return {
+    name: r.meta.longName || r.meta.shortName || '',
+    price,
+    time: t ? new Date((t + off) * 1000).toISOString().slice(0, 16).replace('T', ' ') : null,
+    is_today: isToday,
+    prev_close: prevClose,
+    change_pct: ok(prevClose) && prevClose > 0 ? round((price / prevClose - 1) * 100) : null,
+    open: isToday ? last.o : null,
+    high: isToday ? last.h : null,
+    low: isToday ? last.l : null,
+    volume: isToday ? last.v : null,
+    from_open_pct: isToday && ok(last.o) && last.o > 0 ? round((price / last.o - 1) * 100) : null
+  }
+}
+
+/** 指定した銘柄の「今の株価」をまとめて取る。上げ下げの大きい順の一覧も付ける */
+export async function fetchNow(codes, { top = 8, parallel = 8 } = {}) {
+  const one = async ticker => parseYahooNow(await fetchJson(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=5d&interval=1d`))
+  const stocks = new Array(codes.length)
+  let next = 0
+  await Promise.all(Array.from({ length: Math.min(parallel, codes.length) }, async () => {
+    while (next < codes.length) {
+      const k = next++
+      try {
+        stocks[k] = { code: codes[k], ...(await one(`${codes[k]}.T`)) }
+      } catch (e) {
+        stocks[k] = { code: codes[k], error: e.message }
+      }
+    }
+  }))
+  const market = {}
+  for (const [key, ticker] of [['nikkei225', '^N225'], ['topix_etf_1306', '1306.T']]) {
+    try {
+      market[key] = await one(ticker)
+    } catch (e) {
+      market[key] = { error: e.message }
+    }
+  }
+  const live = stocks.filter(x => !x.error && x.is_today && ok(x.change_pct))
+  const brief = x => ({ code: x.code, name: x.name, price: x.price, change_pct: x.change_pct, from_open_pct: x.from_open_pct, volume: x.volume })
+  return {
+    source: 'Yahoo Finance（約15〜20分遅れ）',
+    fetched_at: new Date().toISOString().slice(0, 19) + 'Z',
+    market,
+    stocks,
+    movers: {
+      up: live.filter(x => x.change_pct > 0).sort((a, b) => b.change_pct - a.change_pct).slice(0, top).map(brief),
+      down: live.filter(x => x.change_pct < 0).sort((a, b) => a.change_pct - b.change_pct).slice(0, top).map(brief),
+      counted: live.length,
+      rising: live.filter(x => x.change_pct > 0).length,
+      falling: live.filter(x => x.change_pct < 0).length
+    }
+  }
+}
+
 // まず Node の fetch で取り、失敗したら curl で取り直す。
 // （プロキシ経由の環境では fetch が通らず curl だけ通ることがある）
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36'
@@ -768,6 +840,16 @@ async function main() {
   const save = !args.includes('--no-save')
   const evalAt = args.indexOf('--evaluate')
   if (evalAt >= 0) return evaluateFile(args[evalAt + 1])
+  if (args.includes('--now')) {
+    const nowCodes = args.filter(a => !a.startsWith('--')).map(a => a.toUpperCase())
+    const badNow = nowCodes.filter(c => !isTseCode(c))
+    if (badNow.length) {
+      console.error(`銘柄コードの形が違います: ${badNow.join(', ')}（例: 7203, 285A）`)
+      process.exit(1)
+    }
+    console.log(JSON.stringify(await fetchNow(nowCodes), null, 2))
+    return
+  }
   if (args.includes('--pts')) {
     const ptsCodes = args.filter(a => !a.startsWith('--')).map(a => a.toUpperCase())
     const badPts = ptsCodes.filter(c => !isTseCode(c))
@@ -780,7 +862,7 @@ async function main() {
   }
   const codes = args.filter(a => !a.startsWith('--')).map(a => a.toUpperCase())
   if (!codes.length) {
-    console.error('使い方: node .claude/scripts/kabu-lens.mjs <銘柄コード...> [--no-save] [--backtest]\n        node .claude/scripts/kabu-lens.mjs --evaluate <signals.json>\n        node .claude/scripts/kabu-lens.mjs --pts <銘柄コード...> [--no-ranking]')
+    console.error('使い方: node .claude/scripts/kabu-lens.mjs <銘柄コード...> [--no-save] [--backtest]\n        node .claude/scripts/kabu-lens.mjs --evaluate <signals.json>\n        node .claude/scripts/kabu-lens.mjs --pts <銘柄コード...> [--no-ranking]\n        node .claude/scripts/kabu-lens.mjs --now <銘柄コード...>')
     process.exit(1)
   }
   const bad = codes.filter(c => !isTseCode(c))
