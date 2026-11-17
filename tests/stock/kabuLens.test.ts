@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { afternoonResult, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { afternoonResult, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -691,5 +691,27 @@ describe('買おうとした銘柄のその後', () => {
     const s = summarizeConsideredStats(m1.stats)
     expect(s.passed).toEqual({ count: 1, avg_5d_pct: -6, win_rate_pct: 0, drop5_pct: 100, avg_vs_topix_5d_pct: -5 })
     expect(s.blocked.count).toBe(1)
+  })
+})
+
+describe('広い範囲の買い候補と成績の集計', () => {
+  it('candidateRow: 通過・見送りの候補だけを、追跡に要る形にする', () => {
+    const pk = { date_jst: '2026-11-17', candle: { close: 1000 }, volatility: { atr: 20, atr_pct_of_price: 2 }, regime: 'TREND_UP', scores: { long: 78 }, overheat: { score: 10 }, volume: { turnover_avg: 5e8 }, trend: { dev_fast_pct: 3 }, relative_strength: { diff_pct: 4 }, setup: { candidate: 'PULLBACK' } }
+    expect(candidateRow({ ...pk, buy_candidate: { pass: true, kind: 'PULLBACK', stop: 960, target: 1120 } }, { code: '9999', name: 'テスト' })).toMatchObject({ code: '9999', kind: 'PULLBACK', pass: true, reason: 'NONE', stop: 960, target: 1120, score: 78 })
+    expect(candidateRow({ ...pk, buy_candidate: { pass: false, why_not: 'OVERHEAT' } }, { code: '9999' })).toMatchObject({ pass: false, reason: 'OVERHEAT', stop: 960 })
+    expect(candidateRow({ ...pk, setup: { candidate: 'NONE' }, buy_candidate: { pass: false } }, { code: '9999' })).toBeNull()
+  })
+  it('signalsReport: 決着したものだけを分け方ごとに集計する', () => {
+    const rep = signalsReport([
+      { status: 'TARGET', r: 3, pass: true, kind: 'GAP', score: 80, close: 500, regime: 'TREND_UP' },
+      { status: 'STOPPED', r: -1, pass: true, kind: 'GAP', score: 60, close: 500, regime: 'TREND_UP' },
+      { status: 'TIME_EXIT', r: 0.5, pass: false, kind: 'MOMENTUM', reason: 'OVERHEAT', score: 90, close: 3000 },
+      { status: 'OPEN', pass: true, kind: 'PULLBACK' }
+    ])
+    expect(rep.open).toBe(1)
+    expect(rep.all).toEqual({ count: 3, avg_r: 0.83, win_rate_pct: 67, total_r: 2.5 })
+    expect(rep.by_kind['通過・GAP']).toEqual({ count: 2, avg_r: 1, win_rate_pct: 50, total_r: 2 })
+    expect(rep.by_reason['見送り・OVERHEAT'].count).toBe(1)
+    expect(rep.by_price['300〜1,000円'].count).toBe(2)
   })
 })

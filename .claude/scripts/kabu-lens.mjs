@@ -19,6 +19,8 @@
 //   node .claude/scripts/kabu-lens.mjs --matsui [day-trading-morning|rise|tick]  # 松井証券のランキング
 //   node .claude/scripts/kabu-lens.mjs --tdnet [YYYYMMDD] [コード...]  # 適時開示（TDnet）。増資・業績修正・特別損失などに印を付ける
 //   node .claude/scripts/kabu-lens.mjs --kessan-react <YYYYMMDD>  # その日の決算・修正のうち、最初の反応が+7%以上のもの（と上方修正）
+//   node .claude/scripts/kabu-lens.mjs --scan-wide <銘柄一覧.json>  # たくさんの銘柄の、その日の買い候補（通過・見送り）だけを出す
+//   node .claude/scripts/kabu-lens.mjs --signals-report <候補.json>  # 決着した買い候補を、形・スコア・過熱度・地合い・株価帯などで集計
 //   node .claude/scripts/kabu-lens.mjs --considered-result <記録.json> [--stats <累計.json>]  # 買おうとした銘柄のその後
 //   node .claude/scripts/kabu-lens.mjs --kessan-result <記録.json> [--stats <累計.json>]  # 上方修正の記録の、その後（1・5・20日）
 //   node .claude/scripts/kabu-lens.mjs --check 7203 3100 --state state.json  # 買う前チェック（株数・損切り・止める理由）
@@ -1566,6 +1568,79 @@ export async function consideredResult(records, prevStats = null) {
   }
 }
 
+/** パケットから、買い候補の追跡に要る項目だけを取り出す（setup が出ていない日は null） */
+export function candidateRow(pk, info = {}) {
+  const bc = pk.buy_candidate || {}
+  const kind = bc.pass ? bc.kind : (pk.setup?.candidate && pk.setup.candidate !== 'NONE' ? pk.setup.candidate : null)
+  if (!kind) return null
+  const close = pk.candle?.close
+  return {
+    code: info.code, name: info.name || '', date: pk.date_jst, kind, pass: !!bc.pass, reason: bc.pass ? 'NONE' : (bc.why_not || 'NONE'),
+    close, stop: bc.stop ?? (ok(close) && ok(pk.volatility?.atr) ? tick(close - 2 * pk.volatility.atr) : null), target: bc.target ?? null,
+    score: pk.scores?.long ?? null, overheat: pk.overheat?.score ?? null, regime: pk.regime || null,
+    turnover: pk.volume?.turnover_avg ?? null, atrPct: pk.volatility?.atr_pct_of_price ?? null, dev25: pk.trend?.dev_fast_pct ?? null, rs: pk.relative_strength?.diff_pct ?? null
+  }
+}
+
+/** たくさんの銘柄を日足で判定し、その日に出た買い候補（通過・見送り）だけを返す */
+export async function scanCandidates(list, { parallel = 8 } = {}) {
+  let bench = []
+  try {
+    bench = (await fetchYahoo('1306.T')).bars
+  } catch {
+    bench = []
+  }
+  const rows = []
+  let errors = 0
+  let latest = null
+  for (let k = 0; k < list.length; k += parallel) {
+    await Promise.all(list.slice(k, k + parallel).map(async (x) => {
+      try {
+        const d = await fetchYahoo(`${x.code}.T`)
+        const pk = analyze(d.bars, bench, { symbol: `TSE:${x.code}`, name: d.name, currency: d.currency, benchmark: 'TSE:1306' })
+        if (!latest || pk.date_jst > latest) latest = pk.date_jst
+        const r = candidateRow(pk, { code: x.code, name: x.name || d.name })
+        if (r) rows.push(r)
+      } catch {
+        errors++
+      }
+    }))
+  }
+  // 足の日付がいちばん新しい日のものだけ（取引の無かった銘柄の古い足を混ぜない）
+  const today = rows.filter(r => r.date === latest)
+  return { date: latest, scanned: list.length, errors, pass: today.filter(r => r.pass).length, blocked: today.filter(r => !r.pass).length, rows: today }
+}
+
+const band = (v, edges, labels) => {
+  if (!ok(v)) return '不明'
+  for (let i = 0; i < edges.length; i++) if (v < edges[i]) return labels[i]
+  return labels[labels.length - 1]
+}
+
+/** 決着した買い候補（status が TARGET / STOPPED / TIME_EXIT）を、いろいろな分け方で集計する */
+export function signalsReport(records) {
+  const done = records.filter(r => ['TARGET', 'STOPPED', 'TIME_EXIT'].includes(r.status) && ok(r.r))
+  const agg = l => l.length ? { count: l.length, avg_r: round(l.reduce((a, x) => a + x.r, 0) / l.length), win_rate_pct: round(l.filter(x => x.r > 0).length / l.length * 100, 0), total_r: round(l.reduce((a, x) => a + x.r, 0)) } : { count: 0 }
+  const by = (f) => {
+    const g = {}
+    for (const r of done) (g[f(r)] ||= []).push(r)
+    return Object.fromEntries(Object.entries(g).map(([k, l]) => [k, agg(l)]))
+  }
+  return {
+    note: 'R は損切り幅を1としたときの損益。決着した候補だけを数える。件数が少ない分け方は偶然の影響が大きい（目安は30件以上）',
+    open: records.filter(r => ['PENDING', 'OPEN'].includes(r.status)).length,
+    all: agg(done),
+    by_pass: by(r => (r.pass ? '通過' : '見送り')),
+    by_kind: by(r => `${r.pass ? '通過' : '見送り'}・${r.kind}`),
+    by_reason: by(r => (r.pass ? '通過' : `見送り・${r.reason}`)),
+    by_score: by(r => band(r.score, [55, 70, 85], ['55未満', '55〜70', '70〜85', '85以上'])),
+    by_overheat: by(r => band(r.overheat, [20, 40, 60], ['20未満', '20〜40', '40〜60', '60以上'])),
+    by_regime: by(r => r.regime || '不明'),
+    by_price: by(r => band(r.close, [300, 1000, 2200, 5000], ['300円未満', '300〜1,000円', '1,000〜2,200円', '2,200〜5,000円', '5,000円以上'])),
+    by_turnover: by(r => band(r.turnover, [1e8, 1e9, 1e10], ['1億円未満', '1〜10億円', '10〜100億円', '100億円以上']))
+  }
+}
+
 /** 株探の銘柄ページから「決算発表予定日」を読む（載っていなければ null） */
 export function parseKabutanEarningsDate(html) {
   const m = String(html).replace(/<[^>]*>/g, ' ').match(/決算発表予定日\s*(\d{4})\/(\d{1,2})\/(\d{1,2})/)
@@ -1729,6 +1804,16 @@ async function main() {
     const date = rest.find(a => /^\d{8}$/.test(a))
     const codes = rest.filter(a => isTseCode(a.toUpperCase())).map(a => a.toUpperCase())
     console.log(JSON.stringify(await fetchTdnet(date, { codes }), null, 2))
+    return
+  }
+  if (args.includes('--scan-wide')) {
+    const file = args[args.indexOf('--scan-wide') + 1]
+    console.log(JSON.stringify(await scanCandidates(JSON.parse(readFileSync(file, 'utf-8'))), null, 2))
+    return
+  }
+  if (args.includes('--signals-report')) {
+    const file = args[args.indexOf('--signals-report') + 1]
+    console.log(JSON.stringify(signalsReport(JSON.parse(readFileSync(file, 'utf-8'))), null, 2))
     return
   }
   if (args.includes('--considered-result')) {
@@ -1943,6 +2028,16 @@ async function evaluateFile(file) {
   }
   const sigs = JSON.parse(readFileSync(file, 'utf-8'))
   const cache = new Map()
+  const codes = [...new Set(sigs.map(sg => String(sg.code || '').toUpperCase()).filter(isTseCode))]
+  for (let k = 0; k < codes.length; k += 8) {
+    await Promise.all(codes.slice(k, k + 8).map(async (c) => {
+      try {
+        cache.set(c, (await fetchYahoo(`${c}.T`)).bars)
+      } catch {
+        /* あとで1件ずつ取り直す */
+      }
+    }))
+  }
   const out = []
   for (const sg of sigs) {
     const code = String(sg.code || '').toUpperCase()

@@ -42,7 +42,8 @@ h2 { font-size: 1rem; margin: 0; font-weight: 700; }
 .group-head { margin: 28px 0 -4px; padding-top: 14px; border-top: 2px solid var(--line, #ddd); font-weight: 700; font-size: 1.05rem; }
 .group-head span { display: block; font-weight: 400; font-size: .8rem; color: var(--muted); margin-top: 2px; }
 #week-panel[hidden], #week-empty[hidden] { display: none; }
-#con-panel th, #con-panel td, #week-panel th, #week-panel td { padding-left: .28rem; padding-right: .28rem; white-space: nowrap; }
+tr.sub-head td { font-weight: 700; color: var(--muted); padding-top: 10px; }
+#cand-panel th, #cand-panel td, #con-panel th, #con-panel td, #week-panel th, #week-panel td { padding-left: .28rem; padding-right: .28rem; white-space: nowrap; }
 .num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
 .up { color: var(--up); } .down { color: var(--down); }
 section { display: grid; gap: 10px; min-width: 0; }
@@ -342,6 +343,13 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
   </section>
 
   <div class="group-head" role="heading" aria-level="2">仕組みの成績<span>夜の点検が自動でためる記録。数十件たまるまでは偶然の影響が大きい</span></div>
+
+  <section aria-labelledby="h-cand">
+    <div class="sec-head"><h2 id="h-cand">候補の成績（約1,150銘柄）</h2><span class="count" id="cand-count"></span></div>
+    <p class="sub">売買の多い東証の株すべてで、毎晩出た買い候補（条件を通過したもの・ルールで見送ったもの）を記録し、翌営業日の始値で買っていたらどうなったかを追います。R は損切り幅を1とした損益（+1R＝損切り幅と同じだけの利益）。どの条件の候補が当たるかを見て、おすすめの精度を上げるためのデータです。</p>
+    <div class="panel" id="cand-panel" hidden><div class="sig-scroll"><table class="sig-table" aria-label="候補の成績"><thead><tr><th>分け方</th><th class="num">決着</th><th class="num">平均R</th><th class="num">勝率</th><th class="num">合計R</th></tr></thead><tbody id="cand-body"></tbody></table></div></div>
+    <div class="panel" id="cand-empty"><div class="empty">まだ決着した候補はありません。最初の結果は1〜2週間後から出ます。</div></div>
+  </section>
 
   <section aria-labelledby="h-sig">
     <div class="sec-head"><h2 id="h-sig">買い候補の成績</h2><span class="count" id="sig-count"></span></div>
@@ -983,6 +991,27 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
     $("con-count").textContent = consDocs.length ? consDocs.length + " 件" : "";
   }
 
+  function renderCands(st) {
+    var body = $("cand-body"); body.textContent = "";
+    var all = st && st.all && st.all.count ? st.all.count : 0;
+    $("cand-panel").hidden = !all; $("cand-empty").hidden = !!all;
+    $("cand-count").textContent = st ? "決着 " + all + "・追跡中 " + (st.open || 0) : "";
+    if (!all) return;
+    var row = function (label, c, head) {
+      var tr = document.createElement("tr"); if (head) tr.className = "sub-head";
+      var cell = function (text, num) { var td = document.createElement("td"); td.textContent = text; if (num) td.className = "num"; tr.appendChild(td); };
+      cell(label);
+      if (!c) { cell("", 1); cell("", 1); cell("", 1); cell("", 1); } else { cell(String(c.count), 1); cell((c.avg_r > 0 ? "+" : "") + c.avg_r.toFixed(2), 1); cell(c.win_rate_pct + "%", 1); cell((c.total_r > 0 ? "+" : "") + c.total_r.toFixed(1), 1); }
+      body.appendChild(tr);
+    };
+    row("全体", st.all);
+    [["by_pass", "通過か見送りか"], ["by_kind", "買いの形"], ["by_reason", "見送りの理由"], ["by_price", "株価帯"], ["by_regime", "地合い"]].forEach(function (g) {
+      var m = st[g[0]]; if (!m) return;
+      row(g[1], null, true);
+      Object.keys(m).sort().forEach(function (k) { if (m[k].count) row("　" + k, m[k]); });
+    });
+  }
+
   function unavailable(text) { ["open-empty", "w-empty", "empty"].forEach(function (i) { $(i).textContent = text; $(i).hidden = false; }); }
   function byDate(a, b) { return String(b.date || b.createdAt || "") < String(a.date || a.createdAt || "") ? -1 : 1; }
 
@@ -1005,6 +1034,7 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
         signals = snap.docs.map(function (doc) { var o = Object.assign({}, doc.data()); o.id = doc.id; return o; });
         renderSignals();
       }, function () {});
+      db.doc("settings/cands_stats").onSnapshot(function (snap) { renderCands(snap.exists ? snap.data() : null); }, function () {});
       db.collection("considered").limit(500).onSnapshot(function (snap) { consDocs = snap.docs.map(function (doc) { var o = Object.assign({}, doc.data()); o.id = doc.id; return o; }); renderConsidered(); }, function () {});
       db.doc("settings/considered_stats").onSnapshot(function (snap) { consStats = snap.exists ? snap.data() : null; renderConsidered(); }, function () {});
       db.doc("settings/history").onSnapshot(function (snap) { renderHistory(snap.exists ? snap.data() : null); }, function () {});
