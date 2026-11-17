@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { afternoonResult, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { afternoonResult, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -673,5 +673,23 @@ describe('次の決算発表日の見積もり', () => {
   it('parseIrbankHistory: 表の行を読む', () => {
     const html = '<table><tr><th>提出日</th><th>時間</th><th>区分</th><th>資料</th></tr><tr class="odd"><td class="lf">2026/11/13</td><td class="lf">14:00</td><td class="lf co_red">3Q</td><td class="lf"><a href="/x">2026年12月期第3四半期決算短信</a></td></tr></table>'
     expect(parseIrbankHistory(html)).toEqual([{ date: '2026-11-13', time: '14:00', kind: '3Q', title: '2026年12月期第3四半期決算短信' }])
+  })
+})
+
+describe('買おうとした銘柄のその後', () => {
+  const mk = (closes: number[]) => closes.map((c, k) => ({ date: `2026-11-${String(2 + k).padStart(2, '0')}`, o: c, h: c + 2, l: c - 3, c }))
+  const bars = mk([100, 102, 95, 98, 101, 104, 99])
+  const bench = mk([200, 200, 202, 202, 204, 204, 206])
+  it('記録した値段から1・5営業日後と、途中の安値・損切り', () => {
+    const r = consideredOutcome({ date: '2026-11-02', price: 100, stop: 93 }, bars, bench)
+    expect(r).toMatchObject({ r1: 2, r5: 4, ex5: 2, low5: -8, high5: 6, stopHit1: false, stopHit5: true, final: false })
+  })
+  it('mergeConsideredStats: 判断ごとに1回だけ数える', () => {
+    const recs = [{ decision: 'bought', r5: 3, ex5: 1 }, { decision: 'passed', r5: -6, ex5: -5 }, { decision: 'blocked', r5: -2 }, { decision: 'passed' }]
+    const m1 = mergeConsideredStats(null, recs)
+    expect(mergeConsideredStats(m1.stats, m1.records).stats).toEqual(m1.stats)
+    const s = summarizeConsideredStats(m1.stats)
+    expect(s.passed).toEqual({ count: 1, avg_5d_pct: -6, win_rate_pct: 0, drop5_pct: 100, avg_vs_topix_5d_pct: -5 })
+    expect(s.blocked.count).toBe(1)
   })
 })

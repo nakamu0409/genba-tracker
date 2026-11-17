@@ -61,6 +61,7 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 - データベース（ArtifactData ツール。読み書きは本人だけ）:
   - `settings/main`: capital, cash, riskPct, maxPosPct, maxPositions, dayTradeMax, dayLossPct, extra（本人の決めごと。1行に1つ）, universe（基本の約170銘柄）
   - `settings/backtest`: 検証結果の要約
+  - `considered`: 本人が買おうとした銘柄（ID は `<日付>-<コード>`。code、name、date、price、stop、decision＝bought／passed／blocked、source＝kau／chat／plan／trade、reason）。夜の「決算の記録」が `--considered-result` で1・5・20日後を足し、累計は `settings/considered_stats`。記録帳の「買おうとした銘柄のその後」に出る
   - `settings/history`: 証券会社の取引履歴を集計したもの（銘柄ごとの損益、1日の買いの回数）。金額はここにだけ置き、リポジトリには書かない
   - `trades`: 売買の記録。status が open は保有中。entry, qty, stop, target, events, note
   - `watchlist`: 監視リスト
@@ -104,6 +105,7 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 | 今の株価 | `fetchNow` `parseYahooNow` | `--now`。日経平均・TOPIX連動ETF（1306）と、上げ・下げの上位 |
 | PTS | `fetchPts` `parseKabutanStock` `parseKabutanRanking` | `--pts`。株探の個別ページとPTSランキング |
 | 危険度 | `chaseRisk` `dipRisk` `chaseFeatures` `parseKabutanMovers` `parseKabutanNews` `fetchChase` | `--chase`（値上がり）`--dip`（値下がり）`--movers`（両方）。株探のランキングと銘柄ニュース＋Yahoo の1時間足 |
+| 買おうとした銘柄 | `consideredOutcome` `consideredResult` `mergeConsideredStats` | `--considered-result`。記録したときの値段から1・5・20日後、途中の安値、損切りに届いたか |
 | 答え合わせ | `afternoonResult` `moversResult` `mergeMoverStats` `summarizeMoverStats` | `--movers-result`。昼の記録に後場の結果を足し、危険度ごとの累計を出す |
 | 次の決算日 | `fetchNextEarnings` `estimateNextEarnings` `parseIrbankHistory` | `--next-earnings <コード...>`。株探の予定日、無ければ IR BANK の過去の発表日＋364日の見込み（`estimated: true`）。買う前チェックも使う |
 | 適時開示 | `fetchTdnet` `parseTdnetList` `tagTdnet` | `--tdnet [YYYYMMDD] [コード...]`。DILUTION・DANGER・LOSS・REVISION・TOB などの印。`flagged` が注意の要るもの |
@@ -187,6 +189,11 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 3. `kabu-lens/ops/trade-ledger.html` を上の設定で公開する。本人に資金・保有を聞いて `settings/main` と `trades` に入れる。`universe` は `kabu-lens/research/codes.json` を元にする。
 4. `kabu-lens/ops/prompt-*.md` の指示文で、`<記録帳のURL>` を実際のURLに置き換えて、定期実行を3つ作る（`create_trigger`、`create_new_session_on_fire: true`、通知は push）。
 5. 1つを手で動かし（`fire_trigger`）、通知の中身を確かめる。
+
+## 会話の中で守ること
+
+- **本人が銘柄について聞いたとき（「◯◯は？」）や、買う・見送ると言ったときは、記録帳の `considered` に1件入れる**（その時点の値段、decision、source: "chat"）。`/kau` は自動で入れる。あとで「判断が役に立ったか」を集計するため。
+- 損失の上限 3%・1銘柄の上限 62% は、本人が「下げなくていい」と決めた（2026年11月17日）。勝手に変えない。
 
 ## 本人の売買の傾向（くわしい数字は記録帳の `settings/history`。リポジトリには金額を書かない）
 

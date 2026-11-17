@@ -42,7 +42,7 @@ h2 { font-size: 1rem; margin: 0; font-weight: 700; }
 .group-head { margin: 28px 0 -4px; padding-top: 14px; border-top: 2px solid var(--line, #ddd); font-weight: 700; font-size: 1.05rem; }
 .group-head span { display: block; font-weight: 400; font-size: .8rem; color: var(--muted); margin-top: 2px; }
 #week-panel[hidden], #week-empty[hidden] { display: none; }
-#week-panel th, #week-panel td { padding-left: .28rem; padding-right: .28rem; white-space: nowrap; }
+#con-panel th, #con-panel td, #week-panel th, #week-panel td { padding-left: .28rem; padding-right: .28rem; white-space: nowrap; }
 .num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
 .up { color: var(--up); } .down { color: var(--down); }
 section { display: grid; gap: 10px; min-width: 0; }
@@ -289,6 +289,16 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
     <div class="list" id="list" aria-live="polite">
       <div class="empty" id="empty">記録を読み込んでいます。</div>
     </div>
+  </section>
+
+  <section aria-labelledby="h-con">
+    <div class="sec-head"><h2 id="h-con">買おうとした銘柄のその後</h2><span class="count" id="con-count"></span></div>
+    <p class="sub">買う前チェックにかけた銘柄、見送った予定、買った銘柄が、記録したときの値段からどう動いたか。毎晩の記録が5日後・20日後を足します。見送った・止められた銘柄が下げていれば、その判断が役に立ったということです。</p>
+    <div class="panel" id="con-panel" hidden>
+      <div class="sig-scroll"><table class="sig-table" aria-label="判断ごとの5日後"><thead><tr><th>判断</th><th class="num">件数</th><th class="num">5日後</th><th class="num">勝率</th><th class="num">−5%以上</th></tr></thead><tbody id="con-sum"></tbody></table></div>
+      <div class="sig-scroll"><table class="sig-table" aria-label="買おうとした銘柄の一覧"><thead><tr><th>日付・銘柄</th><th>判断</th><th class="num">値段</th><th class="num">5日後</th><th class="num">20日後</th></tr></thead><tbody id="con-body"></tbody></table></div>
+    </div>
+    <div class="panel" id="con-empty"><div class="empty">まだありません。/kau で買う前チェックをすると、ここに並びます。</div></div>
   </section>
 
   <section aria-labelledby="h-week">
@@ -956,6 +966,23 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
     el.textContent = "ここに無い売買もあります。証券会社の取引履歴（" + String(hh.from || "").slice(5).replace("-", "/") + "〜" + String(hh.to || "").slice(5).replace("-", "/") + "、" + (hh.trades || "?") + "件）で数えた実現損益は " + (hh.realized > 0 ? "+" : "") + Math.round(hh.realized).toLocaleString("ja-JP") + "円（勝ち" + (hh.winners || 0) + "銘柄・負け" + (hh.losers || 0) + "銘柄）。下の数字は、記録帳に入れた売買だけの集計です。";
   }
 
+  var consStats = null, consDocs = [];
+  function renderConsidered() {
+    var LAB = { bought: "買った", passed: "見送った", blocked: "止められた" };
+    var pct = function (v) { return typeof v === "number" ? (v > 0 ? "+" : "") + v.toFixed(1) + "%" : "—"; };
+    var mkRow = function (body, cells) { var tr = document.createElement("tr"); cells.forEach(function (c) { var td = document.createElement("td"); td.textContent = c[0]; if (c[1]) td.className = "num"; tr.appendChild(td); }); body.appendChild(tr); };
+    var sum = $("con-sum"); sum.textContent = "";
+    ["passed", "blocked", "bought"].forEach(function (k) {
+      var c = consStats && consStats[k]; if (!c || !c.n) return;
+      mkRow(sum, [[LAB[k]], [String(c.n), 1], [pct(c.sum5 / c.n), 1], [Math.round(c.win5 / c.n * 100) + "%", 1], [Math.round(c.drop5 / c.n * 100) + "%", 1]]);
+    });
+    var body = $("con-body"); body.textContent = "";
+    var list = consDocs.slice().sort(function (a, b) { return String(b.date) < String(a.date) ? -1 : 1; }).slice(0, 15);
+    list.forEach(function (x) { mkRow(body, [[String(x.date || "").slice(5).replace("-", "/") + " " + (x.name || x.code)], [LAB[x.decision] || x.decision || "—"], [typeof x.price === "number" ? x.price.toLocaleString("ja-JP") : "—", 1], [pct(x.r5), 1], [pct(x.r20), 1]]); });
+    $("con-panel").hidden = !consDocs.length; $("con-empty").hidden = !!consDocs.length;
+    $("con-count").textContent = consDocs.length ? consDocs.length + " 件" : "";
+  }
+
   function unavailable(text) { ["open-empty", "w-empty", "empty"].forEach(function (i) { $(i).textContent = text; $(i).hidden = false; }); }
   function byDate(a, b) { return String(b.date || b.createdAt || "") < String(a.date || a.createdAt || "") ? -1 : 1; }
 
@@ -978,6 +1005,8 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
         signals = snap.docs.map(function (doc) { var o = Object.assign({}, doc.data()); o.id = doc.id; return o; });
         renderSignals();
       }, function () {});
+      db.collection("considered").limit(500).onSnapshot(function (snap) { consDocs = snap.docs.map(function (doc) { var o = Object.assign({}, doc.data()); o.id = doc.id; return o; }); renderConsidered(); }, function () {});
+      db.doc("settings/considered_stats").onSnapshot(function (snap) { consStats = snap.exists ? snap.data() : null; renderConsidered(); }, function () {});
       db.doc("settings/history").onSnapshot(function (snap) { renderHistory(snap.exists ? snap.data() : null); }, function () {});
       db.collection("weekly").limit(100).onSnapshot(function (snap) { renderWeekly(snap.docs.map(function (doc) { var o = Object.assign({}, doc.data()); o.id = doc.id; return o; })); }, function () {});
       db.doc("settings/kessan_stats").onSnapshot(function (snap) { renderKessan(snap.exists ? snap.data() : null); }, function () {});

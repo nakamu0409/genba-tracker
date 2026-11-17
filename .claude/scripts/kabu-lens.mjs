@@ -19,6 +19,7 @@
 //   node .claude/scripts/kabu-lens.mjs --matsui [day-trading-morning|rise|tick]  # 松井証券のランキング
 //   node .claude/scripts/kabu-lens.mjs --tdnet [YYYYMMDD] [コード...]  # 適時開示（TDnet）。増資・業績修正・特別損失などに印を付ける
 //   node .claude/scripts/kabu-lens.mjs --kessan-react <YYYYMMDD>  # その日の決算・修正のうち、最初の反応が+7%以上のもの（と上方修正）
+//   node .claude/scripts/kabu-lens.mjs --considered-result <記録.json> [--stats <累計.json>]  # 買おうとした銘柄のその後
 //   node .claude/scripts/kabu-lens.mjs --kessan-result <記録.json> [--stats <累計.json>]  # 上方修正の記録の、その後（1・5・20日）
 //   node .claude/scripts/kabu-lens.mjs --check 7203 3100 --state state.json  # 買う前チェック（株数・損切り・止める理由）
 //   node .claude/scripts/kabu-lens.mjs --movers-result <記録.json> [--stats <累計.json>]  # 昼に出した危険度の答え合わせ（後場の結果）
@@ -1476,6 +1477,95 @@ export async function fetchKessanReact(date, { minReact = 7 } = {}) {
   return { date: k.date, total: k.count, rows }
 }
 
+/**
+ * 「買おうとした銘柄」のその後。記録したときの値段（price）から、1・5・20営業日後の終値まで何%動いたか。
+ * ex は同じ期間の TOPIX連動ETF（1306）との差。損切り（stop）があれば、そこまでに安値が届いたかも見る。
+ * @param {object} rec {date: 'YYYY-MM-DD', price, stop?}
+ */
+export function consideredOutcome(rec, bars, bench = []) {
+  let i = -1
+  for (let k = 0; k < bars.length; k++) if (bars[k].date <= rec.date) i = k
+  if (i < 0 || !ok(rec.price) || rec.price <= 0) return { pending: '記録した日の株価がありません' }
+  const bi = bench.findIndex(x => x.date === bars[i].date)
+  const out = { last: tick(bars[bars.length - 1].c), lastDate: bars[bars.length - 1].date }
+  for (const n of [1, 5, 20]) {
+    const k = i + n
+    if (k >= bars.length) continue
+    out['r' + n] = round((bars[k].c / rec.price - 1) * 100)
+    const bk = bi >= 0 ? bench.findIndex(x => x.date === bars[k].date) : -1
+    if (bi >= 0 && bk >= 0) out['ex' + n] = round(out['r' + n] - (bench[bk].c / bench[bi].c - 1) * 100)
+    let lo = Infinity
+    let hi = -Infinity
+    for (let j = i + 1; j <= k; j++) {
+      lo = Math.min(lo, bars[j].l)
+      hi = Math.max(hi, bars[j].h)
+    }
+    out['low' + n] = round((lo / rec.price - 1) * 100)
+    out['high' + n] = round((hi / rec.price - 1) * 100)
+    if (ok(rec.stop) && rec.stop > 0) out['stopHit' + n] = lo <= rec.stop
+  }
+  out.final = out.r20 !== undefined
+  return out
+}
+
+const CONSIDERED_KEYS = ['bought', 'passed', 'blocked']
+
+/** 5日後の結果が出た記録を、判断（bought / passed / blocked）ごとに1回だけ足す */
+export function mergeConsideredStats(prev, records) {
+  const stats = prev && prev.bought ? JSON.parse(JSON.stringify(prev)) : {}
+  for (const k of CONSIDERED_KEYS) stats[k] ||= { n: 0, sum5: 0, win5: 0, drop5: 0, nEx: 0, sumEx5: 0 }
+  const out = records.map((r) => {
+    if (r.counted || !ok(r.r5) || !CONSIDERED_KEYS.includes(r.decision)) return r
+    const c = stats[r.decision]
+    c.n++
+    c.sum5 = round(c.sum5 + r.r5)
+    if (r.r5 > 0) c.win5++
+    if (r.r5 <= -5) c.drop5++
+    if (ok(r.ex5)) {
+      c.nEx++
+      c.sumEx5 = round(c.sumEx5 + r.ex5)
+    }
+    return { ...r, counted: true }
+  })
+  return { stats, records: out }
+}
+
+export function summarizeConsideredStats(stats) {
+  const out = {}
+  for (const k of CONSIDERED_KEYS) {
+    const c = stats[k]
+    out[k] = c && c.n ? { count: c.n, avg_5d_pct: round(c.sum5 / c.n), win_rate_pct: round(c.win5 / c.n * 100, 0), drop5_pct: round(c.drop5 / c.n * 100, 0), avg_vs_topix_5d_pct: c.nEx ? round(c.sumEx5 / c.nEx) : null } : { count: 0 }
+  }
+  return out
+}
+
+/** 記録（[{id, code, date, price, stop?, decision, ...}]）のその後を取りに行き、累計を更新する。final の記録は取りに行かない */
+export async function consideredResult(records, prevStats = null) {
+  let bench = []
+  try {
+    bench = (await fetchYahoo('1306.T', '1y')).bars
+  } catch {
+    bench = []
+  }
+  const done = []
+  for (let k = 0; k < records.length; k += 6) {
+    done.push(...await Promise.all(records.slice(k, k + 6).map(async (rec) => {
+      if (rec.final) return rec
+      try {
+        const res = consideredOutcome(rec, (await fetchYahoo(`${rec.code}.T`, '1y')).bars, bench)
+        return res.pending ? { ...rec, pending: res.pending } : { ...rec, ...res, updated: true }
+      } catch (e) {
+        return { ...rec, pending: e.message }
+      }
+    })))
+  }
+  const m = mergeConsideredStats(prevStats, done)
+  return {
+    note: 'bought=実際に買った、passed=検討して見送った、blocked=買う前チェックで止められた。記録したときの値段から5営業日後の終値まで。drop5_pct は5%以上下げた割合。passed や blocked が下げていれば、見送った・止めた判断が役に立ったことになる。件数が少ないうちは偶然の影響が大きい',
+    total: summarizeConsideredStats(m.stats), stats: m.stats, records: m.records
+  }
+}
+
 /** 株探の銘柄ページから「決算発表予定日」を読む（載っていなければ null） */
 export function parseKabutanEarningsDate(html) {
   const m = String(html).replace(/<[^>]*>/g, ' ').match(/決算発表予定日\s*(\d{4})\/(\d{1,2})\/(\d{1,2})/)
@@ -1639,6 +1729,20 @@ async function main() {
     const date = rest.find(a => /^\d{8}$/.test(a))
     const codes = rest.filter(a => isTseCode(a.toUpperCase())).map(a => a.toUpperCase())
     console.log(JSON.stringify(await fetchTdnet(date, { codes }), null, 2))
+    return
+  }
+  if (args.includes('--considered-result')) {
+    const file = args[args.indexOf('--considered-result') + 1]
+    const si = args.indexOf('--stats')
+    let prev = null
+    if (si >= 0) {
+      try {
+        prev = JSON.parse(readFileSync(args[si + 1], 'utf-8'))
+      } catch {
+        prev = null
+      }
+    }
+    console.log(JSON.stringify(await consideredResult(JSON.parse(readFileSync(file, 'utf-8')), prev), null, 2))
     return
   }
   if (args.includes('--kessan-result')) {
