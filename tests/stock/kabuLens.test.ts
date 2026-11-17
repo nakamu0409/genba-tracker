@@ -573,7 +573,7 @@ describe('上方修正のその後', () => {
 
   it('引け後の発表は、翌営業日の始値で買い、最初の反応は始値と前日終値の差', () => {
     const r = kessanOutcome({ date: '2026-11-04', time: '15:30' }, bars, bench)
-    expect(r).toMatchObject({ entryDate: '2026-11-05', entry: 109, react: 4.81, r1: 0.92, r5: 8.26, final: false })
+    expect(r).toMatchObject({ entryDate: '2026-11-05', entry: 109, react: 4.81, r1: 0.92, r5: 8.26, final: false, stuck: false, openAtHigh: false })
     expect(r.ex5).toBe(5.76)
     expect(r.r20).toBeUndefined()
   })
@@ -605,6 +605,11 @@ describe('上方修正のその後', () => {
     expect(sum.react12.count).toBe(1)
     expect(sum.react7_12.count).toBe(2)
     expect(sum.react_under12.count).toBe(1)
+  })
+
+  it('mergeKessanStats: 張り付き・高値寄りの日は、反応の大きさの欄に数えない', () => {
+    const m = mergeKessanStats(null, [{ kind: 'GOOD', react: 20, r5: 10, stuck: true }, { kind: 'GOOD', react: 13, r5: -2, openAtHigh: true }, { kind: 'GOOD', react: 14, r5: 1 }])
+    expect(summarizeKessanStats(m.stats).react12.count).toBe(1)
   })
 })
 

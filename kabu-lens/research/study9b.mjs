@@ -26,7 +26,10 @@ for (const [code, rows] of Object.entries(hist)) {
     if (react < 7) continue
     const run = (s, hold) => { const o = d[s][1], stop = o - 2 * atr[s - 1]; for (let k = s; k < s + hold; k++) { if (d[k][3] <= stop) return (Math.min(d[k][1], stop) / o - 1) * 100 } return (d[s + hold - 1][4] / o - 1) * 100 }
     const mk = (s) => { const b = base[d[s][0]]; return { r5: (d[s + 4][4] / d[s][1] - 1) * 100, ex5: (d[s + 4][4] / d[s][1] - 1) * 100 - (b && b.n ? b.r5 / b.n : 0), s5: run(s, 5), s20: run(s, 20), ex20: (d[s + 19][4] / d[s][1] - 1) * 100 - (b && b.n ? b.r20 / b.n : 0) } }
-    ev.push({ date: d[e][0], react, price: d[e][1], A: mk(e), B: mk(e + 1), gap2: (d[e + 1][1] / d[e][4] - 1) * 100 })
+    const [, eo, eh, el, ec] = d[e]
+    const stuck = eh - el <= eh * 0.002 // 1日じゅう値幅が無い＝張り付きで買えなかった可能性
+    const openAtHigh = eo >= eh * 0.999 // 始値がその日の高値＝ストップ高で寄った可能性
+    ev.push({ date: d[e][0], react, price: d[e][1], stuck, openAtHigh, A: mk(e), B: mk(e + 1), gap2: (d[e + 1][1] / d[e][4] - 1) * 100 })
   }
 }
 const fm = v => (v >= 0 ? '+' : '') + v.toFixed(2) + '%'
@@ -39,3 +42,13 @@ for (const [lab, lo, hi] of [['反応 +7〜12%', 7, 12], ['反応 +12%以上', 1
 const big = ev.filter(x => x.react >= 12)
 console.log('反応+12%以上で、翌日さらに窓を開けた（+3%以上）もの / 開けなかったもの（1日遅れて買う場合）')
 console.log('  窓あり', st(big.filter(x => x.gap2 >= 3), 'B')); console.log('  窓なし', st(big.filter(x => x.gap2 < 3), 'B'))
+
+console.log('--- 張り付き・高値寄りを除いた場合（反応+12%以上、翌日の始値で買う）')
+const b12 = ev.filter(x => x.react >= 12)
+console.log('  張り付き', b12.filter(x => x.stuck).length, '件 / 始値が高値（張り付きを除く）', b12.filter(x => !x.stuck && x.openAtHigh).length, '件 / 全体', b12.length, '件')
+for (const [lab, f] of [['張り付きだけ', x => x.stuck], ['始値が高値（張り付き以外）', x => !x.stuck && x.openAtHigh], ['どちらでもない（ふつうに買えた）', x => !x.stuck && !x.openAtHigh]]) { const l = b12.filter(f); console.log('  ' + lab.padEnd(18), '前半', st(l.filter(x => x.date < SPLIT), 'A'), '\n' + ' '.repeat(22) + '後半', st(l.filter(x => x.date >= SPLIT), 'A')) }
+const b7 = ev.filter(x => x.react >= 7 && x.react < 12 && !x.stuck && !x.openAtHigh)
+console.log('  反応+7〜12%（ふつうに買えたもの）前半', st(b7.filter(x => x.date < SPLIT), 'A'), '\n' + ' '.repeat(22) + '後半', st(b7.filter(x => x.date >= SPLIT), 'A'))
+const ok12 = b12.filter(x => !x.stuck && !x.openAtHigh)
+console.log('  ふつうに買えた+12%以上 年ごと（損切りつき5日）')
+for (let y = 2017; y <= 2026; y++) { const l = ok12.filter(x => x.date.startsWith(y)); if (l.length) console.log('   ', y, 'n=' + l.length, fm(av(l, x => x.A.s5)), '超過' + fm(av(l, x => x.A.ex5))) }
