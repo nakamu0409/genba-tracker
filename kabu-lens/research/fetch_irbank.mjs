@@ -15,7 +15,7 @@ const val = (t) => { // 「4.53億」「1.2兆」「139百万」「-0.07億」�
 let n = 0
 for (const c of codes) {
   if (out[c]) continue
-  const r = spawnSync('curl', ['-sS', '--fail', '--max-time', '25', '-A', UA, `https://irbank.net/${c}/results`], { encoding: 'utf-8', maxBuffer: 1 << 26 })
+  const r = spawnSync('curl', ['-sS', '-L', '--fail', '--max-time', '25', '-A', UA, `https://irbank.net/${c}/results`], { encoding: 'utf-8', maxBuffer: 1 << 26 })
   if (r.status !== 0) { out[c] = []; continue }
   const h = r.stdout.replace(/<script[\s\S]*?<\/script>/g, '')
   const t = h.match(/<table[\s\S]*?<\/table>/)?.[0] || ''
