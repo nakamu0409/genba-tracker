@@ -1429,6 +1429,79 @@ export function estimateNextEarnings(rows, today) {
   return cands[0] || null
 }
 
+/**
+ * IR BANK の適時開示一覧（/<code>/ir）から、株が増える資金調達（MSワラント＝行使価額修正条項付の新株予約権、
+ * 転換社債、第三者割当の新株）の開示を拾う。リンクの title「… | 表題（YYYY/MM/DD HH:MM提出）」を読む。
+ * ストック・オプションは除く。
+ */
+export function parseDilution(html) {
+  const out = []
+  const seen = new Set()
+  for (const m of String(html).matchAll(/title="[^"|]*\| ([^"]*?)（(\d{4})\/(\d{2})\/(\d{2}) (\d{2}:\d{2})提出）"/g)) {
+    const title = m[1].replace(/&amp;/g, '&')
+    if (/ストック・オプション|ストックオプション/.test(title)) continue
+    const ms = /行使価額修正|修正条項付|MSワラント/.test(title)
+    const cb = /転換社債/.test(title)
+    const third = /第三者割当/.test(title) && /新株式|募集株式|新規株式/.test(title)
+    if (!ms && !cb && !third && !/新株予約権.*行使/.test(title)) continue
+    const date = `${m[2]}-${m[3]}-${m[4]}`
+    const key = date + title
+    if (seen.has(key)) continue
+    seen.add(key)
+    const series = (title.match(/第(\d+)回/) || [])[1]
+    let kind = 'other'
+    if (/取得及び消却|消却/.test(title)) kind = 'cancel'
+    else if (/行使完了/.test(title)) kind = 'done'
+    else if (/大量行使/.test(title)) kind = 'heavy'
+    else if (/月間行使/.test(title)) kind = 'monthly'
+    else if (/発行|募集/.test(title)) kind = 'issue'
+    out.push({ date, time: m[5], title, kind, ms, cb, third, series: series ? Number(series) : null, corrected: /^\(訂正\)|^\(再訂正\)|^（訂正）/.test(title) })
+  }
+  return out.sort((a, b) => b.date.localeCompare(a.date))
+}
+
+/**
+ * parseDilution の結果を、買う前チェック用にまとめる。
+ * active: 直近1年に MSワラント・転換社債の発行か行使の開示があり、その後に行使完了・消却が出ていない（まだ株が出てくる）。
+ * recent_heavy / recent_done: 直近30日の大量行使・行使完了（急騰の天井で株が売られた形）。
+ * series_5y: 5年でいくつの MSワラント・転換社債を出したか（2つ以上はくり返し使う会社）。
+ */
+export function summarizeDilution(rows, today) {
+  const add = (d, n) => {
+    const x = new Date(d + 'T00:00:00Z')
+    x.setUTCDate(x.getUTCDate() + n)
+    return x.toISOString().slice(0, 10)
+  }
+  const rs = (rows || []).filter(r => !r.corrected && r.date <= today)
+  const y1 = rs.filter(r => r.date >= add(today, -365))
+  const msY1 = y1.filter(r => r.ms || r.cb)
+  const latest = msY1[0] || null
+  const lastIssue = msY1.find(r => r.kind === 'issue')
+  const closedAfter = lastIssue ? msY1.some(r => (r.kind === 'done' || r.kind === 'cancel') && r.date >= lastIssue.date && (r.series == null || r.series === lastIssue.series)) : msY1.some(r => r.kind === 'done' || r.kind === 'cancel')
+  const d30 = add(today, -30)
+  const s5 = new Set(rs.filter(r => (r.ms || r.cb) && r.date >= add(today, -365 * 5)).map(r => r.series ?? r.date.slice(0, 7)))
+  return {
+    has_ms_1y: msY1.length > 0,
+    active: msY1.length > 0 && !closedAfter,
+    heavy_1y: msY1.filter(r => r.kind === 'heavy').length,
+    recent_heavy: msY1.filter(r => r.kind === 'heavy' && r.date >= d30).map(r => r.date),
+    recent_done: msY1.filter(r => r.kind === 'done' && r.date >= d30).map(r => r.date),
+    third_party_1y: y1.filter(r => r.third && r.kind === 'issue').map(r => r.date),
+    series_5y: s5.size,
+    latest: latest ? { date: latest.date, title: latest.title } : null
+  }
+}
+
+/** 株が増える資金調達の開示（IR BANK）。取れなければ null */
+export async function fetchDilution(code, today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10)) {
+  try {
+    const rows = parseDilution(await fetchText(`https://irbank.net/${code}/ir`))
+    return { ...summarizeDilution(rows, today), source: 'IR BANK の適時開示一覧' }
+  } catch {
+    return null
+  }
+}
+
 /** 次の決算発表日。株探に予定日があればそれ、無ければ IR BANK の過去の発表日から見積もる */
 export async function fetchNextEarnings(code, today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10)) {
   try {
@@ -1743,6 +1816,16 @@ export function preTradeCheck(a) {
     if (n >= 0 && n <= 3) blocks.push(`決算前：決算発表予定日が ${a.earningsDate}${est}（${n === 0 ? '今日' : n + '営業日後'}）。決算の3営業日前から当日までは新しく買わない`)
     else if (a.earningsEstimated && n > 3 && n <= 8) warnings.push(`決算が近いかもしれない：見込みは ${a.earningsDate}（${n}営業日後）。正式な日付を確認を`)
   } else if (!a.earningsDate) warnings.push('決算発表予定日は確認できず。自分で確認を')
+  const dl = a.dilution
+  if (dl && (dl.has_ms_1y || dl.third_party_1y?.length)) {
+    if (dl.recent_heavy?.length || dl.recent_done?.length) {
+      const ev = [...(dl.recent_heavy || []).map(d => `${d} 大量行使`), ...(dl.recent_done || []).map(d => `${d} 行使完了`)].join('、')
+      warnings.push(`株が増える資金調達（強い注意）：直近30日に新株予約権の行使が出ている（${ev}）。上がったところで新しい株が市場に売られた形で、急騰のあとはそのまま崩れやすい`)
+    } else if (dl.active) warnings.push(`株が増える資金調達：行使価額修正条項付の新株予約権（MSワラント）などが残っている（最新 ${dl.latest?.date}）。株価が上がるほど新しい株が売られ、上値が重くなりやすい`)
+    else if (dl.has_ms_1y) warnings.push(`株が増える資金調達：直近1年に MSワラントなどの開示あり（最新 ${dl.latest?.date}、行使は完了）。また出す会社か確認を`)
+    if (dl.third_party_1y?.length) warnings.push(`第三者割当の新株発行：直近1年に ${dl.third_party_1y.join('、')}`)
+    if (dl.series_5y >= 2) warnings.push(`MSワラントなどを5年で ${dl.series_5y}回 出している会社。資金が足りなくなるたびに株を増やす傾向`)
+  } else if (dl === null) warnings.push('株が増える資金調達（MSワラント等）は確認できず')
 
   const shares = lots || 0
   return {
@@ -1763,7 +1846,8 @@ export function preTradeCheck(a) {
     daily_range_pct: atrPct,
     correlations: (a.correlations || []).filter(c => c.code !== a.code),
     earnings_date: a.earningsDate || null,
-    earnings_estimated: !!a.earningsEstimated
+    earnings_estimated: !!a.earningsEstimated,
+    dilution: a.dilution ?? null
   }
 }
 
@@ -1909,7 +1993,7 @@ async function main() {
     const d = await fetchYahoo(`${code}.T`)
     const pk = analyze(d.bars, bench, { symbol: `TSE:${code}`, name: d.name, currency: d.currency, benchmark: 'TSE:1306' })
     const today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10)
-    const ne = await fetchNextEarnings(code, today)
+    const [ne, dilution] = await Promise.all([fetchNextEarnings(code, today), fetchDilution(code, today)])
     const correlations = []
     for (const pos of state.positions || []) {
       if (!pos.code || pos.code === code) continue
@@ -1919,7 +2003,7 @@ async function main() {
         correlations.push({ code: pos.code, name: pos.name, corr: null })
       }
     }
-    const res = preTradeCheck({ code, price, atr: pk.volatility.atr, regime: pk.regime, overheat: pk.overheat.score, today, earningsDate: ne?.date || null, earningsEstimated: ne?.estimated, settings: state.settings, positions: state.positions, buysToday: state.buysToday, correlations })
+    const res = preTradeCheck({ code, price, atr: pk.volatility.atr, regime: pk.regime, overheat: pk.overheat.score, today, earningsDate: ne?.date || null, earningsEstimated: ne?.estimated, dilution, settings: state.settings, positions: state.positions, buysToday: state.buysToday, correlations })
     console.log(JSON.stringify({ code, name: d.name, as_of: pk.date_jst, last_close: pk.candle.close, regime: pk.regime, score: pk.scores.long, overheat: pk.overheat.score, buy_candidate: pk.buy_candidate, ...res, earnings_source: ne?.source || null }, null, 2))
     return
   }

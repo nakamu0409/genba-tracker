@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -734,5 +734,36 @@ describe('値動きの相関', () => {
     expect(r.ok).toBe(true)
     expect(r.warnings.filter(w => w.includes('一緒に動きすぎ'))).toHaveLength(1)
     expect(r.warnings.filter(w => w.includes('やや一緒に動く'))).toHaveLength(1)
+  })
+})
+
+describe('株が増える資金調達（MSワラント）の警告', () => {
+  const a = (t: string, d: string) => `<a class="nxq" title="9999 テスト | ${t}（${d} 16:30提出）" href="/x">x</a>`
+  const html = [
+    a('第三者割当による第13回新株予約権(行使価額修正条項付)の行使完了及び月間行使状況に関するお知らせ', '2026/10/20'),
+    a('第三者割当による第13回新株予約権(行使価額修正条項付)の大量行使に関するお知らせ', '2026/10/19'),
+    a('募集新株予約権(有償ストック・オプション)の発行に関するお知らせ', '2026/04/15'),
+    a('第三者割当による第13回新株予約権(行使価額修正条項付)の発行に関するお知らせ', '2025/12/26'),
+    a('第三者割当による第12回新株予約権(行使価額修正条項付)の発行に関するお知らせ', '2024/10/31'),
+    a('液体レンズの採用に関するお知らせ', '2026/10/08')
+  ].join('')
+  const rows = parseDilution(html)
+  it('MSワラントの開示だけを拾い、ストック・オプションと関係ない開示は除く', () => {
+    expect(rows.map((r: { kind: string }) => r.kind)).toEqual(['done', 'heavy', 'issue', 'issue'])
+    expect(rows[0].series).toBe(13)
+  })
+  it('行使完了の前はまだ残っている、直近の大量行使・完了は強い注意', () => {
+    expect(summarizeDilution(rows, '2026-10-10').active).toBe(true)
+    const after = summarizeDilution(rows, '2026-11-18')
+    expect(after.active).toBe(false)
+    expect(after.recent_heavy).toEqual(['2026-10-19'])
+    expect(after.series_5y).toBe(2)
+    const base = { code: '9999', price: 117, atr: 10, today: '2026-11-18', earningsDate: '2027-02-15', settings: { capital: 400000, cash: 300000, riskPct: 3, maxPosPct: 62, maxPositions: 3, dayTradeMax: 2 }, positions: [], buysToday: 0 }
+    const w = preTradeCheck({ ...base, dilution: after }).warnings.join('\n')
+    expect(w).toContain('強い注意')
+    expect(w).toContain('5年で 2回')
+    expect(preTradeCheck({ ...base, dilution: summarizeDilution(rows, '2026-10-10') }).warnings.join('\n')).toContain('残っている')
+    expect(preTradeCheck({ ...base, dilution: summarizeDilution([], '2026-11-18') }).warnings.join('\n')).not.toContain('資金調達')
+    expect(preTradeCheck(base).ok).toBe(true)
   })
 })

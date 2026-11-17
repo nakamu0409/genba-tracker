@@ -115,6 +115,7 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 | 松井のランキング | `fetchMatsuiRanking` `parseMatsuiRanking` | `--matsui [day-trading-morning\|rise\|tick]`。`--movers` にも `daytrade` として入る |
 | 決算の見出し | `fetchKessan` `parseKabutanKessanList` `classifyKessan` `kessanOutcome` `kessanResult` `mergeKessanStats` | `--kessan [YYYYMMDD]`（その日の決算・業績修正の見出しを分類つきで取る）、`--kessan-result`（上方修正の記録のその後と累計） |
 | 値動きの相関 | `returnCorrelation` | 直近60日の日々の騰落の相関。買う前チェックが保有株ごとに出し、0.7以上で「一緒に動きすぎ」、0.5以上で「やや一緒に動く」と警告（止めはしない） |
+| 株が増える資金調達 | `parseDilution` `summarizeDilution` `fetchDilution` | IR BANK の適時開示一覧（`/<コード>/ir`、リンクの title に表題と提出日時がある）から、行使価額修正条項付の新株予約権（MSワラント）・転換社債・第三者割当の新株を拾う（ストック・オプションと訂正は除く）。買う前チェックが警告を出す（止めはしない）：直近30日に大量行使・行使完了＝「強い注意」、行使完了前＝「残っている」、5年で2回以上＝「くり返す会社」。2026年10月のウインテスト（急騰の天井で第13回の大量行使→行使完了→下落）がきっかけ（本人の希望、11月18日） |
 | 買う前チェック | `preTradeCheck` `parseKabutanEarningsDate` `businessDaysBetween` | `--check <コード> <値段> --state <状態.json>`。株数・損切り・止める理由を出す。`/kau` が使う |
 | 通信 | `fetchText` `fetchJson` | fetch が失敗したら curl で取り直す |
 | 入口 | `main` `runBacktest` `evaluateFile` | コマンドの引数を見て振り分ける |
