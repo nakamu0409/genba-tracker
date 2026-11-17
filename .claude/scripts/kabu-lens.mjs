@@ -18,6 +18,7 @@
 //   node .claude/scripts/kabu-lens.mjs --next-earnings 7716 5010  # 次の決算発表日（株探の予定日、無ければ去年の発表日からの見込み）
 //   node .claude/scripts/kabu-lens.mjs --matsui [day-trading-morning|rise|tick]  # 松井証券のランキング
 //   node .claude/scripts/kabu-lens.mjs --tdnet [YYYYMMDD] [コード...]  # 適時開示（TDnet）。増資・業績修正・特別損失などに印を付ける
+//   node .claude/scripts/kabu-lens.mjs --kessan-react <YYYYMMDD>  # その日の決算・修正のうち、最初の反応が+7%以上のもの（と上方修正）
 //   node .claude/scripts/kabu-lens.mjs --kessan-result <記録.json> [--stats <累計.json>]  # 上方修正の記録の、その後（1・5・20日）
 //   node .claude/scripts/kabu-lens.mjs --check 7203 3100 --state state.json  # 買う前チェック（株数・損切り・止める理由）
 //   node .claude/scripts/kabu-lens.mjs --movers-result <記録.json> [--stats <累計.json>]  # 昼に出した危険度の答え合わせ（後場の結果）
@@ -1134,7 +1135,8 @@ export async function fetchChase(codes = [], { pages = 4, minTurnover = 1e8, max
         volume_vs_usual: f.volSurge, run_5d_pct: f.run5Pct, usual_daily_range_pct: f.range20Pct,
         turnover_today: tg.volume && tg.price ? Math.round(tg.price * tg.volume) : null,
         risk_score: risk.score, risk_level: risk.level, reasons: risk.reasons,
-        has_news: newsList ? newsList.length > 0 : null, news: newsList
+        has_news: newsList ? newsList.length > 0 : null, news: newsList,
+        earnings_news: newsList ? newsList.some(n => ['決算', '修正'].includes(n.category) || /決算|上方修正|下方修正|業績予想/.test(n.title)) : null
       }
     } catch (e) {
       return { ...tg, error: e.message }
@@ -1233,7 +1235,7 @@ export function kessanOutcome(rec, bars, bench = []) {
   return out
 }
 
-const KESSAN_KEYS = ['all', 'react12', 'react_under12']
+const KESSAN_KEYS = ['all', 'react12', 'react7_12', 'react_under12']
 
 /** 5日後の結果が出た記録を、累計に1回だけ足す（足した記録には counted: true が付く） */
 export function mergeKessanStats(prev, records) {
@@ -1241,7 +1243,10 @@ export function mergeKessanStats(prev, records) {
   for (const k of KESSAN_KEYS) stats[k] ||= { n: 0, sum5: 0, sumEx5: 0, nEx: 0, win5: 0, beat5: 0 }
   const out = records.map((r) => {
     if (r.counted || !ok(r.r5)) return r
-    for (const k of ['all', ok(r.react) && r.react >= 12 ? 'react12' : 'react_under12']) {
+    const up = !r.kind || r.kind === 'REVISE_UP'
+    const big = ok(r.react) && r.react >= 12 ? 'react12' : ok(r.react) && r.react >= 7 ? 'react7_12' : null
+    const keys = [up ? 'all' : null, big, up && !(ok(r.react) && r.react >= 12) ? 'react_under12' : null].filter(Boolean)
+    for (const k of keys) {
       const c = stats[k]
       c.n++
       c.sum5 = round(c.sum5 + r.r5)
@@ -1280,7 +1285,10 @@ export async function kessanResult(records, prevStats = null) {
       if (rec.final) return rec
       try {
         const res = kessanOutcome(rec, (await fetchYahoo(`${rec.code}.T`, '1y')).bars, bench)
-        return res.pending ? { ...rec, pending: res.pending } : { ...rec, ...res, updated: true }
+        if (res.pending) return { ...rec, pending: res.pending }
+        // 上方修正以外は、最初の反応が+7%未満なら追うのをやめる（数えない）
+        if (rec.kind && rec.kind !== 'REVISE_UP' && ok(res.react) && res.react < 7) return { ...rec, ...res, final: true, counted: true, dropped: true, updated: true }
+        return { ...rec, ...res, updated: true }
       } catch (e) {
         return { ...rec, pending: e.message }
       }
@@ -1288,7 +1296,7 @@ export async function kessanResult(records, prevStats = null) {
   }
   const m = mergeKessanStats(prevStats, done)
   return {
-    note: '上方修正の発表の次の営業日の始値で買った場合。react12 は最初の反応が+12%以上、react_under12 はそれ未満。過去約2年の検証では、5日後の平均は 全体+1.1%（TOPIX連動ETFではなく「いつでも買う」基準が+0.45%）、最初の反応が+12%以上は+4.3%（270回、勝率は約3割）。件数が少ないうちは偶然の影響が大きい（目安は各30件以上）',
+    note: 'all と react_under12 は上方修正だけ。react12・react7_12 は決算・修正のすべてで、最初の反応が+12%以上・+7〜12%のもの（約10年の検証で、+12%以上は超過5日 +1.8〜2.3%、+7〜12%は +0.6〜1.0%）。発表の次の営業日の始値で買った場合。過去約2年の検証では、5日後の平均は 全体+1.1%（TOPIX連動ETFではなく「いつでも買う」基準が+0.45%）、最初の反応が+12%以上は+4.3%（270回、勝率は約3割）。件数が少ないうちは偶然の影響が大きい（目安は各30件以上）',
     total: summarizeKessanStats(m.stats), stats: m.stats, records: m.records
   }
 }
@@ -1424,6 +1432,43 @@ export async function fetchNextEarnings(code, today = new Date(Date.now() + 9 * 
     if (e) return { date: e.date, estimated: true, kind: e.kind, source: `IR BANK の過去の発表日からの見込み（去年は ${e.last_year} ${e.time}）` }
   } catch { /* 取れなかった */ }
   return null
+}
+
+/**
+ * ある日の決算・業績修正のうち、最初の反応が minReact% 以上だったもの（と上方修正すべて）を、反応つきで返す。
+ * 反応は次の営業日の始値まで分かるので、発表日の翌営業日の夜に使う。
+ */
+export async function fetchKessanReact(date, { minReact = 7 } = {}) {
+  const k = await fetchKessan(date)
+  let bench = []
+  try {
+    bench = (await fetchYahoo('1306.T', '3mo')).bars
+  } catch {
+    bench = []
+  }
+  const codes = [...new Set(k.rows.map(r => r.code))]
+  const bars = {}
+  for (let i = 0; i < codes.length; i += 6) {
+    await Promise.all(codes.slice(i, i + 6).map(async (c) => {
+      try {
+        bars[c] = (await fetchYahoo(`${c}.T`, '3mo')).bars
+      } catch {
+        bars[c] = null
+      }
+    }))
+  }
+  const seen = new Set()
+  const rows = []
+  for (const r of k.rows) {
+    if (seen.has(r.code) || !bars[r.code]) continue
+    const o = kessanOutcome({ date: k.date, time: r.time.slice(11, 16) }, bars[r.code], bench)
+    if (o.pending) continue
+    if (!(o.react >= minReact) && r.kind !== 'REVISE_UP') continue
+    seen.add(r.code)
+    rows.push({ ...r, date: k.date, time: r.time.slice(11, 16), react: o.react, entryDate: o.entryDate, entry: o.entry })
+  }
+  rows.sort((a, b) => b.react - a.react)
+  return { date: k.date, total: k.count, rows }
 }
 
 /** 株探の銘柄ページから「決算発表予定日」を読む（載っていなければ null） */
@@ -1603,6 +1648,11 @@ async function main() {
       }
     }
     console.log(JSON.stringify(await kessanResult(JSON.parse(readFileSync(file, 'utf-8')), prev), null, 2))
+    return
+  }
+  if (args.includes('--kessan-react')) {
+    const d = args[args.indexOf('--kessan-react') + 1]
+    console.log(JSON.stringify(await fetchKessanReact(/^\d{8}$/.test(d || '') ? d : undefined), null, 2))
     return
   }
   if (args.includes('--kessan')) {

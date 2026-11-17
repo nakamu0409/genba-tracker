@@ -254,8 +254,8 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
   </section>
 
   <section aria-labelledby="h-kes">
-    <div class="sec-head"><h2 id="h-kes">上方修正のその後</h2><span class="count" id="kes-count"></span></div>
-    <p class="sub">業績の上方修正が出た株を、発表の次の営業日の始値で買っていたら、5営業日後どうなったか（「過去」は記録を始める前の検証の平均）。毎晩の「決算の記録」がためます。過去約2年の検証では、全体で平均+1.1%、最初の反応が+12%以上だと+4.3%（勝率は約3割）でした。各30件たまるまでは偶然の影響が大きいです。</p>
+    <div class="sec-head"><h2 id="h-kes">決算・修正のその後</h2><span class="count" id="kes-count"></span></div>
+    <p class="sub">決算・業績修正が出た株を、最初の反応が出た次の始値で買っていたら、5営業日後どうなったか。毎晩の「決算の記録」がためます。約10年の検証では、最初の反応が+12%以上の株は、5日後に市場平均を約2%上回りました（勝率は約5割）。「過去」は記録を始める前の検証の数字です。各30件たまるまでは偶然の影響が大きいです。</p>
     <div class="panel" id="kes-panel" hidden><div class="sig-scroll"><table class="sig-table" aria-label="上方修正の5日後の成績"><thead><tr><th>分け方</th><th class="num">件数</th><th class="num">5日後</th><th class="num">勝率</th><th class="num">TOPIX差</th><th class="num">過去</th></tr></thead><tbody id="kes-body"></tbody></table></div></div>
     <div class="panel" id="kes-empty"><div class="empty">まだ結果はありません。最初の5日後の結果は、記録を始めてから約1週間後に出ます。</div></div>
   </section>
@@ -906,7 +906,7 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
     var all = st && st.all && st.all.n ? st.all.n : 0;
     $("kes-panel").hidden = !all; $("kes-empty").hidden = !!all;
     $("kes-count").textContent = all ? all + " 件" : "";
-    [["all", "全体", "+1.1%"], ["react12", "反応+12%以上", "+4.3%"], ["react_under12", "それ未満", "—"]].forEach(function (k) {
+    [["all", "上方修正 全体", "+1.1%"], ["react_under12", "上方修正 反応+12%未満", "—"], ["react12", "決算・修正 反応+12%以上", "超過+2%"], ["react7_12", "決算・修正 反応+7〜12%", "超過+0.8%"]].forEach(function (k) {
       var c = st && st[k[0]]; if (!c || !c.n) return;
       var tr = document.createElement("tr");
       var cell = function (text, num) { var td = document.createElement("td"); td.textContent = text; if (num) td.className = "num"; tr.appendChild(td); };

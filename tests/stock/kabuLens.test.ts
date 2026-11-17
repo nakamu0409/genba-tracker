@@ -597,6 +597,15 @@ describe('上方修正のその後', () => {
     expect(sum.react12.count).toBe(1)
     expect(sum.react_under12.count).toBe(1)
   })
+
+  it('mergeKessanStats: 上方修正以外は、反応の大きさの欄にだけ数える', () => {
+    const m = mergeKessanStats(null, [{ kind: 'GOOD', react: 13, r5: 4 }, { kind: 'BAD', react: 8, r5: -1 }, { kind: 'REVISE_UP', react: 9, r5: 2 }])
+    const sum = summarizeKessanStats(m.stats)
+    expect(sum.all.count).toBe(1)
+    expect(sum.react12.count).toBe(1)
+    expect(sum.react7_12.count).toBe(2)
+    expect(sum.react_under12.count).toBe(1)
+  })
 })
 
 describe('適時開示（TDnet）', () => {
