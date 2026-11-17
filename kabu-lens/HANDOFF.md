@@ -114,6 +114,7 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 | 適時開示 | `fetchTdnet` `parseTdnetList` `tagTdnet` | `--tdnet [YYYYMMDD] [コード...]`。DILUTION・DANGER・LOSS・REVISION・TOB などの印。`flagged` が注意の要るもの |
 | 松井のランキング | `fetchMatsuiRanking` `parseMatsuiRanking` | `--matsui [day-trading-morning\|rise\|tick]`。`--movers` にも `daytrade` として入る |
 | 決算の見出し | `fetchKessan` `parseKabutanKessanList` `classifyKessan` `kessanOutcome` `kessanResult` `mergeKessanStats` | `--kessan [YYYYMMDD]`（その日の決算・業績修正の見出しを分類つきで取る）、`--kessan-result`（上方修正の記録のその後と累計） |
+| 値動きの相関 | `returnCorrelation` | 直近60日の日々の騰落の相関。買う前チェックが保有株ごとに出し、0.7以上で「一緒に動きすぎ」、0.5以上で「やや一緒に動く」と警告（止めはしない） |
 | 買う前チェック | `preTradeCheck` `parseKabutanEarningsDate` `businessDaysBetween` | `--check <コード> <値段> --state <状態.json>`。株数・損切り・止める理由を出す。`/kau` が使う |
 | 通信 | `fetchText` `fetchJson` | fetch が失敗したら curl で取り直す |
 | 入口 | `main` `runBacktest` `evaluateFile` | コマンドの引数を見て振り分ける |
@@ -219,7 +220,7 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 - **決算が良かった株を翌日に買っても、長く持つ成績は基準と変わらなかった（約2年・1.1万件。2026年11月17日）。** 上方修正の直後5日だけ少し良い（約0.7%の上乗せ）。上方修正で最初に+12%以上反応した株は5日で+4.3%だが、回数が少なく、まだ根拠にしない。
 - **年度の業績の増減（IR BANK、約10年・3,800件）も、本決算のあとの株価と関係が無かった（2026年11月17日）。** 決算の良し悪しは発表のあとすぐ織り込まれる。
 - **決算・修正への最初の反応が+12%以上の株が上がりやすく見えたのは、ストップ高に張り付いて買えなかった日のせいだった（訂正済み）。** 張り付いて買えなかった日を除くと超過5日は約+0.4%で、手数料を引くと残らない。直近60日では買えた21件が −3.7%。買う根拠にしない（research の README の「訂正」と「訂正の訂正」）。日足で検証するときは、1日じゅう値幅が無い日だけを「買えなかった」として除く（始値＝高値の日は、高く始まって下げただけで買えるので除かない）。
-- 業種の強さは、一貫した関係が無かったので組み込んでいない。逆張りは利幅が小さすぎて不採用。
+- 業種の強さは、一貫した関係が無かったので組み込んでいない。「Aが上がったら翌日Bが動く」の先回りは、夜のうちの情報が寄り付きに織り込まれるので狙わない（本人と相談して、2026年11月17日）。銘柄どうしの相関は、勝つためではなく、同じ方向に動く株を重ねて持たないための警告に使う。逆張りは利幅が小さすぎて不採用。
 - 昼の急騰株への飛びつきは、平均ほぼ0%・勝率47%。「勝てる特徴」は無く、「危ない特徴」だけあった → 危険度スコア（`chaseRisk`）。**「低」は安全という意味ではない。**
 
 ## 続きでやること・決まっていないこと

@@ -1661,6 +1661,36 @@ export function businessDaysBetween(from, to) {
 }
 
 /**
+ * 2つの銘柄の日々の値動き（終値の前日比）の相関。直近 n 日のうち、両方に値がある日だけで計算する。
+ * 1 に近いほど一緒に動く。データが20日分に満たなければ null。
+ */
+export function returnCorrelation(barsA, barsB, n = 60) {
+  const rets = (bars) => {
+    const m = new Map()
+    for (let i = 1; i < bars.length; i++) if (bars[i - 1].c > 0) m.set(bars[i].date, bars[i].c / bars[i - 1].c - 1)
+    return m
+  }
+  const a = rets(barsA)
+  const b = rets(barsB)
+  const dates = [...a.keys()].filter(d => b.has(d)).sort().slice(-n)
+  if (dates.length < 20) return null
+  const xs = dates.map(d => a.get(d))
+  const ys = dates.map(d => b.get(d))
+  const mean = v => v.reduce((s, x) => s + x, 0) / v.length
+  const mx = mean(xs)
+  const my = mean(ys)
+  let sxy = 0
+  let sxx = 0
+  let syy = 0
+  for (let i = 0; i < xs.length; i++) {
+    sxy += (xs[i] - mx) * (ys[i] - my)
+    sxx += (xs[i] - mx) ** 2
+    syy += (ys[i] - my) ** 2
+  }
+  return sxx > 0 && syy > 0 ? round(sxy / Math.sqrt(sxx * syy)) : null
+}
+
+/**
  * 買う前チェック。決めたルールに照らして、買ってよい株数と、止める理由・注意を出す。
  * 止める理由（blocks）が1つでもあれば ok は false。
  * @param {object} a code, price（買う値段）, atr（1日の値幅の目安・円）, regime, overheat, today（YYYY-MM-DD）, earningsDate,
@@ -1696,6 +1726,11 @@ export function preTradeCheck(a) {
   if (ok(maxShares) && maxShares < 1) blocks.push(`買える株数が0：${caps[0][0]}が足りない`)
   else if (lots === 0) warnings.push(`100株では${caps[0][0]}を超える。1株単位（かぶミニ）なら ${maxShares}株 まで`)
 
+  for (const c of a.correlations || []) {
+    if (!ok(c.corr) || c.code === a.code) continue
+    if (c.corr >= 0.7) warnings.push(`一緒に動きすぎ：保有中の ${c.name || c.code} と値動きの相関が ${c.corr}（直近60日）。実質的に同じ株を買い増すのに近く、悪い日は両方同時に損切りになりやすい`)
+    else if (c.corr >= 0.5) warnings.push(`やや一緒に動く：保有中の ${c.name || c.code} との相関 ${c.corr}（直近60日）`)
+  }
   const atrPct = ok(a.atr) && price > 0 ? round(a.atr / price * 100, 1) : null
   if (ok(atrPct) && atrPct >= 8) warnings.push(`値動きがとても荒い：1日に約${atrPct}%動く株。損切りが遠くなり、買える株数が少なくなる`)
   if (ok(price) && price < 100) warnings.push('株価100円未満：1円の動きが1%以上になる')
@@ -1726,6 +1761,7 @@ export function preTradeCheck(a) {
     mini_shares_max: ok(maxShares) ? Math.max(0, maxShares) : null,
     target_3r: ok(riskPerShare) ? tick(price + 3 * riskPerShare) : null,
     daily_range_pct: atrPct,
+    correlations: (a.correlations || []).filter(c => c.code !== a.code),
     earnings_date: a.earningsDate || null,
     earnings_estimated: !!a.earningsEstimated
   }
@@ -1874,7 +1910,16 @@ async function main() {
     const pk = analyze(d.bars, bench, { symbol: `TSE:${code}`, name: d.name, currency: d.currency, benchmark: 'TSE:1306' })
     const today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10)
     const ne = await fetchNextEarnings(code, today)
-    const res = preTradeCheck({ code, price, atr: pk.volatility.atr, regime: pk.regime, overheat: pk.overheat.score, today, earningsDate: ne?.date || null, earningsEstimated: ne?.estimated, settings: state.settings, positions: state.positions, buysToday: state.buysToday })
+    const correlations = []
+    for (const pos of state.positions || []) {
+      if (!pos.code || pos.code === code) continue
+      try {
+        correlations.push({ code: pos.code, name: pos.name, corr: returnCorrelation(d.bars, (await fetchYahoo(`${pos.code}.T`)).bars) })
+      } catch {
+        correlations.push({ code: pos.code, name: pos.name, corr: null })
+      }
+    }
+    const res = preTradeCheck({ code, price, atr: pk.volatility.atr, regime: pk.regime, overheat: pk.overheat.score, today, earningsDate: ne?.date || null, earningsEstimated: ne?.estimated, settings: state.settings, positions: state.positions, buysToday: state.buysToday, correlations })
     console.log(JSON.stringify({ code, name: d.name, as_of: pk.date_jst, last_close: pk.candle.close, regime: pk.regime, score: pk.scores.long, overheat: pk.overheat.score, buy_candidate: pk.buy_candidate, ...res, earnings_source: ne?.source || null }, null, 2))
     return
   }

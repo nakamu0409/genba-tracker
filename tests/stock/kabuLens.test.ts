@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { afternoonResult, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -713,5 +713,26 @@ describe('広い範囲の買い候補と成績の集計', () => {
     expect(rep.by_kind['通過・GAP']).toEqual({ count: 2, avg_r: 1, win_rate_pct: 50, total_r: 2 })
     expect(rep.by_reason['見送り・OVERHEAT'].count).toBe(1)
     expect(rep.by_price['300〜1,000円'].count).toBe(2)
+  })
+})
+
+describe('値動きの相関', () => {
+  const day = (k: number) => `2026-${String(1 + Math.floor(k / 28)).padStart(2, '0')}-${String(1 + (k % 28)).padStart(2, '0')}`
+  const mk = (rs: number[]) => {
+    const closes = rs.reduce<number[]>((acc, r) => [...acc, (acc.at(-1) ?? 100) * (1 + r)], [])
+    return closes.map((c, k) => ({ date: day(k), o: c, h: c, l: c, c }))
+  }
+  const base = Array.from({ length: 70 }, (_, k) => Math.sin(k * 1.7) * 0.02)
+  it('同じ動きは1、逆の動きは−1、20日に満たなければ null', () => {
+    expect(returnCorrelation(mk(base), mk(base))).toBe(1)
+    expect(returnCorrelation(mk(base), mk(base.map(r => -r)))).toBe(-1)
+    expect(returnCorrelation(mk(base.slice(0, 10)), mk(base.slice(0, 10)))).toBeNull()
+  })
+  it('preTradeCheck: 保有株と相関が高いと警告する', () => {
+    const settings = { capital: 400000, cash: 150000, riskPct: 2, maxPosPct: 40, maxPositions: 3, dayTradeMax: 2 }
+    const r = preTradeCheck({ code: '7203', price: 1000, atr: 20, regime: 'TREND_UP', overheat: 10, today: '2026-11-17', earningsDate: '2027-02-05', settings, positions: [], buysToday: 0, correlations: [{ code: '7267', name: 'テスト', corr: 0.82 }, { code: '9984', name: 'べつ', corr: 0.55 }, { code: '4502', name: 'ちがう', corr: 0.1 }] })
+    expect(r.ok).toBe(true)
+    expect(r.warnings.filter(w => w.includes('一緒に動きすぎ'))).toHaveLength(1)
+    expect(r.warnings.filter(w => w.includes('やや一緒に動く'))).toHaveLength(1)
   })
 })
