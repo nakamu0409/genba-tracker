@@ -41,7 +41,15 @@ node .claude/scripts/kabu-lens.mjs --backtest 7203 --trades
 node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の「買っていたら」の答え合わせ
 ```
 
-- 株価は Yahoo Finance（query1/query2.finance.yahoo.com）、PTSとランキングは株探（kabutan.jp, s.kabutan.jp）。クラウド環境のネットワーク設定でこの4つを許可してある。ほかのサイト（みんかぶ、日経、TradingView など）は開けない。
+- 株価は Yahoo Finance（query1/query2.finance.yahoo.com）、PTSとランキングは株探（kabutan.jp, s.kabutan.jp）。
+- 2026年11月17日に、クラウド環境（デフォルト）のネットワーク設定へ次を足した。まだスクリプトには組み込んでいない。どれも curl にブラウザの User-Agent を付けて取る。
+  - **松井証券** finance.matsui.co.jp: 銘柄ページ `/stock/<コード>/index`（ほかに `/daily_bar/`・`/news/`・`/settlement/`）、ランキング `/ranking-rise/index`（値上がり）、`/ranking-day-trading-morning/index`（デイトレ適性。売買代金と値動きの大きい株。表は1つで、順位・銘柄・現在値・出来高・売買代金・株価変動率）、`/ranking-tick/index`、`/ranking-industry-rise/index`。決算発表スケジュール `/find-by-schedule/index` は表が中身なしで返る（画面の中で読み込む形らしい）。ログインが要る板情報などは取れない。
+  - **TDnet（適時開示の公式）** www.release.tdnet.info: `/inbs/I_list_001_YYYYMMDD.html`（その日の開示一覧。時刻・コード・会社名・表題。続きは `_002`, `_003`…）。過去約1か月まで。
+  - **IR BANK** irbank.net: `/<コード>/pl` など。過去の決算・決算発表履歴。株探で無料では約2年しか取れない決算の歴史を補える。
+  - **株予報** kabuyoho.jp: `/sp/reportTop?bcode=<コード>`。決算・業績の分析。
+  - **JPX** www.jpx.co.jp: 銘柄一覧など。
+  - **みんかぶ** minkabu.jp: 許可したが、サイト側が 403 で断る。使えない。
+- 日経、TradingView、楽天証券・松井証券の口座（ログインが要るもの）は開けない。
 - Node の fetch はプロキシを通すため、スクリプトが自分で `NODE_USE_ENV_PROXY=1` を付けて起動し直す。だめなら curl に切り替わる。
 - `kabu-lens.pine`（TradingView版）は、TradingView 上での動作確認をしていない。
 
