@@ -15,6 +15,7 @@
 //   node .claude/scripts/kabu-lens.mjs --movers         # 値上がり・値下がりの両方（材料ニュースつき）
 //   node .claude/scripts/kabu-lens.mjs --movers --open  # 同じ。朝（寄り付き後）用で、過去の結果を朝の検証の数字にする
 //   node .claude/scripts/kabu-lens.mjs --kessan [YYYYMMDD]  # その日の決算・業績修正の見出し（上方修正・下方修正などに分類）
+//   node .claude/scripts/kabu-lens.mjs --next-earnings 7716 5010  # 次の決算発表日（株探の予定日、無ければ去年の発表日からの見込み）
 //   node .claude/scripts/kabu-lens.mjs --matsui [day-trading-morning|rise|tick]  # 松井証券のランキング
 //   node .claude/scripts/kabu-lens.mjs --tdnet [YYYYMMDD] [コード...]  # 適時開示（TDnet）。増資・業績修正・特別損失などに印を付ける
 //   node .claude/scripts/kabu-lens.mjs --kessan-result <記録.json> [--stats <累計.json>]  # 上方修正の記録の、その後（1・5・20日）
@@ -1379,6 +1380,52 @@ export async function fetchMatsuiRanking(kind = 'day-trading-morning') {
   return { source: `松井証券 ランキング（${kind}）`, ...r }
 }
 
+/** IR BANK の銘柄ページの「決算発表資料」の表（提出日・時間・区分・表題）を読む。2013年ごろからある */
+export function parseIrbankHistory(html) {
+  const t = (String(html).match(/<table[\s\S]*?<\/table>/g) || []).find(x => x.includes('提出日') && x.includes('区分')) || ''
+  const rows = []
+  for (const tr of t.match(/<tr[\s\S]*?<\/tr>/g) || []) {
+    const td = [...tr.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map(m => strip(m[1]))
+    if (td.length >= 4 && /^\d{4}\/\d{2}\/\d{2}$/.test(td[0])) rows.push({ date: td[0].replace(/\//g, '-'), time: td[1], kind: td[2], title: td[3] })
+  }
+  return rows
+}
+
+/**
+ * 過去の決算発表日から、次の決算発表日を見積もる（去年の同じ時期の発表日 ＋ 364日。曜日がそろう）。
+ * 同じ区分（1Q・2Q・3Q・通期）をすでに今年発表していれば、その分は除く。
+ */
+export function estimateNextEarnings(rows, today) {
+  const add = (d, n) => {
+    const x = new Date(d + 'T00:00:00Z')
+    x.setUTCDate(x.getUTCDate() + n)
+    return x.toISOString().slice(0, 10)
+  }
+  const kessan = rows.filter(r => ['1Q', '2Q', '3Q', '通期'].includes(r.kind) && r.date <= today)
+  const cands = []
+  for (const r of kessan) {
+    const next = add(r.date, 364)
+    if (next < today || next > add(today, 200)) continue
+    const done = kessan.some(x => x.kind === r.kind && x.date > add(r.date, 300))
+    if (!done) cands.push({ date: next, kind: r.kind, last_year: r.date, time: r.time })
+  }
+  cands.sort((a, b) => a.date.localeCompare(b.date))
+  return cands[0] || null
+}
+
+/** 次の決算発表日。株探に予定日があればそれ、無ければ IR BANK の過去の発表日から見積もる */
+export async function fetchNextEarnings(code, today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10)) {
+  try {
+    const d = parseKabutanEarningsDate(await fetchText(`https://kabutan.jp/stock/?code=${code}`))
+    if (d && d >= today) return { date: d, estimated: false, source: '株探の決算発表予定日' }
+  } catch { /* 次を試す */ }
+  try {
+    const e = estimateNextEarnings(parseIrbankHistory(await fetchText(`https://irbank.net/${code}`)), today)
+    if (e) return { date: e.date, estimated: true, kind: e.kind, source: `IR BANK の過去の発表日からの見込み（去年は ${e.last_year} ${e.time}）` }
+  } catch { /* 取れなかった */ }
+  return null
+}
+
 /** 株探の銘柄ページから「決算発表予定日」を読む（載っていなければ null） */
 export function parseKabutanEarningsDate(html) {
   const m = String(html).replace(/<[^>]*>/g, ' ').match(/決算発表予定日\s*(\d{4})\/(\d{1,2})\/(\d{1,2})/)
@@ -1442,7 +1489,9 @@ export function preTradeCheck(a) {
   if (ok(a.overheat) && a.overheat >= 60) warnings.push(`高値づかみ危険度が${a.overheat}（60以上は見送りの基準）`)
   if (a.earningsDate && a.today) {
     const n = businessDaysBetween(a.today, a.earningsDate)
-    if (n >= 0 && n <= 3) blocks.push(`決算前：決算発表予定日が ${a.earningsDate}（${n === 0 ? '今日' : n + '営業日後'}）。決算の3営業日前から当日までは新しく買わない`)
+    const est = a.earningsEstimated ? '（去年の発表日からの見込み）' : ''
+    if (n >= 0 && n <= 3) blocks.push(`決算前：決算発表予定日が ${a.earningsDate}${est}（${n === 0 ? '今日' : n + '営業日後'}）。決算の3営業日前から当日までは新しく買わない`)
+    else if (a.earningsEstimated && n > 3 && n <= 8) warnings.push(`決算が近いかもしれない：見込みは ${a.earningsDate}（${n}営業日後）。正式な日付を確認を`)
   } else if (!a.earningsDate) warnings.push('決算発表予定日は確認できず。自分で確認を')
 
   const shares = lots || 0
@@ -1462,7 +1511,8 @@ export function preTradeCheck(a) {
     mini_shares_max: ok(maxShares) ? Math.max(0, maxShares) : null,
     target_3r: ok(riskPerShare) ? tick(price + 3 * riskPerShare) : null,
     daily_range_pct: atrPct,
-    earnings_date: a.earningsDate || null
+    earnings_date: a.earningsDate || null,
+    earnings_estimated: !!a.earningsEstimated
   }
 }
 
@@ -1519,6 +1569,16 @@ async function main() {
   const save = !args.includes('--no-save')
   const evalAt = args.indexOf('--evaluate')
   if (evalAt >= 0) return evaluateFile(args[evalAt + 1])
+  if (args.includes('--next-earnings')) {
+    const codes = args.filter(a => isTseCode(a.toUpperCase())).map(a => a.toUpperCase())
+    const out = []
+    for (const c of codes) {
+      out.push({ code: c, ...(await fetchNextEarnings(c)) })
+      await sleep(300)
+    }
+    console.log(JSON.stringify(out, null, 2))
+    return
+  }
   if (args.includes('--matsui')) {
     const kind = args[args.indexOf('--matsui') + 1]
     console.log(JSON.stringify(await fetchMatsuiRanking(kind && !kind.startsWith('--') ? kind : undefined), null, 2))
@@ -1568,15 +1628,10 @@ async function main() {
     }
     const d = await fetchYahoo(`${code}.T`)
     const pk = analyze(d.bars, bench, { symbol: `TSE:${code}`, name: d.name, currency: d.currency, benchmark: 'TSE:1306' })
-    let earningsDate = null
-    try {
-      earningsDate = parseKabutanEarningsDate(await fetchText(`https://kabutan.jp/stock/?code=${code}`))
-    } catch {
-      earningsDate = null
-    }
     const today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10)
-    const res = preTradeCheck({ code, price, atr: pk.volatility.atr, regime: pk.regime, overheat: pk.overheat.score, today, earningsDate, settings: state.settings, positions: state.positions, buysToday: state.buysToday })
-    console.log(JSON.stringify({ code, name: d.name, as_of: pk.date_jst, last_close: pk.candle.close, regime: pk.regime, score: pk.scores.long, overheat: pk.overheat.score, buy_candidate: pk.buy_candidate, ...res }, null, 2))
+    const ne = await fetchNextEarnings(code, today)
+    const res = preTradeCheck({ code, price, atr: pk.volatility.atr, regime: pk.regime, overheat: pk.overheat.score, today, earningsDate: ne?.date || null, earningsEstimated: ne?.estimated, settings: state.settings, positions: state.positions, buysToday: state.buysToday })
+    console.log(JSON.stringify({ code, name: d.name, as_of: pk.date_jst, last_close: pk.candle.close, regime: pk.regime, score: pk.scores.long, overheat: pk.overheat.score, buy_candidate: pk.buy_candidate, ...res, earnings_source: ne?.source || null }, null, 2))
     return
   }
   if (args.includes('--movers-result')) {

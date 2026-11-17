@@ -54,6 +54,7 @@ section { display: grid; gap: 10px; min-width: 0; }
 .rules li { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .rules li span:first-child { color: var(--muted); }
 .flags { display: grid; gap: 4px; }
+#m-buys-box.over .value { color: var(--warn); }
 .flag { color: var(--warn); background: var(--warn-soft); border-radius: 6px; padding: 6px 10px; font-size: .84rem; font-weight: 700; }
 
 .meter { height: 10px; border-radius: 999px; background: var(--bg); border: 1px solid var(--line); display: flex; overflow: hidden; }
@@ -118,7 +119,8 @@ fieldset { border: 1px dashed var(--line); border-radius: 8px; padding: 12px; ma
 legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4px; }
 .sig-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
 #mov-panel th, #mov-panel td { padding-left: .28rem; padding-right: .28rem; white-space: nowrap; }
-#mov-panel[hidden], #mov-empty[hidden] { display: none; }
+#mov-panel[hidden], #mov-empty[hidden], #kes-panel[hidden], #kes-empty[hidden] { display: none; }
+#kes-panel th, #kes-panel td { padding-left: .28rem; padding-right: .28rem; white-space: nowrap; }
 .sig-table th { text-align: left; font-weight: 500; color: var(--muted); font-size: .72rem; padding: 4px 6px 4px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
 .sig-table td { padding: 6px 6px 6px 0; border-bottom: 1px dashed var(--line); vertical-align: baseline; }
 .sig-table td.num, .sig-table th.num { text-align: right; padding-right: 0; }
@@ -146,7 +148,9 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
         <div class="stat"><div class="label">資金の合計</div><div class="value" id="m-capital">—</div><div class="hint" id="m-capital-at">未設定</div></div>
         <div class="stat"><div class="label">現金</div><div class="value" id="m-cash">—</div><div class="hint">新しく買える金額</div></div>
         <div class="stat"><div class="label">含み損益</div><div class="value" id="m-unreal">—</div><div class="hint" id="m-unreal-hint">保有中の合計</div></div>
+        <div class="stat" id="m-buys-box"><div class="label">今日の買い</div><div class="value" id="m-buys">—</div><div class="hint" id="m-buys-hint">記録した分だけ数える</div></div>
       </div>
+      <div class="flag" id="m-buys-flag" hidden></div>
       <div>
         <div class="meter" id="meter" role="img" aria-label="資金に占める各銘柄の割合"></div>
         <div class="meter-key" id="meter-key"></div>
@@ -247,6 +251,13 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
     <p class="sub">通知が出した「いま買う危険度」が当たっていたか。危険度は「大きく下げる割合」を見るものなので、高いほど「3%下げ」（買ったあと3%以上下げた件数と割合）が多ければ当たりです。「過去」は記録を始める前の検証での割合です。平均が良い・悪いは目安にしません。各30件たまるまでは偶然の影響が大きいです。</p>
     <div class="panel" id="mov-panel" hidden><div class="sig-scroll"><table class="sig-table" aria-label="危険度ごとの成績"><thead><tr><th>向き</th><th>危険度</th><th class="num">件数</th><th class="num">平均</th><th class="num">勝率</th><th class="num">3%下げ</th><th class="num">過去</th></tr></thead><tbody id="mov-body"></tbody></table></div></div>
     <div class="panel" id="mov-empty"><div class="empty">まだ記録はありません。昼の通知がランキングを記録し、夜の点検が結果を足すと、ここに並びます。</div></div>
+  </section>
+
+  <section aria-labelledby="h-kes">
+    <div class="sec-head"><h2 id="h-kes">上方修正のその後</h2><span class="count" id="kes-count"></span></div>
+    <p class="sub">業績の上方修正が出た株を、発表の次の営業日の始値で買っていたら、5営業日後どうなったか（「過去」は記録を始める前の検証の平均）。毎晩の「決算の記録」がためます。過去約2年の検証では、全体で平均+1.1%、最初の反応が+12%以上だと+4.3%（勝率は約3割）でした。各30件たまるまでは偶然の影響が大きいです。</p>
+    <div class="panel" id="kes-panel" hidden><div class="sig-scroll"><table class="sig-table" aria-label="上方修正の5日後の成績"><thead><tr><th>分け方</th><th class="num">件数</th><th class="num">5日後</th><th class="num">勝率</th><th class="num">TOPIX差</th><th class="num">過去</th></tr></thead><tbody id="kes-body"></tbody></table></div></div>
+    <div class="panel" id="kes-empty"><div class="empty">まだ結果はありません。最初の5日後の結果は、記録を始めてから約1週間後に出ます。</div></div>
   </section>
 
   <section aria-labelledby="h-log">
@@ -407,7 +418,20 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
   }
 
   // ── 資金とルール ──
+  function renderBuys() {
+    var t = today(), max = S("dayTradeMax");
+    var cnt = rows.filter(function (r) { return r.date === t && r.status !== "skip" && r.status !== "plan"; }).length;
+    $("m-buys").textContent = cnt + " / " + max + " 回";
+    $("m-buys-box").classList.toggle("over", cnt >= max);
+    var f = $("m-buys-flag");
+    if (cnt > max) { f.hidden = false; f.textContent = "今日は上限（" + max + "回）を超えています。これ以上買わないでください。"; }
+    else if (cnt === max) { f.hidden = false; f.textContent = "今日の買いは上限（" + max + "回）に達しました。今日はここまで。"; }
+    else { f.hidden = true; f.textContent = ""; }
+    $("m-buys-hint").textContent = cnt < max ? "あと " + (max - cnt) + " 回。買う前に /kau" : "記録した分だけ数える";
+  }
+
   function renderMoney() {
+    renderBuys();
     var c = S("capital"), cash = S("cash");
     var open = rows.filter(function (r) { return r.status === "open"; });
     $("m-capital").textContent = c === null ? "—" : yenPlain(c);
@@ -877,6 +901,22 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
     block("昼", st, MOV_PAST); block("朝", st && st.open, { up: { LOW: 13, MID: 34, HIGH: 38 }, down: { LOW: 17, MID: 27, HIGH: 40 } });
   }
 
+  function renderKessan(st) {
+    var body = $("kes-body"); body.textContent = "";
+    var all = st && st.all && st.all.n ? st.all.n : 0;
+    $("kes-panel").hidden = !all; $("kes-empty").hidden = !!all;
+    $("kes-count").textContent = all ? all + " 件" : "";
+    [["all", "全体", "+1.1%"], ["react12", "反応+12%以上", "+4.3%"], ["react_under12", "それ未満", "—"]].forEach(function (k) {
+      var c = st && st[k[0]]; if (!c || !c.n) return;
+      var tr = document.createElement("tr");
+      var cell = function (text, num) { var td = document.createElement("td"); td.textContent = text; if (num) td.className = "num"; tr.appendChild(td); };
+      var pct = function (v) { return (v > 0 ? "+" : "") + v.toFixed(2) + "%"; };
+      cell(k[1]); cell(String(c.n), true); cell(pct(c.sum5 / c.n), true); cell(Math.round(c.win5 / c.n * 100) + "%", true);
+      cell(c.nEx ? pct(c.sumEx5 / c.nEx) : "—", true); cell(k[2], true);
+      body.appendChild(tr);
+    });
+  }
+
   function unavailable(text) { ["open-empty", "w-empty", "empty"].forEach(function (i) { $(i).textContent = text; $(i).hidden = false; }); }
   function byDate(a, b) { return String(b.date || b.createdAt || "") < String(a.date || a.createdAt || "") ? -1 : 1; }
 
@@ -899,6 +939,7 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
         signals = snap.docs.map(function (doc) { var o = Object.assign({}, doc.data()); o.id = doc.id; return o; });
         renderSignals();
       }, function () {});
+      db.doc("settings/kessan_stats").onSnapshot(function (snap) { renderKessan(snap.exists ? snap.data() : null); }, function () {});
       db.doc("settings/movers_stats").onSnapshot(function (snap) { renderMovers(snap.exists ? snap.data() : null); }, function () {});
       db.doc("settings/backtest").onSnapshot(function (snap) { baseline = snap.exists ? snap.data() : null; renderSignals(); }, function () {});
     });

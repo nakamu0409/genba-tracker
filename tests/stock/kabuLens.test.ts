@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { afternoonResult, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { afternoonResult, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -639,5 +639,25 @@ describe('松井証券のランキング', () => {
     const r = parseMatsuiRanking(html)
     expect(r.as_of).toBe('2026/11/17 15:30')
     expect(r.rows).toEqual([{ rank: 1, name: 'キオクシアホールディングス', code: '285A', market: '東P', price: 7819, change_pct: -6.83, volume: 90313600, turnover: 729264887200, range_pct: 6.59 }])
+  })
+})
+
+describe('次の決算発表日の見積もり', () => {
+  const rows = [
+    { date: '2026-11-13', time: '14:00', kind: '3Q', title: '' },
+    { date: '2026-08-07', time: '14:00', kind: '2Q', title: '' },
+    { date: '2026-08-07', time: '14:00', kind: '修正', title: '' },
+    { date: '2026-05-14', time: '14:00', kind: '1Q', title: '' },
+    { date: '2026-02-12', time: '15:30', kind: '通期', title: '' },
+    { date: '2025-11-14', time: '14:00', kind: '3Q', title: '' },
+    { date: '2025-02-13', time: '15:30', kind: '通期', title: '' }
+  ]
+  it('去年の同じ区分の発表日＋364日のうち、まだ発表していない一番近いもの', () => {
+    expect(estimateNextEarnings(rows, '2026-11-17')).toEqual({ date: '2027-02-11', kind: '通期', last_year: '2026-02-12', time: '15:30' })
+    expect(estimateNextEarnings(rows, '2026-11-10')).toMatchObject({ date: '2026-11-13', kind: '3Q' })
+  })
+  it('parseIrbankHistory: 表の行を読む', () => {
+    const html = '<table><tr><th>提出日</th><th>時間</th><th>区分</th><th>資料</th></tr><tr class="odd"><td class="lf">2026/11/13</td><td class="lf">14:00</td><td class="lf co_red">3Q</td><td class="lf"><a href="/x">2026年12月期第3四半期決算短信</a></td></tr></table>'
+    expect(parseIrbankHistory(html)).toEqual([{ date: '2026-11-13', time: '14:00', kind: '3Q', title: '2026年12月期第3四半期決算短信' }])
   })
 })
