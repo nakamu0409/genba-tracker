@@ -1247,8 +1247,8 @@ export function mergeKessanStats(prev, records) {
   const out = records.map((r) => {
     if (r.counted || !ok(r.r5)) return r
     const up = !r.kind || r.kind === 'REVISE_UP'
-    // 張り付き・高値寄りの日は実際には買えないことが多いので、反応の大きさの欄には数えない
-    const buyable = !r.stuck && !r.openAtHigh
+    // 1日じゅう張り付いた日は買えないので、反応の大きさの欄には数えない（始値＝高値の日は、高く始まって下げただけで買えることが多いので数える）
+    const buyable = !r.stuck
     const big = !buyable ? null : ok(r.react) && r.react >= 12 ? 'react12' : ok(r.react) && r.react >= 7 ? 'react7_12' : null
     const keys = [up ? 'all' : null, big, up && !(ok(r.react) && r.react >= 12) ? 'react_under12' : null].filter(Boolean)
     for (const k of keys) {
@@ -1301,7 +1301,7 @@ export async function kessanResult(records, prevStats = null) {
   }
   const m = mergeKessanStats(prevStats, done)
   return {
-    note: 'all と react_under12 は上方修正だけ。react12・react7_12 は決算・修正のすべてで、最初の反応が+12%以上・+7〜12%のもののうち、張り付き・ストップ高寄りでなく実際に買えたもの（約10年の検証で、買えたものの超過5日は +12%以上で約+0.7%、+7〜12%で約+0.9〜1.6%。手数料・値段のずれの前）。発表の次の営業日の始値で買った場合。過去約2年の検証では、5日後の平均は 全体+1.1%（TOPIX連動ETFではなく「いつでも買う」基準が+0.45%）、最初の反応が+12%以上は+4.3%（270回、勝率は約3割）。件数が少ないうちは偶然の影響が大きい（目安は各30件以上）',
+    note: 'all と react_under12 は上方修正だけ。react12・react7_12 は決算・修正のすべてで、最初の反応が+12%以上・+7〜12%のもののうち、1日じゅう張り付いた日を除いたもの（約10年の検証で、張り付きを除くと超過5日は +12%以上で約+0.4%、手数料・値段のずれを引くとほぼ残らない）。発表の次の営業日の始値で買った場合。過去約2年の検証では、5日後の平均は 全体+1.1%（TOPIX連動ETFではなく「いつでも買う」基準が+0.45%）、最初の反応が+12%以上は+4.3%（270回、勝率は約3割）。件数が少ないうちは偶然の影響が大きい（目安は各30件以上）',
     total: summarizeKessanStats(m.stats), stats: m.stats, records: m.records
   }
 }

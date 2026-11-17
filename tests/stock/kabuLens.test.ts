@@ -607,9 +607,9 @@ describe('上方修正のその後', () => {
     expect(sum.react_under12.count).toBe(1)
   })
 
-  it('mergeKessanStats: 張り付き・高値寄りの日は、反応の大きさの欄に数えない', () => {
+  it('mergeKessanStats: 1日じゅう張り付いた日は数えず、高く始まって下げた日は数える', () => {
     const m = mergeKessanStats(null, [{ kind: 'GOOD', react: 20, r5: 10, stuck: true }, { kind: 'GOOD', react: 13, r5: -2, openAtHigh: true }, { kind: 'GOOD', react: 14, r5: 1 }])
-    expect(summarizeKessanStats(m.stats).react12.count).toBe(1)
+    expect(summarizeKessanStats(m.stats).react12.count).toBe(2)
   })
 })
 

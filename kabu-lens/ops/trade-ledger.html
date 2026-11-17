@@ -37,7 +37,12 @@ body { background: var(--bg); color: var(--ink); font-family: var(--font-body); 
 .wrap { max-width: 640px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 20px 48px; display: grid; gap: 22px; }
 h1 { font-size: 1.35rem; margin: 0; font-weight: 700; text-wrap: balance; }
 h2 { font-size: 1rem; margin: 0; font-weight: 700; }
+[hidden] { display: none !important; }
 .sub { color: var(--muted); font-size: .85rem; margin: 2px 0 0; }
+.group-head { margin: 28px 0 -4px; padding-top: 14px; border-top: 2px solid var(--line, #ddd); font-weight: 700; font-size: 1.05rem; }
+.group-head span { display: block; font-weight: 400; font-size: .8rem; color: var(--muted); margin-top: 2px; }
+#week-panel[hidden], #week-empty[hidden] { display: none; }
+#week-panel th, #week-panel td { padding-left: .28rem; padding-right: .28rem; white-space: nowrap; }
 .num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
 .up { color: var(--up); } .down { color: var(--down); }
 section { display: grid; gap: 10px; min-width: 0; }
@@ -189,79 +194,9 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
     </div>
   </section>
 
-  <section aria-labelledby="h-watch">
-    <div class="sec-head"><h2 id="h-watch">監視リスト</h2><button class="small" id="w-new" type="button">＋ 銘柄を追加</button></div>
-    <p class="sub">買いたい銘柄を先に入れておきます。夜の通知が毎日点検し、条件に合ったものだけ買い候補として知らせます。</p>
-    <form id="w-form" hidden novalidate>
-      <h2 id="w-title">監視リストに追加</h2>
-      <div class="grid3">
-        <label>銘柄名<input id="w-name" placeholder="東リ"></label>
-        <label>証券コード<input id="w-code" class="num" placeholder="7971"></label>
-        <label>種類
-          <select id="w-style">
-            <option value="swing">スイング（数日〜数週間）</option>
-            <option value="day">デイトレ</option>
-          </select>
-        </label>
-      </div>
-      <div class="grid2">
-        <label>買いたい値段（指値の目安）<input id="w-entry" class="num" inputmode="decimal"></label>
-        <label>損切りの値段<input id="w-stop" class="num" inputmode="decimal"></label>
-      </div>
-      <label>なぜ見ているか（材料・決算日など）<textarea id="w-note"></textarea></label>
-      <div class="calc" id="w-calc">買いたい値段と損切りを入れると、ルールに合う株数が出ます。</div>
-      <div class="msg" id="w-msg" role="status"></div>
-      <div class="form-actions">
-        <button class="primary" type="submit" id="w-save">保存</button>
-        <button class="ghost" type="button" id="w-cancel">閉じる</button>
-      </div>
-    </form>
-    <details class="more" id="univ" hidden><summary id="univ-sum">毎晩点検する基本の銘柄</summary><p id="univ-list"></p></details>
-    <div class="list" id="w-list" aria-live="polite">
-      <div class="empty" id="w-empty">監視リストは空です。「＋ 銘柄を追加」から、気になる銘柄を入れてください。</div>
-    </div>
-  </section>
-
-  <section aria-labelledby="h-sig">
-    <div class="sec-head"><h2 id="h-sig">買い候補の成績</h2><span class="count" id="sig-count"></span></div>
-    <p class="sub">通知が挙げた買い候補を、翌営業日の始値で買っていたらどうなったか。夜の点検が毎日追跡します。ルールで見送った候補も並べて、見送りが正しかったかを確かめます。</p>
-    <div class="panel" id="kind-panel" hidden><div class="sig-scroll"><table class="sig-table" aria-label="買いの形ごとの成績"><thead><tr><th>買いの形</th><th class="num">決着</th><th class="num">勝率</th><th class="num">平均R</th><th class="num">過去の検証</th></tr></thead><tbody id="kind-body"></tbody></table></div></div>
-    <div class="panel">
-      <div class="stats">
-        <div class="stat"><div class="label">通過した候補</div><div class="value" id="g-pass">—</div><div class="hint" id="g-pass-h">決着した回数</div></div>
-        <div class="stat"><div class="label">勝率・平均R</div><div class="value" id="g-pass-r">—</div><div class="hint">損切り幅を1とした結果</div></div>
-        <div class="stat"><div class="label">追跡中</div><div class="value" id="g-open">—</div><div class="hint" id="g-open-h">まだ決着していない</div></div>
-        <div class="stat"><div class="label">見送った候補</div><div class="value" id="g-block">—</div><div class="hint" id="g-block-h">決着した回数</div></div>
-        <div class="stat"><div class="label">見送り分の勝率・平均R</div><div class="value" id="g-block-r">—</div><div class="hint">高ければ、見送りすぎ</div></div>
-        <div class="stat"><div class="label">過去の検証</div><div class="value" id="g-base">—</div><div class="hint" id="g-base-h">記録を始める前の成績</div></div>
-      </div>
-      <div class="sig-scroll">
-        <table class="sig-table" aria-label="買い候補の一覧">
-          <thead><tr><th>銘柄</th><th>出た日・形</th><th>結果</th><th class="num">R</th></tr></thead>
-          <tbody id="sig-body"></tbody>
-        </table>
-      </div>
-      <div class="empty" id="sig-empty">まだ記録はありません。夜の点検が買い候補を挙げると、ここに並びます。</div>
-      <div class="bar"><button class="small" id="sig-more" type="button" hidden>もっと見る</button></div>
-    </div>
-  </section>
-
-  <section aria-labelledby="h-mov">
-    <div class="sec-head"><h2 id="h-mov">ランキングの危険度の答え合わせ</h2><span class="count" id="mov-count"></span></div>
-    <p class="sub">通知が出した「いま買う危険度」が当たっていたか。危険度は「大きく下げる割合」を見るものなので、高いほど「3%下げ」（買ったあと3%以上下げた件数と割合）が多ければ当たりです。「過去」は記録を始める前の検証での割合です。平均が良い・悪いは目安にしません。各30件たまるまでは偶然の影響が大きいです。</p>
-    <div class="panel" id="mov-panel" hidden><div class="sig-scroll"><table class="sig-table" aria-label="危険度ごとの成績"><thead><tr><th>向き</th><th>危険度</th><th class="num">件数</th><th class="num">平均</th><th class="num">勝率</th><th class="num">3%下げ</th><th class="num">過去</th></tr></thead><tbody id="mov-body"></tbody></table></div></div>
-    <div class="panel" id="mov-empty"><div class="empty">まだ記録はありません。昼の通知がランキングを記録し、夜の点検が結果を足すと、ここに並びます。</div></div>
-  </section>
-
-  <section aria-labelledby="h-kes">
-    <div class="sec-head"><h2 id="h-kes">決算・修正のその後</h2><span class="count" id="kes-count"></span></div>
-    <p class="sub">決算・業績修正が出た株を、最初の反応が出た次の始値で買っていたら、5営業日後どうなったか。毎晩の「決算の記録」がためます。約10年の検証では、実際に買えた株（ストップ高に張り付いた日などを除く）に限ると、5日後に市場平均を上回ったのは+0.7〜1.2%ほどで、手数料と値段のずれを引くとほぼ残りません。張り付いた日は数えていません。「過去」は記録を始める前の検証の数字です。各30件たまるまでは偶然の影響が大きいです。</p>
-    <div class="panel" id="kes-panel" hidden><div class="sig-scroll"><table class="sig-table" aria-label="上方修正の5日後の成績"><thead><tr><th>分け方</th><th class="num">件数</th><th class="num">5日後</th><th class="num">勝率</th><th class="num">TOPIX差</th><th class="num">過去</th></tr></thead><tbody id="kes-body"></tbody></table></div></div>
-    <div class="panel" id="kes-empty"><div class="empty">まだ結果はありません。最初の5日後の結果は、記録を始めてから約1週間後に出ます。</div></div>
-  </section>
-
   <section aria-labelledby="h-log">
     <div class="sec-head"><h2 id="h-log">売買の記録</h2></div>
+    <p class="sub" id="hist-note" hidden></p>
     <div class="panel">
       <div class="stats">
         <div class="stat"><div class="label">決済済み</div><div class="value" id="s-count">0</div><div class="hint" id="s-wl">勝ち0・負け0</div></div>
@@ -354,6 +289,86 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
     <div class="list" id="list" aria-live="polite">
       <div class="empty" id="empty">記録を読み込んでいます。</div>
     </div>
+  </section>
+
+  <section aria-labelledby="h-week">
+    <div class="sec-head"><h2 id="h-week">週の振り返り</h2><span class="count" id="week-count"></span></div>
+    <p class="sub">毎週金曜の夜に、1週間の売買を「ルールどおりにできたか」でまとめます。</p>
+    <div class="panel" id="week-panel" hidden><div class="sig-scroll"><table class="sig-table" aria-label="週ごとの振り返り"><thead><tr><th>週（金曜）</th><th class="num">買い</th><th class="num">上限超え</th><th class="num">損益</th><th class="num">ルール○</th><th class="num">✕</th><th class="num">未記入</th></tr></thead><tbody id="week-body"></tbody></table></div></div>
+    <div class="panel" id="week-empty"><div class="empty">まだありません。最初の振り返りは金曜の夜に入ります。</div></div>
+  </section>
+
+  <section aria-labelledby="h-watch">
+    <div class="sec-head"><h2 id="h-watch">監視リスト</h2><button class="small" id="w-new" type="button">＋ 銘柄を追加</button></div>
+    <p class="sub">買いたい銘柄を先に入れておきます。夜の通知が毎日点検し、条件に合ったものだけ買い候補として知らせます。</p>
+    <form id="w-form" hidden novalidate>
+      <h2 id="w-title">監視リストに追加</h2>
+      <div class="grid3">
+        <label>銘柄名<input id="w-name" placeholder="東リ"></label>
+        <label>証券コード<input id="w-code" class="num" placeholder="7971"></label>
+        <label>種類
+          <select id="w-style">
+            <option value="swing">スイング（数日〜数週間）</option>
+            <option value="day">デイトレ</option>
+          </select>
+        </label>
+      </div>
+      <div class="grid2">
+        <label>買いたい値段（指値の目安）<input id="w-entry" class="num" inputmode="decimal"></label>
+        <label>損切りの値段<input id="w-stop" class="num" inputmode="decimal"></label>
+      </div>
+      <label>なぜ見ているか（材料・決算日など）<textarea id="w-note"></textarea></label>
+      <div class="calc" id="w-calc">買いたい値段と損切りを入れると、ルールに合う株数が出ます。</div>
+      <div class="msg" id="w-msg" role="status"></div>
+      <div class="form-actions">
+        <button class="primary" type="submit" id="w-save">保存</button>
+        <button class="ghost" type="button" id="w-cancel">閉じる</button>
+      </div>
+    </form>
+    <details class="more" id="univ" hidden><summary id="univ-sum">毎晩点検する基本の銘柄</summary><p id="univ-list"></p></details>
+    <div class="list" id="w-list" aria-live="polite">
+      <div class="empty" id="w-empty">監視リストは空です。「＋ 銘柄を追加」から、気になる銘柄を入れてください。</div>
+    </div>
+  </section>
+
+  <div class="group-head" role="heading" aria-level="2">仕組みの成績<span>夜の点検が自動でためる記録。数十件たまるまでは偶然の影響が大きい</span></div>
+
+  <section aria-labelledby="h-sig">
+    <div class="sec-head"><h2 id="h-sig">買い候補の成績</h2><span class="count" id="sig-count"></span></div>
+    <p class="sub">通知が挙げた買い候補を、翌営業日の始値で買っていたらどうなったか。夜の点検が毎日追跡します。ルールで見送った候補も並べて、見送りが正しかったかを確かめます。</p>
+    <div class="panel" id="kind-panel" hidden><div class="sig-scroll"><table class="sig-table" aria-label="買いの形ごとの成績"><thead><tr><th>買いの形</th><th class="num">決着</th><th class="num">勝率</th><th class="num">平均R</th><th class="num">過去の検証</th></tr></thead><tbody id="kind-body"></tbody></table></div></div>
+    <div class="panel">
+      <div class="stats">
+        <div class="stat"><div class="label">通過した候補</div><div class="value" id="g-pass">—</div><div class="hint" id="g-pass-h">決着した回数</div></div>
+        <div class="stat"><div class="label">勝率・平均R</div><div class="value" id="g-pass-r">—</div><div class="hint">損切り幅を1とした結果</div></div>
+        <div class="stat"><div class="label">追跡中</div><div class="value" id="g-open">—</div><div class="hint" id="g-open-h">まだ決着していない</div></div>
+        <div class="stat"><div class="label">見送った候補</div><div class="value" id="g-block">—</div><div class="hint" id="g-block-h">決着した回数</div></div>
+        <div class="stat"><div class="label">見送り分の勝率・平均R</div><div class="value" id="g-block-r">—</div><div class="hint">高ければ、見送りすぎ</div></div>
+        <div class="stat"><div class="label">過去の検証</div><div class="value" id="g-base">—</div><div class="hint" id="g-base-h">記録を始める前の成績</div></div>
+      </div>
+      <div class="sig-scroll">
+        <table class="sig-table" aria-label="買い候補の一覧">
+          <thead><tr><th>銘柄</th><th>出た日・形</th><th>結果</th><th class="num">R</th></tr></thead>
+          <tbody id="sig-body"></tbody>
+        </table>
+      </div>
+      <div class="empty" id="sig-empty">まだ記録はありません。夜の点検が買い候補を挙げると、ここに並びます。</div>
+      <div class="bar"><button class="small" id="sig-more" type="button" hidden>もっと見る</button></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-mov">
+    <div class="sec-head"><h2 id="h-mov">ランキングの危険度の答え合わせ</h2><span class="count" id="mov-count"></span></div>
+    <p class="sub">通知が出した「いま買う危険度」が当たっていたか。危険度は「大きく下げる割合」を見るものなので、高いほど「3%下げ」（買ったあと3%以上下げた件数と割合）が多ければ当たりです。「過去」は記録を始める前の検証での割合です。平均が良い・悪いは目安にしません。各30件たまるまでは偶然の影響が大きいです。</p>
+    <div class="panel" id="mov-panel" hidden><div class="sig-scroll"><table class="sig-table" aria-label="危険度ごとの成績"><thead><tr><th>向き</th><th>危険度</th><th class="num">件数</th><th class="num">平均</th><th class="num">勝率</th><th class="num">3%下げ</th><th class="num">過去</th></tr></thead><tbody id="mov-body"></tbody></table></div></div>
+    <div class="panel" id="mov-empty"><div class="empty">まだ記録はありません。昼の通知がランキングを記録し、夜の点検が結果を足すと、ここに並びます。</div></div>
+  </section>
+
+  <section aria-labelledby="h-kes">
+    <div class="sec-head"><h2 id="h-kes">決算・修正のその後</h2><span class="count" id="kes-count"></span></div>
+    <p class="sub">決算・業績修正が出た株を、最初の反応が出た次の始値で買っていたら、5営業日後どうなったか。毎晩の「決算の記録」がためます。約10年の検証では、ストップ高に張り付いて買えなかった日を除くと、5日後に市場平均を上回ったのは+0.4〜1%ほどで、手数料と値段のずれを引くとほぼ残りません。張り付いた日は数えていません。「過去」は記録を始める前の検証の数字です。各30件たまるまでは偶然の影響が大きいです。</p>
+    <div class="panel" id="kes-panel" hidden><div class="sig-scroll"><table class="sig-table" aria-label="上方修正の5日後の成績"><thead><tr><th>分け方</th><th class="num">件数</th><th class="num">5日後</th><th class="num">勝率</th><th class="num">TOPIX差</th><th class="num">過去</th></tr></thead><tbody id="kes-body"></tbody></table></div></div>
+    <div class="panel" id="kes-empty"><div class="empty">まだ結果はありません。最初の5日後の結果は、記録を始めてから約1週間後に出ます。</div></div>
   </section>
 </div>
 
@@ -906,7 +921,7 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
     var all = st && st.all && st.all.n ? st.all.n : 0;
     $("kes-panel").hidden = !all; $("kes-empty").hidden = !!all;
     $("kes-count").textContent = all ? all + " 件" : "";
-    [["all", "上方修正 全体", "+1.1%"], ["react_under12", "上方修正 反応+12%未満", "—"], ["react12", "決算・修正 反応+12%以上", "超過+0.7%"], ["react7_12", "決算・修正 反応+7〜12%", "超過+1.2%"]].forEach(function (k) {
+    [["all", "上方修正 全体", "+1.1%"], ["react_under12", "上方修正 反応+12%未満", "—"], ["react12", "決算・修正 反応+12%以上", "超過+0.4%"], ["react7_12", "決算・修正 反応+7〜12%", "超過+1%前後"]].forEach(function (k) {
       var c = st && st[k[0]]; if (!c || !c.n) return;
       var tr = document.createElement("tr");
       var cell = function (text, num) { var td = document.createElement("td"); td.textContent = text; if (num) td.className = "num"; tr.appendChild(td); };
@@ -915,6 +930,30 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
       cell(c.nEx ? pct(c.sumEx5 / c.nEx) : "—", true); cell(k[2], true);
       body.appendChild(tr);
     });
+  }
+
+  function renderWeekly(docs) {
+    var body = $("week-body"); body.textContent = "";
+    var list = docs.slice().sort(function (a, b) { return String(b.weekEnd || b.id) < String(a.weekEnd || a.id) ? -1 : 1; }).slice(0, 12);
+    $("week-panel").hidden = !list.length; $("week-empty").hidden = !!list.length;
+    $("week-count").textContent = list.length ? list.length + " 週" : "";
+    list.forEach(function (w) {
+      var tr = document.createElement("tr");
+      var cell = function (text, num) { var td = document.createElement("td"); td.textContent = text; if (num) td.className = "num"; tr.appendChild(td); };
+      var nn = function (v) { return v === null || v === undefined || v === "" ? "—" : String(v); };
+      cell(String(w.weekEnd || w.id).slice(5).replace("-", "/"));
+      cell(nn(w.buys), true); cell(nn(w.overLimitDays) + "日", true);
+      cell(typeof w.pnl === "number" ? (w.pnl > 0 ? "+" : "") + Math.round(w.pnl).toLocaleString("ja-JP") + "円" : "—", true);
+      cell(nn(w.ruleYes), true); cell(nn(w.ruleNo), true); cell(nn(w.ruleBlank), true);
+      body.appendChild(tr);
+    });
+  }
+
+  function renderHistory(hh) {
+    var el = $("hist-note");
+    if (!hh || typeof hh.realized !== "number") { el.hidden = true; return; }
+    el.hidden = false;
+    el.textContent = "ここに無い売買もあります。証券会社の取引履歴（" + String(hh.from || "").slice(5).replace("-", "/") + "〜" + String(hh.to || "").slice(5).replace("-", "/") + "、" + (hh.trades || "?") + "件）で数えた実現損益は " + (hh.realized > 0 ? "+" : "") + Math.round(hh.realized).toLocaleString("ja-JP") + "円（勝ち" + (hh.winners || 0) + "銘柄・負け" + (hh.losers || 0) + "銘柄）。下の数字は、記録帳に入れた売買だけの集計です。";
   }
 
   function unavailable(text) { ["open-empty", "w-empty", "empty"].forEach(function (i) { $(i).textContent = text; $(i).hidden = false; }); }
@@ -939,6 +978,8 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
         signals = snap.docs.map(function (doc) { var o = Object.assign({}, doc.data()); o.id = doc.id; return o; });
         renderSignals();
       }, function () {});
+      db.doc("settings/history").onSnapshot(function (snap) { renderHistory(snap.exists ? snap.data() : null); }, function () {});
+      db.collection("weekly").limit(100).onSnapshot(function (snap) { renderWeekly(snap.docs.map(function (doc) { var o = Object.assign({}, doc.data()); o.id = doc.id; return o; })); }, function () {});
       db.doc("settings/kessan_stats").onSnapshot(function (snap) { renderKessan(snap.exists ? snap.data() : null); }, function () {});
       db.doc("settings/movers_stats").onSnapshot(function (snap) { renderMovers(snap.exists ? snap.data() : null); }, function () {});
       db.doc("settings/backtest").onSnapshot(function (snap) { baseline = snap.exists ? snap.data() : null; renderSignals(); }, function () {});
