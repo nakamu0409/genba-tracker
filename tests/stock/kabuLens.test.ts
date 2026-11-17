@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { afternoonResult, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { afternoonResult, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -596,5 +596,48 @@ describe('上方修正のその後', () => {
     expect(sum.all).toEqual({ count: 2, avg_5d_pct: 2.5, win_rate_pct: 50, avg_vs_topix_5d_pct: 1.5, beat_topix_pct: 50 })
     expect(sum.react12.count).toBe(1)
     expect(sum.react_under12.count).toBe(1)
+  })
+})
+
+describe('適時開示（TDnet）', () => {
+  it('tagTdnet: 増資・損失・修正などに印を付け、役員のストック・オプションは増資にしない', () => {
+    expect(tagTdnet('第三者割当による第14回新株予約権の発行に関するお知らせ')).toEqual(['DILUTION'])
+    expect(tagTdnet('取締役に対するストック・オプション（新株予約権）の付与に関するお知らせ')).toEqual([])
+    expect(tagTdnet('第16回新株予約権の取得及び消却並びに自己株式の消却に関するお知らせ')).toEqual([])
+    expect(tagTdnet('棚卸資産評価損、営業外費用に関するお知らせ')).toEqual(['LOSS'])
+    expect(tagTdnet('2026年12月期通期業績予想の修正に関するお知らせ')).toEqual(['REVISION'])
+    expect(tagTdnet('継続企業の前提に関する注記についてのお知らせ')).toEqual(['DANGER'])
+  })
+
+  it('parseTdnetList: 行とページ数を読み、コードは4桁にする', () => {
+    const row = (tm: string, code: string, title: string) => `<tr>\n<td class="oddnew-L kjTime" noWrap>${tm}</td>\n<td class="oddnew-M kjCode" noWrap>${code}</td>\n<td class="oddnew-M kjName" noWrap>テスト </td>\n<td class="oddnew-M kjTitle" align="left"><a href="1401202611175.pdf" target="_blank">${title}</a></td>\n<td class="oddnew-M kjXbrl"> </td>\n<td class="oddnew-M kjPlace" noWrap align="left">東 </td>\n</tr>`
+    const html = `<table><tr><th>時刻</th></tr>${row('17:00', '67210', '資金の借入に関するお知らせ')}${row('15:30', '421A0', '業績予想の修正に関するお知らせ')}</table><a href="I_list_002_20261116.html">2</a><a href="I_list_005_20261116.html">5</a>`
+    const r = parseTdnetList(html)
+    expect(r.last_page).toBe(5)
+    expect(r.rows).toHaveLength(2)
+    expect(r.rows[0]).toMatchObject({ time: '17:00', code: '6721', name: 'テスト', place: '東', tags: [] })
+    expect(r.rows[1]).toMatchObject({ code: '421A', tags: ['REVISION'], pdf: 'https://www.release.tdnet.info/inbs/1401202611175.pdf' })
+  })
+})
+
+describe('松井証券のランキング', () => {
+  it('parseMatsuiRanking: 順位・銘柄・現在値・売買代金・変動率を読む', () => {
+    const html = `<table class="m-table"><tr><td>x</td></tr></table><p>2026/11/17 15:30 現在</p><table class="m-table" data-type="rankingDt"><thead><tr><th>順位</th></tr></thead><tbody>
+    <tr>
+      <td>1</td>
+      <td>
+        <a href=/stock/285A/index>キオクシアホールディングス</a>
+        <span>285A 東P</span>
+      </td>
+      <td><span class="m-down-icon">7,819.0</span></td>
+      <td class="m-sp-only m-align-right"><span class="m-down-color">-573.0(-6.83%)</span></td>
+      <td><span>出来高：</span>90,313,600</td>
+      <td><span>概算売買代金：</span>729,264,887,200</td>
+      <td><span class="m-sp-only">株価変動率：</span>+6.59%</td>
+      <td><ul></ul></td>
+    </tr></tbody></table>`
+    const r = parseMatsuiRanking(html)
+    expect(r.as_of).toBe('2026/11/17 15:30')
+    expect(r.rows).toEqual([{ rank: 1, name: 'キオクシアホールディングス', code: '285A', market: '東P', price: 7819, change_pct: -6.83, volume: 90313600, turnover: 729264887200, range_pct: 6.59 }])
   })
 })

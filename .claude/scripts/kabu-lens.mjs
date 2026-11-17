@@ -15,6 +15,8 @@
 //   node .claude/scripts/kabu-lens.mjs --movers         # 値上がり・値下がりの両方（材料ニュースつき）
 //   node .claude/scripts/kabu-lens.mjs --movers --open  # 同じ。朝（寄り付き後）用で、過去の結果を朝の検証の数字にする
 //   node .claude/scripts/kabu-lens.mjs --kessan [YYYYMMDD]  # その日の決算・業績修正の見出し（上方修正・下方修正などに分類）
+//   node .claude/scripts/kabu-lens.mjs --matsui [day-trading-morning|rise|tick]  # 松井証券のランキング
+//   node .claude/scripts/kabu-lens.mjs --tdnet [YYYYMMDD] [コード...]  # 適時開示（TDnet）。増資・業績修正・特別損失などに印を付ける
 //   node .claude/scripts/kabu-lens.mjs --kessan-result <記録.json> [--stats <累計.json>]  # 上方修正の記録の、その後（1・5・20日）
 //   node .claude/scripts/kabu-lens.mjs --check 7203 3100 --state state.json  # 買う前チェック（株数・損切り・止める理由）
 //   node .claude/scripts/kabu-lens.mjs --movers-result <記録.json> [--stats <累計.json>]  # 昼に出した危険度の答え合わせ（後場の結果）
@@ -1290,6 +1292,93 @@ export async function kessanResult(records, prevStats = null) {
   }
 }
 
+// 適時開示の表題から、注意が要る種類を見分ける（表題の言葉だけで判定する。中身は読まない）
+const TDNET_TAGS = [
+  ['DILUTION', /第三者割当|新株予約権|新株式発行|募集株式|公募|売出し|行使価額修正|ＭＳワラント|株式の発行/],
+  ['DANGER', /継続企業の前提|上場廃止|監理銘柄|整理銘柄|特設注意|債務超過|不適正|意見不表明|破産|民事再生|会社更生|上場契約違約金/],
+  ['LOSS', /特別損失|評価損|減損/],
+  ['REVISION', /業績予想.*修正|配当予想.*修正|業績予想と実績.*差異|予想値と実績値との差異/],
+  ['EARNINGS', /決算短信/],
+  ['BUYBACK', /自己株式の取得|自己株式取得|自社株買い/],
+  ['TOB', /公開買付|ＴＯＢ|TOB|株式交換|完全子会社化|ＭＢＯ|MBO/],
+  ['DELAY', /提出期限延長|延期|遅延/]
+]
+export function tagTdnet(title) {
+  const t = String(title)
+  // 役員向けのストック・オプションや、新株予約権の消却・期間満了は、株が増える話ではないので外す
+  const notDilution = /ストック・?オプション|消却|行使期間満了|譲渡制限付株式|取得条項/.test(t)
+  return TDNET_TAGS.filter(([tag, re]) => re.test(t) && !(tag === 'DILUTION' && notDilution)).map(([tag]) => tag)
+}
+
+/** TDnet（適時開示情報閲覧サービス）の一覧ページ1枚を読む */
+export function parseTdnetList(html) {
+  const rows = []
+  for (const tr of String(html).split(/<tr>/).slice(1)) {
+    const cell = cls => strip(tr.match(new RegExp(`<td[^>]*class="[^"]*${cls}[^"]*"[^>]*>([\\s\\S]*?)<\\/td>`))?.[1])
+    const time = cell('kjTime')
+    const code5 = cell('kjCode')
+    const titleHtml = tr.match(/<td[^>]*class="[^"]*kjTitle[^"]*"[^>]*>([\s\S]*?)<\/td>/)?.[1] || ''
+    const title = strip(titleHtml)
+    if (!/^\d{1,2}:\d{2}$/.test(time) || !code5 || !title) continue
+    const pdf = titleHtml.match(/href="([^"]+\.pdf)"/)?.[1] || null
+    rows.push({ time, code: code5.slice(0, 4), name: cell('kjName'), title, place: cell('kjPlace'), pdf: pdf ? `https://www.release.tdnet.info/inbs/${pdf}` : null, tags: tagTdnet(title) })
+  }
+  const pages = [...String(html).matchAll(/I_list_(\d{3})_\d{8}\.html/g)].map(m => Number(m[1]))
+  return { rows, last_page: pages.length ? Math.max(...pages) : 1 }
+}
+
+/** ある日の適時開示をまとめて取る（date は YYYYMMDD、省略で今日。codes を渡すとその銘柄だけ残す） */
+export async function fetchTdnet(date, { codes = [], maxPages = 40 } = {}) {
+  const ymd = date || new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10).replace(/-/g, '')
+  const out = { date: `${ymd.slice(0, 4)}-${ymd.slice(4, 6)}-${ymd.slice(6, 8)}`, source: 'TDnet 適時開示情報閲覧サービス（過去約1か月まで）', rows: [] }
+  let last = 1
+  for (let pg = 1; pg <= Math.min(last, maxPages); pg++) {
+    let html
+    try {
+      html = await fetchText(`https://www.release.tdnet.info/inbs/I_list_${String(pg).padStart(3, '0')}_${ymd}.html`)
+    } catch (e) {
+      if (pg === 1) out.error = `一覧を取得できませんでした（${e.message}）`
+      break
+    }
+    const r = parseTdnetList(html)
+    if (pg === 1) last = r.last_page
+    out.rows.push(...r.rows)
+    if (!r.rows.length) break
+    await sleep(300)
+  }
+  out.total = out.rows.length
+  if (codes.length) out.rows = out.rows.filter(x => codes.includes(x.code))
+  out.flagged = out.rows.filter(x => x.tags.some(t => ['DILUTION', 'DANGER', 'LOSS', 'REVISION', 'TOB', 'DELAY'].includes(t)))
+  return out
+}
+
+/** 松井証券のランキング（デイトレ適性など）の表を読む */
+export function parseMatsuiRanking(html) {
+  const tables = String(html).match(/<table class="m-table"[\s\S]*?<\/table>/g) || []
+  const table = tables.find(t => /<tbody>/.test(t)) || ''
+  const rows = []
+  for (const tr of (table.match(/<tbody>([\s\S]*?)<\/tbody>/)?.[1] || '').split(/<tr>/).slice(1)) {
+    const tds = [...tr.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map(m => m[1])
+    const m = strip(tds[1]).match(/^(.*?)\s+([0-9A-Z]{4})\s+(\S+)$/s)
+    if (!m) continue
+    const ch = strip(tds[3]).match(/([-+]?[\d,.]+)\(([-+]?[\d.]+)%\)/)
+    const val = t => num(strip(t).replace(/^[^：]*：/, ''))
+    rows.push({
+      rank: num(strip(tds[0])), name: m[1].replace(/\s+/g, ''), code: m[2], market: m[3],
+      price: num(strip(tds[2])), change_pct: ch ? Number(ch[2]) : null,
+      volume: val(tds[4]), turnover: val(tds[5]), range_pct: num(strip(tds[6]).replace(/^[^：]*：/, '').replace('%', ''))
+    })
+  }
+  const asOf = String(html).match(/(\d{4}\/\d{1,2}\/\d{1,2}\s+\d{1,2}:\d{2})/)?.[1] || null
+  return { as_of: asOf, rows }
+}
+
+/** 松井証券のランキングを取る。kind は 'day-trading-morning'（デイトレ適性）・'rise'（値上がり）・'tick'（約定回数） */
+export async function fetchMatsuiRanking(kind = 'day-trading-morning') {
+  const r = parseMatsuiRanking(await fetchText(`https://finance.matsui.co.jp/ranking-${kind}/index`))
+  return { source: `松井証券 ランキング（${kind}）`, ...r }
+}
+
 /** 株探の銘柄ページから「決算発表予定日」を読む（載っていなければ null） */
 export function parseKabutanEarningsDate(html) {
   const m = String(html).replace(/<[^>]*>/g, ' ').match(/決算発表予定日\s*(\d{4})\/(\d{1,2})\/(\d{1,2})/)
@@ -1430,6 +1519,18 @@ async function main() {
   const save = !args.includes('--no-save')
   const evalAt = args.indexOf('--evaluate')
   if (evalAt >= 0) return evaluateFile(args[evalAt + 1])
+  if (args.includes('--matsui')) {
+    const kind = args[args.indexOf('--matsui') + 1]
+    console.log(JSON.stringify(await fetchMatsuiRanking(kind && !kind.startsWith('--') ? kind : undefined), null, 2))
+    return
+  }
+  if (args.includes('--tdnet')) {
+    const rest = args.slice(args.indexOf('--tdnet') + 1).filter(a => !a.startsWith('--'))
+    const date = rest.find(a => /^\d{8}$/.test(a))
+    const codes = rest.filter(a => isTseCode(a.toUpperCase())).map(a => a.toUpperCase())
+    console.log(JSON.stringify(await fetchTdnet(date, { codes }), null, 2))
+    return
+  }
   if (args.includes('--kessan-result')) {
     const file = args[args.indexOf('--kessan-result') + 1]
     const si = args.indexOf('--stats')
@@ -1502,8 +1603,18 @@ async function main() {
     } catch {
       nikkei = null
     }
+    let daytrade = null
+    try {
+      const mr = await fetchMatsuiRanking('day-trading-morning')
+      daytrade = { as_of: mr.as_of, note: '松井証券のデイトレ適性ランキング（売買代金が大きく、1日の値動きも大きい株）。売り買いしやすさの目安で、上がりやすさではない', rows: mr.rows.slice(0, 20) }
+      const set = new Set(mr.rows.map(x => x.code))
+      for (const s of [...up.stocks, ...dn.stocks]) s.in_daytrade_ranking = set.has(s.code)
+    } catch (e) {
+      daytrade = { error: e.message }
+    }
     console.log(JSON.stringify({
       nikkei_change_pct: nikkei,
+      daytrade,
       slot: openSlot ? 'open' : 'noon',
       history_note: openSlot ? 'history は朝（9:15ごろ）に買って引けで売った場合の、直近60日の結果。昼より大きく下げる割合が高い' : 'history は昼（後場の寄り付き）に買って引けで売った場合の、過去3年の結果',
       market_wide_selloff: ok(nikkei) ? nikkei <= -2 : null,
