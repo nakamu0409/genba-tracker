@@ -831,6 +831,14 @@ describe('場中の判定（5分足）', () => {
     expect(v.marks).toContain('RECLAIM_PM')
     expect(intradayView(up, ctx).marks).toEqual([])
   })
+  it('低位株の強い引けに目印', () => {
+    const cs = Array.from({ length: 60 }, (_, i) => 110 + i * 0.1)
+    const bars = cs.map((c, i) => ({ m: i < 30 ? 540 + i * 5 : 750 + (i - 30) * 5, o: i ? cs[i - 1] : c, h: c + 0.2, l: (i ? cs[i - 1] : c) - 0.2, c, v: 1000 }))
+    const v = intradayView(bars, { prevClose: 100, ma25: 90, ma25Prev: 88, atrDay: 6 })
+    expect(v.low_group).toBe(true)
+    expect(v.marks).toContain('LOW_STRONG_CLOSE')
+    expect(intradayView(bars.slice(0, 40), { prevClose: 100, ma25: 90, ma25Prev: 88, atrDay: 6 }).marks).not.toContain('LOW_STRONG_CLOSE')
+  })
   it('ある日を時刻ごとに再現する', () => {
     const r = intradayReplay(up, ctx, { times: [570, 600], delay: 10 })
     expect(r.close).toBe(107.5)

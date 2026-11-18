@@ -1907,6 +1907,11 @@ export function intradayView(bars, ctx = {}, opt = {}) {
     const avgV = bars.slice(-13, -1).reduce((s2, b) => s2 + (b.v || 0), 0) / Math.min(12, bars.length - 1)
     if (wasBelow && last.c > vwap && last.c > last.o && (last.v || 0) >= 1.5 * avgV) marks.push('RECLAIM_PM')
   }
+  // 目印（試し中）：低位株・荒い株の「強い引け」。14:30 以降、前日比+10〜20%、VWAP の上、今日の値幅の上3割。
+  // 過去34日では翌日の大引けまで全体比+1.2%（前半・後半ともプラス）。ただし112回だけで、翌日に途中で−3%ほど下げるのがふつう。翌日の寄りは弱いので、寄りでは売らない
+  const atrPctDay = ok(ctx.atrDay) && ctx.prevClose > 0 ? ctx.atrDay / ctx.prevClose * 100 : null
+  const lowGroup = (ok(ctx.prevClose) && ctx.prevClose < 500) || (ok(atrPctDay) && atrPctDay >= 4)
+  if (lowGroup && last.m + 5 >= 870 && ok(fromPrev) && fromPrev >= 10 && fromPrev < 20 && price > vwap && dayHigh > dayLow && (price - dayLow) / (dayHigh - dayLow) >= 0.7) marks.push('LOW_STRONG_CLOSE')
   const swingLow = Math.min(...bars.slice(-6).map(b => b.l))
   const limit = kind === 'PULLBACK' ? tick(Math.max(vwap, e20[k])) : kind === 'BREAKOUT' ? tick(orHigh) : null
   const stopIntraday = signal === 'TAKE' ? tick(Math.min(swingLow, vwap) - 0.3 * atr5) : null
@@ -1936,6 +1941,7 @@ export function intradayView(bars, ctx = {}, opt = {}) {
     limit,
     stop_intraday: stopIntraday,
     raw_take: raw || kind,
+    low_group: lowGroup,
     marks
   }
 }
@@ -2035,7 +2041,10 @@ const WIDE_GROUPS = {
   CHOPPY: r => r.regime === 'CHOPPY',
   TREND_DOWN: r => r.regime === 'TREND_DOWN',
   PANIC: r => r.regime === 'PANIC',
-  CHASE8: r => ok(r.fromPrev) && r.fromPrev >= 8
+  CHASE8: r => ok(r.fromPrev) && r.fromPrev >= 8,
+  LOW_ALL: r => r.low,
+  LOW_TAKE_RAW: r => r.low && !!r.raw,
+  LOW_STRONG_CLOSE: r => r.marks.includes('LOW_STRONG_CLOSE')
 }
 
 /**
@@ -2055,7 +2064,7 @@ export function intradayWideDay(items, { times = [570, 600, 630, 660, 780, 810, 
       const e = day.find(b => b.m >= t + delay)
       if (!e || !(e.o > 0)) continue
       const v = intradayView(seen, it.ctx || {})
-      rows.push({ t, signal: v.signal, kind: v.kind, raw: v.raw_take, regime: v.regime, marks: v.marks, fromPrev: v.from_prev_pct, rC: (close / e.o - 1) * 100, rN: (it.nextClose / e.o - 1) * 100 })
+      rows.push({ t, signal: v.signal, kind: v.kind, raw: v.raw_take, low: v.low_group, regime: v.regime, marks: v.marks, fromPrev: v.from_prev_pct, rC: (close / e.o - 1) * 100, rN: (it.nextClose / e.o - 1) * 100 })
     }
   }
   const base = new Map()
