@@ -2266,11 +2266,12 @@ export async function miteReport(code, { price = null, state = null, stats = {},
   } catch {
     bench = []
   }
-  const [d, intra, ne, dl] = await Promise.all([
+  const [d, intra, ne, dl, fin] = await Promise.all([
     fetchYahoo(`${code}.T`),
     fetchIntraday([code], { live: ok(price) ? { [code]: price } : {} }).then(r => r.stocks[0]).catch(e => ({ error: e.message })),
     fetchNextEarnings(code, today),
-    fetchDilution(code, today)
+    fetchDilution(code, today),
+    long ? Promise.resolve(null) : fetchFinance(code).catch(() => null)
   ])
   // Yahoo の日足は、その日の終値が埋まるのが遅いことがある。5分足に今日（か最新の日）があり、日足に無ければ、5分足から1本作って足す
   let dailyBars = d.bars
@@ -2320,13 +2321,29 @@ export async function miteReport(code, { price = null, state = null, stats = {},
     ].filter(Boolean)
   }
 
-  // 少し長期（業績は long に渡されたときだけ。無ければ位置と注意だけ）
+  // 少し長期：業績（株探）と位置。検証（2025-11〜2026-11 の決算3,418回）では、業績の伸びで「買い時」は決まらなかったので、判定は出さず参考として示す
+  let fundamentals = long
+  if (!fundamentals && fin) {
+    const m = earningsMomentum(fin.quarterly)
+    const act = fin.annual.filter(a => !a.forecast)
+    const fc = fin.annual.find(a => a.forecast)
+    const lastA = act[act.length - 1]
+    const grow = (a, b) => (ok(a) && ok(b) && b > 0 ? round((a / b - 1) * 100, 1) : null)
+    let note = '業績の伸びと、その後60日の値動きには、はっきりした関係が見つかっていない（1年分の検証）'
+    if (m && ok(m.op_yoy_pct) && m.op_yoy_pct >= 20 && ok(m.sales_yoy_pct) && m.sales_yoy_pct >= 10) note = '業績は強い。ただし検証では、強い決算のあと60日は平均より−3.8%（906回・前半後半とも悪い）。好業績は株価に織り込まれていることが多い'
+    else if (m && !ok(m.op_yoy_pct) && ok(m.op) && m.op > 0) note = '前年は赤字で今は黒字（立ち直り）。検証では60日後に平均より+4%（459回）だが、後半の期間は±0で安定していない'
+    fundamentals = {
+      quarter: m ? { period: m.period, date: m.date, op_yoy_pct: m.op_yoy_pct, sales_yoy_pct: m.sales_yoy_pct, margin: m.margin, margin_prev: m.margin_prev, streak: m.streak } : null,
+      forecast: fc && lastA ? { period: fc.period, op: fc.op, op_growth_pct: grow(fc.op, lastA.op), sales_growth_pct: grow(fc.sales, lastA.sales), date: fc.date } : null,
+      note
+    }
+  }
   const lg = {
     from_52w_high_pct: pk.range_52w.from_high_pct, from_52w_low_pct: pk.range_52w.from_low_pct,
     ma200: tick(pk.trend.ma_slow), above_ma200: pk.candle.close > pk.trend.ma_slow, ma200_slope: pk.trend.slow_slope,
     weekly: pk.trend.htf_bias, next_earnings: ne?.date || null, earnings_estimated: !!ne?.estimated,
-    dilution: dl, fundamentals: long || null,
-    verdict: long?.verdict || '準備中（業績の判定はこれから）'
+    dilution: dl, fundamentals: fundamentals || null,
+    verdict: long?.verdict || '参考のみ（業績で買い時は決まらなかった）'
   }
 
   // 買う前チェック
