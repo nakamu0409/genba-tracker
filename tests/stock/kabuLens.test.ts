@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -773,5 +773,44 @@ describe('株が増える資金調達（MSワラント）の警告', () => {
     expect(preTradeCheck({ ...base, dilution: summarizeDilution(rows, '2026-10-10') }).warnings.join('\n')).toContain('残っている')
     expect(preTradeCheck({ ...base, dilution: summarizeDilution([], '2026-11-18') }).warnings.join('\n')).not.toContain('資金調達')
     expect(preTradeCheck(base).ok).toBe(true)
+  })
+})
+
+describe('場中の判定（5分足）', () => {
+  // 9:00 から5分ごと。上昇してから VWAP 近くまで押し、陽線で戻す形
+  const mk = (cs: number[]) => cs.map((c, i) => ({ m: 540 + i * 5, o: i ? cs[i - 1] : c, h: Math.max(c, i ? cs[i - 1] : c) + 0.5, l: Math.min(c, i ? cs[i - 1] : c) - 0.5, c, v: 1000 }))
+  const up = mk([100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 109, 108, 107, 106.5, 107.5])
+  const ctx = { prevClose: 100, ma25: 95, ma25Prev: 94, atrDay: 6 }
+  it('上昇中の押し目で TAKE、支えと壁を出す', () => {
+    const v = intradayView(up, ctx)
+    expect(v.regime).toBe('TREND_UP')
+    expect(v.daily_trend).toBe('UP')
+    expect(v.signal).toBe('TAKE')
+    expect(v.kind).toBe('PULLBACK')
+    expect(v.supports.length).toBeGreaterThan(0)
+    expect(v.resistances[0].price).toBeGreaterThan(v.price)
+    expect(v.stop_intraday).toBeLessThan(v.price)
+  })
+  it('日足が下向き・急騰の追いかけ・急落は SKIP', () => {
+    expect(intradayView(up, { ...ctx, ma25: 105, ma25Prev: 106 }).signal).toBe('SKIP')
+    expect(intradayView(up, { ...ctx, prevClose: 95 }).reasons.join('')).toContain('急騰')
+    const crash = mk([100, 101, 102, 103, 104, 105, 104, 102, 100, 98, 96, 94])
+    const v = intradayView(crash, ctx)
+    expect(v.regime).toBe('PANIC')
+    expect(v.signal).toBe('SKIP')
+  })
+  it('日足の前提を作る', () => {
+    const daily = Array.from({ length: 40 }, (_, i) => ({ date: `d${i}`, o: 100 + i, h: 101 + i, l: 99 + i, c: 100 + i, v: 1 }))
+    const c = intradayContext(daily)
+    expect(c.prevClose).toBe(139)
+    expect(c.ma25).toBeCloseTo(127, 5)
+    expect(c.ma25).toBeGreaterThan(c.ma25Prev)
+  })
+  it('答え合わせ：大引けまでと翌日まで', () => {
+    const days = { '2026-11-18': mk([100, 102]), '2026-11-19': mk([103, 99]) }
+    const o = intradayOutcome({ date: '2026-11-18', price: 100 }, days)
+    expect(o).toEqual({ rClose: 2, rNext: -1, final: true })
+    const st = mergeIntradayStats(null, [{ signal: 'TAKE', ...o }, { signal: 'TAKE', rClose: -1, rNext: 1 }])
+    expect(st.TAKE).toEqual({ n: 2, sumClose: 1, sumNext: 0, nNext: 2, winClose: 1 })
   })
 })

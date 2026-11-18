@@ -24,6 +24,8 @@
 //   node .claude/scripts/kabu-lens.mjs --considered-result <記録.json> [--stats <累計.json>]  # 買おうとした銘柄のその後
 //   node .claude/scripts/kabu-lens.mjs --kessan-result <記録.json> [--stats <累計.json>]  # 上方修正の記録の、その後（1・5・20日）
 //   node .claude/scripts/kabu-lens.mjs --check 7203 3100 --state state.json  # 買う前チェック（株数・損切り・止める理由）
+//   node .claude/scripts/kabu-lens.mjs --intraday 7203 6758         # 場中の判定（5分足・VWAP・支えと壁・合図。約15〜20分遅れ）
+//   node .claude/scripts/kabu-lens.mjs --intraday-result recs.json [--stats st.json]  # 場中の判定の答え合わせ
 //   node .claude/scripts/kabu-lens.mjs --movers-result <記録.json> [--stats <累計.json>]  # 昼に出した危険度の答え合わせ（後場の結果）
 //
 // 株価は Yahoo Finance の日足（株式分割は調整済み、配当は未調整）。取引時間中の未確定の足は使わない。
@@ -1770,6 +1772,239 @@ export function returnCorrelation(barsA, barsB, n = 60) {
   return sxx > 0 && syy > 0 ? round(sxy / Math.sqrt(sxx * syy)) : null
 }
 
+// 最初の値から始める指数平滑（場中の5分足は本数が少ないので、助走なしで使う）
+function emaSeed(src, len) {
+  const a = 2 / (len + 1)
+  const out = []
+  for (const x of src) out.push(out.length ? a * x + (1 - a) * out[out.length - 1] : x)
+  return out
+}
+
+/** 日足（{date,o,h,l,c,v} の配列、古い順）から、場中の判定に使う前提を作る。最後の1本は「前日まで」の最後の日 */
+export function intradayContext(daily) {
+  if (!daily?.length) return {}
+  const c = daily.map(b => b.c)
+  const m25 = sma(c, 25)
+  const a14 = atr(daily, 14)
+  const n = daily.length - 1
+  return { prevClose: c[n], ma25: m25[n], ma25Prev: n >= 5 ? m25[n - 5] : null, atrDay: a14[n] }
+}
+
+/**
+ * 場中の5分足から、地合い（上昇・下降・もみ合い・急落）、VWAP、支えと壁、合図（TAKE・WAIT・SKIP）を出す。
+ * bars: 今日の5分足 [{m（9:00=540 の分）, o, h, l, c, v}]（時刻順、まだ出来ていない足は入れない）
+ * ctx: intradayContext の結果 {prevClose, ma25, ma25Prev, atrDay}
+ * 合図は売買の判断材料の一つ。当たるかは記録して確かめる（研究: kabu-lens/research/day/study_5m.mjs）。
+ */
+export function intradayView(bars, ctx = {}, opt = {}) {
+  if (!bars?.length) return null
+  const o = { chaseMax: 8, panicAtr: 0.6, ...opt }
+  const last = bars[bars.length - 1]
+  const price = last.c
+  let pv = 0
+  let vv = 0
+  for (const b of bars) {
+    const tp = (b.h + b.l + b.c) / 3
+    pv += tp * (b.v || 0)
+    vv += b.v || 0
+  }
+  const vwap = vv > 0 ? pv / vv : bars.reduce((s, b) => s + b.c, 0) / bars.length
+  const closes = bars.map(b => b.c)
+  const e9 = emaSeed(closes, 9)
+  const e20 = emaSeed(closes, 20)
+  const k = bars.length - 1
+  const slope20 = k >= 6 ? e20[k] - e20[k - 6] : 0
+  const recent = bars.slice(-12)
+  const atr5 = recent.reduce((s, b) => s + (b.h - b.l), 0) / recent.length
+  const dayHigh = Math.max(...bars.map(b => b.h))
+  const dayLow = Math.min(...bars.map(b => b.l))
+  const orBars = bars.filter(b => b.m < 570)
+  const orDone = last.m >= 570 && orBars.length > 0
+  const orHigh = orDone ? Math.max(...orBars.map(b => b.h)) : null
+  const orLow = orDone ? Math.min(...orBars.map(b => b.l)) : null
+  const open = bars[0].o
+  const pct = (a, b) => (ok(a) && ok(b) && b > 0 ? round((a / b - 1) * 100, 2) : null)
+  const fromPrev = pct(price, ctx.prevClose)
+  let dailyTrend = 'FLAT'
+  if (!ok(ctx.ma25) || !ok(ctx.prevClose)) dailyTrend = 'UNKNOWN'
+  else if (ctx.prevClose > ctx.ma25 && ok(ctx.ma25Prev) && ctx.ma25 > ctx.ma25Prev) dailyTrend = 'UP'
+  else if (ctx.prevClose < ctx.ma25 && ok(ctx.ma25Prev) && ctx.ma25 < ctx.ma25Prev) dailyTrend = 'DOWN'
+  const hi6 = Math.max(...bars.slice(-6).map(b => b.h))
+  let regime = 'CHOPPY'
+  if (ok(ctx.atrDay) && hi6 - price >= o.panicAtr * ctx.atrDay && price < vwap) regime = 'PANIC'
+  else if (price > vwap && e9[k] > e20[k] && slope20 > 0) regime = 'TREND_UP'
+  else if (price < vwap && e9[k] < e20[k] && slope20 < 0) regime = 'TREND_DOWN'
+
+  // 支えと壁：VWAP・寄り付き30分の高安・今日の高安・前日終値・直近の山と谷
+  const piv = []
+  for (let i = 2; i < bars.length - 2; i++) {
+    const w = bars.slice(i - 2, i + 3)
+    if (bars[i].l === Math.min(...w.map(b => b.l))) piv.push(['直近の谷', bars[i].l])
+    if (bars[i].h === Math.max(...w.map(b => b.h))) piv.push(['直近の山', bars[i].h])
+  }
+  const lv = [['VWAP', vwap], ['今日の安値', dayLow], ['今日の高値', dayHigh], ['前日終値', ctx.prevClose], ['寄り30分の高値', orHigh], ['寄り30分の安値', orLow], ...piv]
+    .filter(([, v]) => ok(v))
+  const near = (side) => {
+    const xs = lv.filter(([, v]) => (side < 0 ? v < price : v > price)).sort((a, b) => side < 0 ? b[1] - a[1] : a[1] - b[1])
+    const outv = []
+    for (const [name, v] of xs) if (!outv.some(x => Math.abs(x.price - v) < atr5 * 0.5)) outv.push({ name, price: tick(v) })
+    return outv.slice(0, 3)
+  }
+
+  const reasons = []
+  let signal = 'WAIT'
+  let kind = null
+  if (dailyTrend === 'DOWN') reasons.push('日足は25日線の下で、25日線も下向き')
+  if (regime === 'PANIC') reasons.push(`急落中：直近30分の高値から日々の値幅の${o.panicAtr}倍以上下げて、VWAPの下`)
+  if (regime === 'TREND_DOWN') reasons.push('場中は下降（VWAPの下、短い平均が長い平均の下で下向き）')
+  if (ok(fromPrev) && fromPrev >= o.chaseMax) reasons.push(`前日比 +${fromPrev}%：急騰を追いかける形`)
+  if (reasons.length) signal = 'SKIP'
+  else if (regime === 'TREND_UP') {
+    const touched = bars.slice(-3).some(b => b.l <= Math.max(e20[k], vwap) + 0.25 * atr5)
+    const brk = orDone && price > orHigh && bars.length >= 2 && bars[k - 1].c <= orHigh
+    if (touched && last.c > last.o) {
+      signal = 'TAKE'
+      kind = 'PULLBACK'
+      reasons.push('上昇中の押し目：VWAPか短い平均線まで下げて、陽線で戻した')
+    } else if (brk) {
+      signal = 'TAKE'
+      kind = 'BREAKOUT'
+      reasons.push('寄り付き30分の高値を上に抜けた')
+    } else reasons.push('上昇中だが、平均線から離れている。押しを待つ')
+  } else reasons.push(regime === 'CHOPPY' ? 'もみ合い。方向が出るまで待つ' : '様子見')
+
+  const swingLow = Math.min(...bars.slice(-6).map(b => b.l))
+  const limit = kind === 'PULLBACK' ? tick(Math.max(vwap, e20[k])) : kind === 'BREAKOUT' ? tick(orHigh) : null
+  const stopIntraday = signal === 'TAKE' ? tick(Math.min(swingLow, vwap) - 0.3 * atr5) : null
+  return {
+    time: `${String(Math.floor(last.m / 60)).padStart(2, '0')}:${String(last.m % 60).padStart(2, '0')}`,
+    price,
+    open,
+    vwap: tick(vwap),
+    ema9: tick(e9[k]),
+    ema20: tick(e20[k]),
+    from_prev_pct: fromPrev,
+    from_open_pct: pct(price, open),
+    vs_vwap_pct: pct(price, vwap),
+    day_high: dayHigh,
+    day_low: dayLow,
+    or_high: orHigh,
+    or_low: orLow,
+    atr5: round(atr5, 2),
+    daily_trend: dailyTrend,
+    ma25: tick(ctx.ma25),
+    regime,
+    supports: near(-1),
+    resistances: near(1),
+    signal,
+    kind,
+    reasons,
+    limit,
+    stop_intraday: stopIntraday
+  }
+}
+
+/** 5分足（Yahoo の chart JSON）を日ごとに分ける。{date: [{m,o,h,l,c,v}]} */
+export function splitFiveMin(json) {
+  const r = json?.chart?.result?.[0]
+  const days = {}
+  if (!r?.timestamp) return days
+  const q = r.indicators.quote[0]
+  r.timestamp.forEach((ts, i) => {
+    const o = q.open[i], h = q.high[i], l = q.low[i], c = q.close[i], v = q.volume[i] ?? 0
+    if (o == null || c == null || h == null || l == null) return
+    const d = new Date((ts + 9 * 3600) * 1000)
+    const date = d.toISOString().slice(0, 10)
+    const m = d.getUTCHours() * 60 + d.getUTCMinutes()
+    if (m < 540 || m >= 930) return
+    ;(days[date] ||= []).push({ m, o, h, l, c, v })
+  })
+  return days
+}
+
+/** 場中の判定を取る（株価は15〜20分遅れ）。codes の各銘柄について intradayView と、チャート用の今日の5分足を返す */
+export async function fetchIntraday(codes) {
+  const out = []
+  await Promise.all(codes.map(async (code) => {
+    try {
+      const [five, d, now] = await Promise.all([
+        fetchJson(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(code)}.T?range=5d&interval=5m`),
+        fetchYahoo(`${code}.T`, '6mo'),
+        fetchJson(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(code)}.T?range=5d&interval=1d`).then(j => parseYahooNow(j)).catch(() => null)
+      ])
+      const days = splitFiveMin(five)
+      const dates = Object.keys(days).sort()
+      const today = dates[dates.length - 1]
+      const daily = d.bars.filter(b => b.date < today)
+      const view = intradayView(days[today], intradayContext(daily))
+      // Yahoo の5分足は 9:00 の足が欠けることがあるので、始値は日足から取る
+      if (now?.is_today && ok(now.open)) Object.assign(view, { open: now.open, from_open_pct: round((view.price / now.open - 1) * 100, 2), day_high: Math.max(view.day_high, now.high ?? -Infinity), day_low: Math.min(view.day_low, now.low ?? Infinity) })
+      out.push({ code, name: d.name, date: today, ...view, bars: days[today].map(b => [b.m, b.o, b.h, b.l, b.c, b.v]) })
+    } catch (e) {
+      out.push({ code, error: e.message })
+    }
+  }))
+  return { source: 'Yahoo Finance の5分足（約15〜20分遅れ）', fetched_at: new Date().toISOString().slice(0, 19) + 'Z', stocks: codes.map(c => out.find(x => x.code === c)) }
+}
+
+/**
+ * 場中の判定（intraday コレクションの1件）の答え合わせ。判定したときの値段から、その日の大引けまでと翌営業日の大引けまでの騰落。
+ * days: splitFiveMin の結果。翌営業日の足があれば final: true
+ */
+export function intradayOutcome(rec, days) {
+  const dates = Object.keys(days || {}).sort()
+  const i = dates.indexOf(rec.date)
+  if (i < 0 || !ok(rec.price) || rec.price <= 0) return null
+  const day = days[rec.date]
+  const close = day[day.length - 1].c
+  const out = { rClose: round((close / rec.price - 1) * 100, 2), final: false }
+  if (i + 1 < dates.length) {
+    const nd = days[dates[i + 1]]
+    out.rNext = round((nd[nd.length - 1].c / rec.price - 1) * 100, 2)
+    out.final = true
+  }
+  return out
+}
+
+/** 答えが出た判定を、合図（TAKE・WAIT・SKIP）ごとの成績に足す */
+export function mergeIntradayStats(prev, done) {
+  const st = prev ? JSON.parse(JSON.stringify(prev)) : {}
+  for (const r of done) {
+    if (!ok(r.rClose)) continue
+    const k = r.signal || 'WAIT'
+    const c = (st[k] ||= { n: 0, sumClose: 0, sumNext: 0, nNext: 0, winClose: 0 })
+    c.n++
+    c.sumClose += r.rClose
+    if (r.rClose > 0) c.winClose++
+    if (ok(r.rNext)) {
+      c.sumNext += r.rNext
+      c.nNext++
+    }
+  }
+  return st
+}
+
+/** intraday コレクションのまだ final でない判定に答えを付ける。{updates, stats} */
+export async function intradayResult(records, prevStats = null) {
+  const updates = []
+  const byCode = new Map()
+  for (const r of records) if (!r.final) (byCode.get(r.code) || byCode.set(r.code, []).get(r.code)).push(r)
+  for (const [code, recs] of byCode) {
+    let days = {}
+    try {
+      days = splitFiveMin(await fetchJson(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(code)}.T?range=5d&interval=5m`))
+    } catch {
+      continue
+    }
+    for (const r of recs) {
+      const o = intradayOutcome(r, days)
+      if (o) updates.push({ id: r.id, ...o })
+    }
+  }
+  const done = updates.filter(u => u.final).map(u => ({ ...records.find(r => r.id === u.id), ...u }))
+  return { updates, stats: mergeIntradayStats(prevStats, done) }
+}
+
 /**
  * 買う前チェック。決めたルールに照らして、買ってよい株数と、止める理由・注意を出す。
  * 止める理由（blocks）が1つでもあれば ok は false。
@@ -1979,6 +2214,29 @@ async function main() {
   if (args.includes('--kessan')) {
     const d = args[args.indexOf('--kessan') + 1]
     console.log(JSON.stringify(await fetchKessan(/^\d{8}$/.test(d || '') ? d : undefined), null, 2))
+    return
+  }
+  if (args.includes('--intraday-result')) {
+    const file = args[args.indexOf('--intraday-result') + 1]
+    const si = args.indexOf('--stats')
+    let prev = null
+    if (si >= 0) {
+      try {
+        prev = JSON.parse(readFileSync(args[si + 1], 'utf-8'))
+      } catch {
+        prev = null
+      }
+    }
+    console.log(JSON.stringify(await intradayResult(JSON.parse(readFileSync(file, 'utf-8')), prev), null, 2))
+    return
+  }
+  if (args.includes('--intraday')) {
+    const codes = args.slice(args.indexOf('--intraday') + 1).filter(a => !a.startsWith('--')).map(c => c.toUpperCase()).filter(isTseCode)
+    if (!codes.length) {
+      console.error('使い方: node .claude/scripts/kabu-lens.mjs --intraday <銘柄コード> [...]')
+      process.exit(1)
+    }
+    console.log(JSON.stringify(await fetchIntraday(codes), null, 2))
     return
   }
   if (args.includes('--check')) {

@@ -63,6 +63,7 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
   - `settings/backtest`: 検証結果の要約
   - `cands`: 約1,150銘柄の買い候補の追跡（ID は `<code>-<date>-pass|blocked`。signals と同じ形に turnover・atrPct・dev25・rs を足したもの）。集計は `settings/cands_stats`。**おすすめの精度を上げるためのデータ**。数百件たまったら `signalsReport` の分け方で、当たる条件・外れる条件を見て、`buy_candidate` の条件を見直す（見直したら、変更前と後の両方を前半・後半で確かめる）
   - `considered`: 本人が買おうとした銘柄（ID は `<日付>-<コード>`。code、name、date、price、stop、decision＝bought／passed／blocked、source＝kau／chat／plan／trade、reason）。夜の「決算の記録」が `--considered-result` で1・5・20日後を足し、累計は `settings/considered_stats`。記録帳の「買おうとした銘柄のその後」に出る
+  - `intraday`: 場中の判定（/bachu）。ID は `<日付>-<コード>-<HHMM>`。intradayView の結果（price、vwap、regime、daily_trend、supports、resistances、signal、kind、reasons、limit、stop_intraday）と、チャート用の今日の5分足 bars（[分, 始, 高, 安, 終, 出来高]）。夜の「決算の記録」が `--intraday-result` で rClose（大引けまで%）・rNext（翌日の大引けまで%）を足し、累計は `settings/intraday_stats`（TAKE・WAIT・SKIP ごと）。記録帳の「場中の判定（5分足）」にローソク足・VWAP・支えと壁つきで出る
   - `settings/history`: 証券会社の取引履歴を集計したもの（銘柄ごとの損益、1日の買いの回数）。金額はここにだけ置き、リポジトリには書かない
   - `trades`: 売買の記録。status が open は保有中。entry, qty, stop, target, events, note
   - `watchlist`: 監視リスト
@@ -80,10 +81,10 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 | 朝の株ウォッチ | 8:22 | **今日入れる注文**（保有ごとの逆指値・逆指値付通常注文）、保有の点検、適時開示、次の決算日、買い候補 |
 | 朝のランキング（寄り付き後） | 9:36 | 9:15ごろの値上がり・値下がりランキングの危険度と材料。`movers` に `slot: "open"` で記録 |
 | 昼の状況確認 | 11:47 | 相場、保有の含み損益、今朝の候補、値上がり・値下がりランキング（各20銘柄）の危険度と材料。`movers` に記録 |
-| 決算の記録（上方修正の追跡） | 21:38 | 保有株の適時開示の見張り（増資などは1行目）。その日の上方修正を `kessan` に記録し、次の営業日の始値で買った場合の1・5・20日後を足す。累計は `settings/kessan_stats` |
+| 決算の記録（上方修正の追跡） | 21:38 | 保有株の適時開示の見張り（増資などは1行目）。その日の上方修正を `kessan` に記録し、次の営業日の始値で買った場合の1・5・20日後を足す。累計は `settings/kessan_stats`。`considered`（買おうとした銘柄）と `intraday`（場中の判定）の答え合わせもここ |
 | 候補の記録（約1,150銘柄） | 23:07 | `--scan-wide` で約1,150銘柄の候補（通過・見送り）を `cands` に記録し、`--evaluate` で追跡、`--signals-report` で集計して `settings/cands_stats`。通知なし |
 | 週の振り返り（金曜） | 金 20:13 | 1週間の売買・ルールを守れたか・仕組みの成績。`weekly` に記録 |
-| 夜の点検（保有と買い候補） | 22:20 | **明日の注文票**（保有の注文と、買い候補の指値・逆指値）、今日の売買の振り返り、買い候補の判定と追跡、ランキングの答え合わせ、書き戻し |
+| 夜の点検（保有と買い候補） | 22:20 | **明日の注文票**（保有の注文と、買い候補の指値・逆指値。逆指値が値幅制限の外なら下限の1円上。note の「終値が◯円を超えたら損切りを上げる」作戦を点検。`frozen` の保有は「放置」と1行）、今日の売買の振り返り、買い候補の判定と追跡、ランキングの答え合わせ、書き戻し |
 
 - `list_triggers` で名前から探す。どれも「毎回新しいセッション」「環境はデフォルト」「スマホ通知あり」。
 - 指示文を直すときは `get_trigger` で全文を取り、直した全文を `update_trigger` で送る（一部だけの差し替えはできない）。
@@ -116,6 +117,7 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 | 決算の見出し | `fetchKessan` `parseKabutanKessanList` `classifyKessan` `kessanOutcome` `kessanResult` `mergeKessanStats` | `--kessan [YYYYMMDD]`（その日の決算・業績修正の見出しを分類つきで取る）、`--kessan-result`（上方修正の記録のその後と累計） |
 | 値動きの相関 | `returnCorrelation` | 直近60日の日々の騰落の相関。買う前チェックが保有株ごとに出し、0.7以上で「一緒に動きすぎ」、0.5以上で「やや一緒に動く」と警告（止めはしない） |
 | 株が増える資金調達 | `parseDilution` `summarizeDilution` `fetchDilution` | IR BANK の適時開示一覧（`/<コード>/ir`、リンクの title に表題と提出日時がある）から、行使価額修正条項付の新株予約権（MSワラント）・転換社債・第三者割当の新株を拾う（ストック・オプションと訂正は除く）。買う前チェックが警告を出す（止めはしない）：直近30日に大量行使・行使完了＝「強い注意」、行使完了前＝「残っている」、5年で2回以上＝「くり返す会社」。2026年10月のウインテスト（急騰の天井で第13回の大量行使→行使完了→下落）がきっかけ（本人の希望、11月18日） |
+| 場中の判定 | `intradayView` `intradayContext` `splitFiveMin` `fetchIntraday` `intradayOutcome` `intradayResult` `mergeIntradayStats` | `--intraday <コード...>`：Yahoo の5分足（15〜20分遅れ）から VWAP、短い平均（9本・20本）、寄り30分の高安、支えと壁、場中の地合い（TREND_UP / TREND_DOWN / CHOPPY / PANIC）、日足の向き（25日線の上下と傾き）、合図（TAKE＝押し目かブレイク / WAIT / SKIP＝日足が下向き・急落中・前日比+8%以上）。`/bachu` が使う。`--intraday-result` で答え合わせ。Yahoo の5分足は 9:00 の足が欠けることがあるので始値は日足の値を使う |
 | 買う前チェック | `preTradeCheck` `parseKabutanEarningsDate` `businessDaysBetween` | `--check <コード> <値段> --state <状態.json>`。株数・損切り・止める理由を出す。`/kau` が使う |
 | 通信 | `fetchText` `fetchJson` | fetch が失敗したら curl で取り直す |
 | 入口 | `main` `runBacktest` `evaluateFile` | コマンドの引数を見て振り分ける |
@@ -172,6 +174,8 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 - ESLint の対象から外してある（`eslint.config.mjs`）
 
 ### 5ステップのコマンド（`.claude/commands/`）
+
+- `/bachu <銘柄...>`：場中の判定（`--intraday`）。結果を伝えて記録帳の `intraday` に残す。買うなら必ず `/kau` も通す
 
 `/theme`（探す）→ `/kessan`（読む）→ `/bear`（疑う）→ `/comps` `/dcf`（値付け）→ `/chart`（タイミング）→ `/thesis` `/catalysts` `/earnings`（記録）。`/stock-research` が通しで実行する。
 結果は `stock-research/<銘柄名>/` に Markdown で残す。`/chart` は `kabu-lens/AGENT_PROMPT.md` の読み方に従う。`/kiken` は危険度。

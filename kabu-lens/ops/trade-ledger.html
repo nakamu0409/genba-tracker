@@ -139,6 +139,14 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
   .stats { grid-template-columns: repeat(2, minmax(0,1fr)); }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+.intra-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.intra-card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px; min-width: 0; }
+.intra-card h3 { font-size: .95rem; margin: 0 0 4px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.intra-card .meta { font-size: .78rem; color: var(--muted); }
+.intra-card svg { width: 100%; height: auto; display: block; margin: 6px 0; }
+.intra-card .why { font-size: .82rem; margin: 4px 0 0; padding-left: 1.1em; }
+.sg { font-size: .72rem; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; }
+.sg-TAKE { color: var(--up); } .sg-SKIP { color: var(--down); } .sg-WAIT { color: var(--muted); }
 </style>
 
 <div class="wrap">
@@ -193,6 +201,16 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
     <div class="list" id="open-list" aria-live="polite">
       <div class="empty" id="open-empty">記録を読み込んでいます。保有中の銘柄が、現在値・含み損益・損切りまでの損失額と一緒にここに並びます。</div>
     </div>
+  </section>
+
+  <section aria-labelledby="h-intra">
+    <div class="sec-head"><h2 id="h-intra">場中の判定（5分足）</h2><span class="count" id="intra-count"></span></div>
+    <p class="sub">/bachu で見た銘柄の5分足と判定。株価は15〜20分遅れです。<b>合図はまだ試し中</b>で、過去60日では TAKE の上乗せはほぼありませんでした。夜の記録が「大引けまで」「翌日まで」を足して、当たったかを数えます。</p>
+    <div class="panel" id="intra-sum-panel" hidden>
+      <div class="sig-scroll"><table class="sig-table" aria-label="合図ごとの答え合わせ"><thead><tr><th>合図</th><th class="num">件数</th><th class="num">大引けまで</th><th class="num">翌日まで</th><th class="num">勝率</th></tr></thead><tbody id="intra-sum"></tbody></table></div>
+    </div>
+    <div id="intra-list" class="intra-list"></div>
+    <div class="panel" id="intra-empty"><div class="empty">まだありません。場中に /bachu 銘柄名 と打つと、ここにチャートが並びます。</div></div>
   </section>
 
   <section aria-labelledby="h-log">
@@ -974,6 +992,69 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
     el.textContent = "ここに無い売買もあります。証券会社の取引履歴（" + String(hh.from || "").slice(5).replace("-", "/") + "〜" + String(hh.to || "").slice(5).replace("-", "/") + "、" + (hh.trades || "?") + "件）で数えた実現損益は " + (hh.realized > 0 ? "+" : "") + Math.round(hh.realized).toLocaleString("ja-JP") + "円（勝ち" + (hh.winners || 0) + "銘柄・負け" + (hh.losers || 0) + "銘柄）。下の数字は、記録帳に入れた売買だけの集計です。";
   }
 
+  var intraDocs = [], intraStats = null;
+  function intraChart(x) {
+    var bars = (x.bars || []).map(function (b) { return { m: b[0], o: b[1], h: b[2], l: b[3], c: b[4] }; });
+    var NS = "http://www.w3.org/2000/svg", W = 320, H = 170, P = 4, RX = 58;
+    var svg = document.createElementNS(NS, "svg"); svg.setAttribute("viewBox", "0 0 " + W + " " + H); svg.setAttribute("role", "img");
+    svg.setAttribute("aria-label", (x.name || x.code) + " の5分足");
+    if (!bars.length) return svg;
+    var lv = [x.vwap, x.limit, x.stop_intraday].concat((x.supports || []).map(function (s) { return s.price; }), (x.resistances || []).map(function (s) { return s.price; })).filter(function (v) { return typeof v === "number"; });
+    var hi = Math.max.apply(null, bars.map(function (b) { return b.h; }).concat(lv)), lo = Math.min.apply(null, bars.map(function (b) { return b.l; }).concat(lv));
+    if (hi === lo) { hi += 1; lo -= 1; }
+    var y = function (v) { return P + (hi - v) / (hi - lo) * (H - 2 * P); };
+    var bw = (W - RX - P) / Math.max(bars.length, 20), xx = function (i) { return P + i * bw + bw / 2; };
+    var mk = function (tag, at) { var e = document.createElementNS(NS, tag); Object.keys(at).forEach(function (k) { e.setAttribute(k, at[k]); }); svg.appendChild(e); return e; };
+    var cs = getComputedStyle(document.documentElement), col = function (n) { return cs.getPropertyValue(n).trim(); };
+    var used = [];
+    var hline = function (v, color, dash, label) {
+      if (typeof v !== "number") return;
+      mk("line", { x1: P, x2: W - RX, y1: y(v), y2: y(v), stroke: color, "stroke-width": 1, "stroke-dasharray": dash || "" });
+      if (used.some(function (u) { return Math.abs(u - y(v)) < 10; })) return; // 近すぎる値段の文字は重ねない
+      used.push(y(v));
+      var t = mk("text", { x: W - RX + 3, y: y(v) + 3, fill: color, "font-size": 9 }); t.textContent = label + " " + Math.round(v * 10) / 10;
+    };
+    hline(x.vwap, col("--accent"), "", "VWAP");
+    (x.resistances || []).forEach(function (s) { hline(s.price, col("--up"), "3 3", "壁"); });
+    (x.supports || []).forEach(function (s) { hline(s.price, col("--down"), "3 3", "支"); });
+    bars.forEach(function (b, i) {
+      var c = b.c >= b.o ? col("--up") : col("--down");
+      mk("line", { x1: xx(i), x2: xx(i), y1: y(b.h), y2: y(b.l), stroke: c, "stroke-width": 1 });
+      mk("rect", { x: xx(i) - bw * 0.35, y: y(Math.max(b.o, b.c)), width: Math.max(1, bw * 0.7), height: Math.max(1, Math.abs(y(b.o) - y(b.c))), fill: c });
+    });
+    if (x.signal === "TAKE" && typeof x.limit === "number") { var i = bars.length - 1; mk("path", { d: "M" + xx(i) + " " + (y(x.limit) + 4) + " l-5 9 h10 z", fill: col("--up") }); }
+    return svg;
+  }
+  function renderIntra() {
+    var pct = function (v) { return typeof v === "number" ? (v > 0 ? "+" : "") + v.toFixed(2) + "%" : "—"; };
+    var LAB = { TAKE: "買い場", WAIT: "待つ", SKIP: "見送り" }, RG = { TREND_UP: "上昇", TREND_DOWN: "下降", CHOPPY: "もみ合い", PANIC: "急落" };
+    var sum = $("intra-sum"); sum.textContent = "";
+    ["TAKE", "WAIT", "SKIP"].forEach(function (k) {
+      var c = intraStats && intraStats[k]; if (!c || !c.n) return;
+      var tr = document.createElement("tr");
+      [[LAB[k]], [String(c.n), 1], [pct(c.sumClose / c.n), 1], [pct(c.sumNext / c.n), 1], [Math.round(c.winClose / c.n * 100) + "%", 1]].forEach(function (cc) { var td = document.createElement("td"); td.textContent = cc[0]; if (cc[1]) td.className = "num"; tr.appendChild(td); });
+      sum.appendChild(tr);
+    });
+    $("intra-sum-panel").hidden = !sum.children.length;
+    var list = $("intra-list"); list.textContent = "";
+    intraDocs.slice().sort(function (a, b) { return String(b.date) + b.time < String(a.date) + a.time ? -1 : 1; }).slice(0, 6).forEach(function (x) {
+      var card = el("div", "intra-card");
+      var h = el("h3", "", (x.name || x.code) + " ");
+      h.appendChild(el("span", "sg sg-" + x.signal, LAB[x.signal] || x.signal));
+      h.appendChild(el("span", "meta", String(x.date || "").slice(5).replace("-", "/") + " " + (x.time || "") + "時点"));
+      card.appendChild(h);
+      card.appendChild(el("div", "meta num", (x.price != null ? x.price.toLocaleString("ja-JP") + "円" : "") + "　前日比 " + pct(x.from_prev_pct) + "　VWAP " + (x.vwap != null ? x.vwap : "—") + "　場中 " + (RG[x.regime] || x.regime || "—") + "　日足 " + ({ UP: "上向き", DOWN: "下向き", FLAT: "横ばい" }[x.daily_trend] || "—")));
+      card.appendChild(intraChart(x));
+      var ul = el("ul", "why"); (x.reasons || []).forEach(function (r) { ul.appendChild(el("li", "", r)); });
+      if (x.signal === "TAKE" && x.limit != null) ul.appendChild(el("li", "", "指値の目安 " + x.limit + "円 ／ 場中の損切りの目安 " + x.stop_intraday + "円（持ち越すなら /kau の損切り）"));
+      card.appendChild(ul);
+      if (typeof x.rClose === "number") card.appendChild(el("div", "meta", "答え合わせ：大引けまで " + pct(x.rClose) + (typeof x.rNext === "number" ? "　翌日まで " + pct(x.rNext) : "")));
+      list.appendChild(card);
+    });
+    $("intra-empty").hidden = !!intraDocs.length;
+    $("intra-count").textContent = intraDocs.length ? intraDocs.length + " 件" : "";
+  }
+
   var consStats = null, consDocs = [];
   function renderConsidered() {
     var LAB = { bought: "買った", passed: "見送った", blocked: "止められた" };
@@ -1035,6 +1116,8 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
         renderSignals();
       }, function () {});
       db.doc("settings/cands_stats").onSnapshot(function (snap) { renderCands(snap.exists ? snap.data() : null); }, function () {});
+      db.collection("intraday").limit(300).onSnapshot(function (snap) { intraDocs = snap.docs.map(function (doc) { var o = Object.assign({}, doc.data()); o.id = doc.id; return o; }); renderIntra(); }, function () {});
+      db.doc("settings/intraday_stats").onSnapshot(function (snap) { intraStats = snap.exists ? snap.data() : null; renderIntra(); }, function () {});
       db.collection("considered").limit(500).onSnapshot(function (snap) { consDocs = snap.docs.map(function (doc) { var o = Object.assign({}, doc.data()); o.id = doc.id; return o; }); renderConsidered(); }, function () {});
       db.doc("settings/considered_stats").onSnapshot(function (snap) { consStats = snap.exists ? snap.data() : null; renderConsidered(); }, function () {});
       db.doc("settings/history").onSnapshot(function (snap) { renderHistory(snap.exists ? snap.data() : null); }, function () {});
