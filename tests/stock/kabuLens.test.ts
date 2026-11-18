@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { parseKabutanFinance, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -852,5 +852,31 @@ describe('場中の判定（5分足）', () => {
     expect(o).toEqual({ rClose: 2, rNext: -1, final: true })
     const st = mergeIntradayStats(null, [{ signal: 'TAKE', ...o }, { signal: 'TAKE', rClose: -1, rNext: 1 }])
     expect(st.TAKE).toEqual({ n: 2, sumClose: 1, sumNext: 0, nNext: 2, winClose: 1 })
+  })
+})
+
+describe('株探の業績（少し長期）', () => {
+  const th = (cells: string[]) => '<tr>' + cells.map((c, i) => (i === 0 ? `<th>${c}</th>` : `<td>${c}</td>`)).join('') + '</tr>'
+  const annual = '<table><tr><th>決算期</th><th>売上高</th><th>営業益</th><th>経常益</th><th>最終益</th><th>修正<br>1株益</th><th>修正<br>1株配</th><th>発表日</th></tr>'
+    + th(['2025.09&nbsp;', '874,030', '71,702', '71,743', '31,667', '62.5', '17', '25/11/14'])
+    + th(['<span>&nbsp;予&nbsp;</span>2027.09&nbsp;', '1,070,000', '66,000', '66,000', '35,000', '69.0', '22', '26/11/11']) + '</table>'
+  const half = annual.replace('2025.09', '25.10-03')
+  const qrow = (p: string, op: number, d: string) => th([p, '200,000', String(op), '1', '1', '1.0', '5.0', d])
+  const quarter = '<table><tr><th>決算期</th><th>売上高</th><th>営業益</th><th>経常益</th><th>最終益</th><th>修正<br>1株益</th><th>売上営業<br>損益率</th><th>発表日</th></tr>'
+    + qrow('25.01-03', 100, '25/05/15') + qrow('25.04-06', 100, '25/08/08') + qrow('25.07-09', 100, '25/11/14') + qrow('25.10-12', 100, '26/02/06')
+    + qrow('26.01-03', 120, '26/05/13') + qrow('26.04-06', 150, '26/08/07') + '</table>'
+  const r = parseKabutanFinance(annual + half + quarter)
+  it('通期の実績と会社予想、四半期を発表日つきで読む（上期・下期の表は混ぜない）', () => {
+    expect(r.annual.map((a: { period: string, forecast: boolean }) => a.period + (a.forecast ? '予' : ''))).toEqual(['2025.09', '2027.09予'])
+    expect(r.annual[0].op).toBe(71702)
+    expect(r.quarterly).toHaveLength(6)
+    expect(r.quarterly[5].date).toBe('2026-08-07')
+  })
+  it('業績の勢い：直近の四半期を1年前と比べ、その時点までの数字だけを使う', () => {
+    const m = earningsMomentum(r.quarterly)
+    expect(m.op_yoy_pct).toBe(50)
+    expect(m.streak).toBe(2)
+    expect(earningsMomentum(r.quarterly, '2026-05-13').op_yoy_pct).toBe(20)
+    expect(earningsMomentum(r.quarterly, '2026-02-06')).toBeNull()
   })
 })
