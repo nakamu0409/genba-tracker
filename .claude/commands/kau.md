@@ -9,7 +9,7 @@ argument-hint: <銘柄コード> <買う値段>（例: 7203 3100）
 
 1. トレード記録帳（Artifact の list で題名「トレード記録帳」を探す）のデータベースを ArtifactData で読む。
    - `settings/main`: capital, cash, riskPct, maxPosPct, maxPositions, dayTradeMax, extra（本人の決めごと）
-   - `trades`: status が open のもの（保有中）。code, name, entry, last, qty。date が今日（日本時間）の記録の数が「今日すでに買った回数」
+   - `trades`: status が open のもの（保有中）。code, name, entry, last, qty。date が今日（日本時間）の記録の数が「今日すでに買った回数」。`frozen: true`（本人が「放置する」と決めた保有）は positions に入れない（銘柄数・相関・買い増しの判定に数えない）
 2. 次の形のファイルを作る（スクラッチパッドに置く）:
    `{"settings": {capital, cash, riskPct, maxPosPct, maxPositions, dayTradeMax}, "positions": [{code, name, entry, last, qty}], "buysToday": <回数>}`
    今日の買いの回数が記録帳から分からないとき（記録していない売買がありそうなとき）は、本人に「今日は何回買いましたか」と1回だけ聞く。
