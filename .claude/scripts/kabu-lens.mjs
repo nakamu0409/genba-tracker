@@ -1450,12 +1450,14 @@ export function parseDilution(html) {
     seen.add(key)
     const series = (title.match(/第(\d+)回/) || [])[1]
     let kind = 'other'
-    if (/取得及び消却|消却/.test(title)) kind = 'cancel'
+    if (/新株予約権行使/.test(title)) kind = 'other' // 他社の転換社債を行使した（買収など）。自社の株は増えない
+    else if (/取得及び消却|消却/.test(title)) kind = 'cancel'
     else if (/行使完了/.test(title)) kind = 'done'
     else if (/大量行使/.test(title)) kind = 'heavy'
     else if (/月間行使/.test(title)) kind = 'monthly'
     else if (/発行|募集/.test(title)) kind = 'issue'
-    out.push({ date, time: m[5], title, kind, ms, cb, third, series: series ? Number(series) : null, corrected: /^\(訂正\)|^\(再訂正\)|^（訂正）/.test(title) })
+    const other = /新株予約権行使/.test(title)
+    out.push({ date, time: m[5], title, kind, ms: ms && !other, cb: cb && !other, third, series: series ? Number(series) : null, corrected: /^\(訂正\)|^\(再訂正\)|^（訂正）/.test(title) })
   }
   return out.sort((a, b) => b.date.localeCompare(a.date))
 }

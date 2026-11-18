@@ -745,12 +745,14 @@ describe('株が増える資金調達（MSワラント）の警告', () => {
     a('募集新株予約権(有償ストック・オプション)の発行に関するお知らせ', '2026/04/15'),
     a('第三者割当による第13回新株予約権(行使価額修正条項付)の発行に関するお知らせ', '2025/12/26'),
     a('第三者割当による第12回新株予約権(行使価額修正条項付)の発行に関するお知らせ', '2024/10/31'),
-    a('液体レンズの採用に関するお知らせ', '2026/10/08')
+    a('液体レンズの採用に関するお知らせ', '2026/10/08'),
+    a('(開示事項の経過)テスト株式会社の発行済み転換社債型新株予約権付社債の新株予約権行使および同社の連結子会社化完了に関するお知らせ', '2026/10/21')
   ].join('')
   const rows = parseDilution(html)
   it('MSワラントの開示だけを拾い、ストック・オプションと関係ない開示は除く', () => {
-    expect(rows.map((r: { kind: string }) => r.kind)).toEqual(['done', 'heavy', 'issue', 'issue'])
-    expect(rows[0].series).toBe(13)
+    expect(rows.map((r: { kind: string }) => r.kind)).toEqual(['other', 'done', 'heavy', 'issue', 'issue'])
+    expect(summarizeDilution(rows, '2026-11-18').active).toBe(false)
+    expect(rows[1].series).toBe(13)
   })
   it('行使完了の前はまだ残っている、直近の大量行使・完了は強い注意', () => {
     expect(summarizeDilution(rows, '2026-10-10').active).toBe(true)
