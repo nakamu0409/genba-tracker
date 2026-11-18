@@ -832,7 +832,7 @@ describe('場中の判定（5分足）', () => {
     expect(intradayView(up, ctx).marks).toEqual([])
   })
   it('低位株の強い引けに目印', () => {
-    const cs = Array.from({ length: 60 }, (_, i) => 110 + i * 0.1)
+    const cs = Array.from({ length: 60 }, (_, i) => 120 + i * 0.1)
     const bars = cs.map((c, i) => ({ m: i < 30 ? 540 + i * 5 : 750 + (i - 30) * 5, o: i ? cs[i - 1] : c, h: c + 0.2, l: (i ? cs[i - 1] : c) - 0.2, c, v: 1000 }))
     const v = intradayView(bars, { prevClose: 100, ma25: 90, ma25Prev: 88, atrDay: 6 })
     expect(v.low_group).toBe(true)

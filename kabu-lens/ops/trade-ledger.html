@@ -1034,7 +1034,7 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
   var wideStats = null;
   function renderWide() {
     var body = $("wide-body"); body.textContent = "";
-    var G = [["TAKE", "買い場（絞り込み後）", "+0.18／+0.28"], ["TAKE_RAW", "絞り込む前の形", "+0.09／+0.04"], ["TAKE_1030_1100", "買い場 10:30・11:00", "+0.18／+0.35"], ["TAKE_BREAKOUT", "買い場（高値抜け）", "+0.08／+0.32"], ["RECLAIM_PM", "目印：後場に VWAP 奪回", "+0.01／+0.23"], ["TREND_UP", "場中 上昇", "+0.07／+0.06"], ["TREND_DOWN", "場中 下降", "−0.05／−0.10"], ["PANIC", "場中 急落", "−0.19／+0.19"], ["CHASE8", "前日比+8%以上", "−0.21／+0.97"], ["SKIP", "見送り（全部）", "−0.02／+0.01"], ["LOW_ALL", "低位・荒い株（全部）", "±0.00／±0.00"], ["LOW_TAKE_RAW", "低位・荒い株の買い場の形", "+0.03／−0.24"], ["LOW_STRONG_CLOSE", "目印：低位株の強い引け", "—／+1.18"]];
+    var G = [["TAKE", "買い場（絞り込み後）", "+0.18／+0.28"], ["TAKE_RAW", "絞り込む前の形", "+0.09／+0.04"], ["TAKE_1030_1100", "買い場 10:30・11:00", "+0.18／+0.35"], ["TAKE_BREAKOUT", "買い場（高値抜け）", "+0.08／+0.32"], ["RECLAIM_PM", "目印：後場に VWAP 奪回", "+0.01／+0.23"], ["TREND_UP", "場中 上昇", "+0.07／+0.06"], ["TREND_DOWN", "場中 下降", "−0.05／−0.10"], ["PANIC", "場中 急落", "−0.19／+0.19"], ["CHASE8", "前日比+8%以上", "−0.21／+0.97"], ["SKIP", "見送り（全部）", "−0.02／+0.01"], ["LOW_ALL", "低位・荒い株（全部）", "±0.00／±0.00"], ["LOW_TAKE_RAW", "低位・荒い株の買い場の形", "+0.03／−0.24"], ["LOW_STRONG_CLOSE", "目印：低位株の強い引け（+20%以上）", "—／+4.2"]];
     var pct = function (v) { return (v > 0 ? "+" : "") + v.toFixed(2) + "%"; };
     G.forEach(function (g) {
       var x = wideStats && wideStats.groups && wideStats.groups[g[0]]; if (!x) return;
@@ -1072,7 +1072,7 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
       card.appendChild(el("div", "meta num", (x.price != null ? x.price.toLocaleString("ja-JP") + "円" : "") + "　前日比 " + pct(x.from_prev_pct) + "　VWAP " + (x.vwap != null ? x.vwap : "—") + "　場中 " + (RG[x.regime] || x.regime || "—") + "　日足 " + ({ UP: "上向き", DOWN: "下向き", FLAT: "横ばい" }[x.daily_trend] || "—")));
       card.appendChild(intraChart(x));
       var ul = el("ul", "why"); (x.reasons || []).forEach(function (r) { ul.appendChild(el("li", "", r)); });
-      if ((x.marks || []).indexOf("LOW_STRONG_CLOSE") >= 0) ul.appendChild(el("li", "", "目印：低位株の強い引け（試し中。過去34日では翌日の大引けまで平均より+1.2%。ただし112回だけで、翌日に途中で−3%ほど下げるのがふつう。翌日の寄りでは売らない）"));
+      if ((x.marks || []).indexOf("LOW_STRONG_CLOSE") >= 0) ul.appendChild(el("li", "", "目印：低位株の強い引け（前日比+20%以上・張り付きなし。試し中。1時間足3年・139回で、引け前に買って翌日13時まで持つと平均より+4.2%、中央値+1.8%、勝率58%。翌日に途中で−5%ほど下げるのがふつう）"));
       if ((x.marks || []).indexOf("RECLAIM_PM") >= 0) ul.appendChild(el("li", "", "目印：後場に VWAP を取り戻した形（持ち越し向き・試し中。過去60日では翌日まで持つと平均より+0.2%ほど）"));
       if (x.signal === "TAKE" && x.limit != null) ul.appendChild(el("li", "", "指値の目安 " + x.limit + "円 ／ 場中の損切りの目安 " + x.stop_intraday + "円（持ち越すなら /kau の損切り）"));
       card.appendChild(ul);

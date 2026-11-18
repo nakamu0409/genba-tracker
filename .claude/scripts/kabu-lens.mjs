@@ -1907,11 +1907,13 @@ export function intradayView(bars, ctx = {}, opt = {}) {
     const avgV = bars.slice(-13, -1).reduce((s2, b) => s2 + (b.v || 0), 0) / Math.min(12, bars.length - 1)
     if (wasBelow && last.c > vwap && last.c > last.o && (last.v || 0) >= 1.5 * avgV) marks.push('RECLAIM_PM')
   }
-  // 目印（試し中）：低位株・荒い株の「強い引け」。14:30 以降、前日比+10〜20%、VWAP の上、今日の値幅の上3割。
-  // 過去34日では翌日の大引けまで全体比+1.2%（前半・後半ともプラス）。ただし112回だけで、翌日に途中で−3%ほど下げるのがふつう。翌日の寄りは弱いので、寄りでは売らない
+  // 目印（試し中）：低位株・荒い株の「強い引け」。14:30 以降、前日比+20%以上、VWAP の上、今日の値幅の上3割、張り付いていない（買える）。
+  // 1時間足約3年（139回）で、引け前に買って翌日13時まで持つと全体比+4.2%（中央値+1.8%、勝率58%、2024〜2026年どの年もプラス）。
+  // ただし翌日に途中で−5%ほど下げるのがふつうで、平均は大きく勝った回に引っぱられている。前日比+10〜20%は3年で見るとほぼ差が無かった（+0.2%）
   const atrPctDay = ok(ctx.atrDay) && ctx.prevClose > 0 ? ctx.atrDay / ctx.prevClose * 100 : null
   const lowGroup = (ok(ctx.prevClose) && ctx.prevClose < 500) || (ok(atrPctDay) && atrPctDay >= 4)
-  if (lowGroup && last.m + 5 >= 870 && ok(fromPrev) && fromPrev >= 10 && fromPrev < 20 && price > vwap && dayHigh > dayLow && (price - dayLow) / (dayHigh - dayLow) >= 0.7) marks.push('LOW_STRONG_CLOSE')
+  const stuck = bars.slice(-3).every(b => b.h === b.l)
+  if (lowGroup && last.m + 5 >= 870 && ok(fromPrev) && fromPrev >= 20 && !stuck && price > vwap && dayHigh > dayLow && (price - dayLow) / (dayHigh - dayLow) >= 0.7) marks.push('LOW_STRONG_CLOSE')
   const swingLow = Math.min(...bars.slice(-6).map(b => b.l))
   const limit = kind === 'PULLBACK' ? tick(Math.max(vwap, e20[k])) : kind === 'BREAKOUT' ? tick(orHigh) : null
   const stopIntraday = signal === 'TAKE' ? tick(Math.min(swingLow, vwap) - 0.3 * atr5) : null
