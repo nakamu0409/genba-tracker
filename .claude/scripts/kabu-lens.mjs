@@ -2293,6 +2293,7 @@ export async function miteReport(code, { price = null, state = null, stats = {},
     const verdict = intra.signal === 'TAKE' ? '買い場' : intra.signal === 'SKIP' ? '見送り' : '待つ'
     day = {
       verdict, time: intra.time, date: intra.date, price: intra.price, regime: intra.regime, vwap: intra.vwap, reasons: intra.reasons,
+      signal: intra.signal, kind: intra.kind, from_prev_pct: intra.from_prev_pct, daily_trend: intra.daily_trend,
       limit: intra.limit, stop: intra.stop_intraday, marks, low_group: intra.low_group,
       supports: intra.supports, resistances: intra.resistances,
       record: [MITE_REF.day[key], liveDay(stats.intraday_wide_stats, intra.signal === 'TAKE' ? 'TAKE' : intra.raw_take ? 'TAKE_RAW' : intra.signal),
