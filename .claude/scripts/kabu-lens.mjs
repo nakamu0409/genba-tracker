@@ -25,6 +25,7 @@
 //   node .claude/scripts/kabu-lens.mjs --kessan-result <記録.json> [--stats <累計.json>]  # 上方修正の記録の、その後（1・5・20日）
 //   node .claude/scripts/kabu-lens.mjs --check 7203 3100 --state state.json  # 買う前チェック（株数・損切り・止める理由）
 //   node .claude/scripts/kabu-lens.mjs --intraday 7203 6758:452     # 場中の判定（5分足・VWAP・支えと壁・合図。約15〜20分遅れ。「:値段」で今の値段をつなぐ）
+//   node .claude/scripts/kabu-lens.mjs --scan-now universe-wide.json  # 今、場中の買い場・目印が出ている銘柄を全銘柄から探す（約1分）
 //   node .claude/scripts/kabu-lens.mjs --mite 7203[:今の値段] --state st.json --stats-dir dir  # デイトレ・スイング・少し長期の判定と成績・買う前チェックをまとめて
 //   node .claude/scripts/kabu-lens.mjs --intraday-replay 7203 2026-11-18  # ある日の場中の判定を30分ごとに再現
 //   node .claude/scripts/kabu-lens.mjs --intraday-wide universe-wide.json [--stats st.json] [--five-out f.json]  # 前の営業日の場中の判定を全銘柄で再現して数える（毎晩の自動記録）。--five-out でその日の5分足も保存
@@ -2279,6 +2280,46 @@ function liveDay(stats, key) {
 }
 
 /**
+ * 今、場中の「買い場」や目印が出ている銘柄を、universe の全銘柄から探す（5分足は約15〜20分遅れ）。
+ * 返り値: {date, time, scanned, take: [...], marks: [...]}。売買代金の大きい順
+ */
+export async function scanIntradayNow(list, { parallel = 8 } = {}) {
+  const rows = []
+  let errors = 0
+  for (let i = 0; i < list.length; i += parallel) {
+    await Promise.all(list.slice(i, i + parallel).map(async ({ code, name }) => {
+      try {
+        const [five, d] = await Promise.all([
+          fetchJson(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(code)}.T?range=5d&interval=5m`),
+          fetchYahoo(`${code}.T`, '6mo')
+        ])
+        const days = splitFiveMin(five)
+        const dates = Object.keys(days).sort()
+        const today = dates[dates.length - 1]
+        if (!today) return
+        const daily = d.bars.filter(b => b.date < today)
+        const v = intradayView(days[today], intradayContext(daily))
+        if (!v) return
+        const turnover = daily.slice(-20).reduce((sum, b) => sum + b.c * b.v, 0) / 20
+        rows.push({ code, name, date: today, time: v.time, price: v.price, from_prev_pct: v.from_prev_pct, vwap: v.vwap, regime: v.regime, signal: v.signal, kind: v.kind, raw_take: v.raw_take, marks: v.marks, low_group: v.low_group, limit: v.limit, stop_intraday: v.stop_intraday, reasons: v.reasons, turnover: Math.round(turnover) })
+      } catch {
+        errors++
+      }
+    }))
+  }
+  const cnt = {}
+  for (const r of rows) cnt[r.date] = (cnt[r.date] || 0) + 1
+  const date = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0]?.[0] || null
+  const use = rows.filter(r => r.date === date).sort((a, b) => b.turnover - a.turnover)
+  return {
+    source: 'Yahoo Finance の5分足（約15〜20分遅れ）', date, time: use[0]?.time || null, scanned: use.length, errors,
+    take: use.filter(r => r.signal === 'TAKE'),
+    marks: use.filter(r => r.marks?.length && r.signal !== 'TAKE'),
+    counts: { TAKE: use.filter(r => r.signal === 'TAKE').length, WAIT: use.filter(r => r.signal === 'WAIT').length, SKIP: use.filter(r => r.signal === 'SKIP').length }
+  }
+}
+
+/**
  * 1銘柄について、デイトレ（場中）・スイング（日足）・少し長期（業績・位置）の3つの判定と、その合図の成績、買う前チェックをまとめる。
  * opt: price（今の値段。本人の画面の値段）、state（/kau と同じ）、stats {intraday_wide_stats, cands_stats, backtest}
  */
@@ -2692,6 +2733,11 @@ async function main() {
       }
     }
     console.log(JSON.stringify(await intradayResult(JSON.parse(readFileSync(file, 'utf-8')), prev), null, 2))
+    return
+  }
+  if (args.includes('--scan-now')) {
+    const list = JSON.parse(readFileSync(args[args.indexOf('--scan-now') + 1], 'utf-8'))
+    console.log(JSON.stringify(await scanIntradayNow(list), null, 2))
     return
   }
   if (args.includes('--mite')) {
