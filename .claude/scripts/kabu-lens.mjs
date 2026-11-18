@@ -26,7 +26,7 @@
 //   node .claude/scripts/kabu-lens.mjs --check 7203 3100 --state state.json  # 買う前チェック（株数・損切り・止める理由）
 //   node .claude/scripts/kabu-lens.mjs --intraday 7203 6758:452     # 場中の判定（5分足・VWAP・支えと壁・合図。約15〜20分遅れ。「:値段」で今の値段をつなぐ）
 //   node .claude/scripts/kabu-lens.mjs --intraday-replay 7203 2026-11-18  # ある日の場中の判定を30分ごとに再現
-//   node .claude/scripts/kabu-lens.mjs --intraday-wide universe-wide.json [--stats st.json]  # 前の営業日の場中の判定を全銘柄で再現して数える（毎晩の自動記録）
+//   node .claude/scripts/kabu-lens.mjs --intraday-wide universe-wide.json [--stats st.json] [--five-out f.json]  # 前の営業日の場中の判定を全銘柄で再現して数える（毎晩の自動記録）。--five-out でその日の5分足も保存
 //   node .claude/scripts/kabu-lens.mjs --intraday-result recs.json [--stats st.json]  # 場中の判定の答え合わせ
 //   node .claude/scripts/kabu-lens.mjs --movers-result <記録.json> [--stats <累計.json>]  # 昼に出した危険度の答え合わせ（後場の結果）
 //
@@ -2119,8 +2119,9 @@ export function mergeIntradayWide(prev, day) {
  * 毎晩の自動記録：universe の銘柄すべてについて、前の営業日の場中の判定を再現し、その日の大引け・翌営業日（＝今日）の大引けまでで答え合わせする。
  * 今日の夜に動かすと「前の営業日」が対象になる（翌日の終値がそろうため）。
  */
-export async function fetchIntradayWide(list, { date = null, parallel = 8 } = {}) {
+export async function fetchIntradayWide(list, { date = null, parallel = 8, keepLatest = false } = {}) {
   const items = []
+  const latest = {}
   let target = date
   let errors = 0
   for (let i = 0; i < list.length; i += parallel) {
@@ -2132,6 +2133,10 @@ export async function fetchIntradayWide(list, { date = null, parallel = 8 } = {}
         ])
         const days = splitFiveMin(five)
         const dates = Object.keys(days).sort()
+        if (keepLatest && dates.length) {
+          const ld = dates[dates.length - 1]
+          ;(latest[ld] ||= {})[code] = days[ld].map(b => [b.m, b.o, b.h, b.l, b.c, b.v])
+        }
         if (dates.length < 2) return
         const t = target || dates[dates.length - 2]
         const j = dates.indexOf(t)
@@ -2148,7 +2153,13 @@ export async function fetchIntradayWide(list, { date = null, parallel = 8 } = {}
   for (const it of items) cnt[it.date] = (cnt[it.date] || 0) + 1
   target = target || Object.entries(cnt).sort((a, b) => b[1] - a[1])[0]?.[0] || null
   const use = items.filter(it => it.date === target)
-  return { date: target, stocks: use.length, errors, ...intradayWideDay(use) }
+  const res = { date: target, stocks: use.length, errors, ...intradayWideDay(use) }
+  if (keepLatest) {
+    // いちばん多くの銘柄がそろった最後の日の5分足（毎晩保存して、60日より長いデータにする）
+    const ld = Object.entries(latest).sort((a, b) => Object.keys(b[1]).length - Object.keys(a[1]).length)[0]
+    res.latest = ld ? { date: ld[0], bars: ld[1] } : null
+  }
+  return res
 }
 
 /**
@@ -2447,8 +2458,16 @@ async function main() {
         prev = null
       }
     }
-    const day = await fetchIntradayWide(list, { date: d })
-    console.log(JSON.stringify({ day, stats: day.date && day.stocks > 0 ? mergeIntradayWide(prev, day) : prev }, null, 2))
+    const fo = args.indexOf('--five-out')
+    const day = await fetchIntradayWide(list, { date: d, keepLatest: fo >= 0 })
+    let five = null
+    if (fo >= 0 && day.latest) {
+      // その日の5分足を保存（{date, bars: {code: [[分, 始, 高, 安, 終, 出来高], ...]}}。分は 9:00=540）
+      writeFileSync(args[fo + 1], JSON.stringify(day.latest))
+      five = { date: day.latest.date, stocks: Object.keys(day.latest.bars).length, file: args[fo + 1] }
+    }
+    delete day.latest
+    console.log(JSON.stringify({ day, stats: day.date && day.stocks > 0 ? mergeIntradayWide(prev, day) : prev, five }, null, 2))
     return
   }
   if (args.includes('--intraday-replay')) {

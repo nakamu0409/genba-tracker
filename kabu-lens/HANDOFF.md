@@ -63,6 +63,7 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
   - `settings/backtest`: 検証結果の要約
   - `cands`: 約1,150銘柄の買い候補の追跡（ID は `<code>-<date>-pass|blocked`。signals と同じ形に turnover・atrPct・dev25・rs を足したもの）。集計は `settings/cands_stats`。**おすすめの精度を上げるためのデータ**。数百件たまったら `signalsReport` の分け方で、当たる条件・外れる条件を見て、`buy_candidate` の条件を見直す（見直したら、変更前と後の両方を前半・後半で確かめる）
   - `considered`: 本人が買おうとした銘柄（ID は `<日付>-<コード>`。code、name、date、price、stop、decision＝bought／passed／blocked、source＝kau／chat／plan／trade、reason）。夜の「決算の記録」が `--considered-result` で1・5・20日後を足し、累計は `settings/considered_stats`。記録帳の「買おうとした銘柄のその後」に出る
+  - `five_index`: 5分足の保存（Yahoo は60日分しか出さないので、自分でためる）。ID は日付か「開始_終了」。assetId（記録帳のファイル置き場の ID）、from、to、days、format（"day"＝{date, bars:{code:[[分,始,高,安,終,出来高]]}} / "days"＝{days:{date:{code:[...]}}}）、bytes。2026-08-20〜11-17 は週ごとのファイル、11-18 からは毎晩の「候補の記録」（手順6c、`--intraday-wide --five-out`）が1日1ファイル足す（約2.4MB。置き場の上限は1GB＝約1年5か月分）。研究に使うときは、各 assetId を Artifact の read（path に assetId）で保存し、`node kabu-lens/research/day/merge_five.mjs <ファイル...>` で five.json に戻す。記録帳は2026-11-19から assets を宣言（db のルールはそのまま）
   - `settings/intraday_wide_stats`: 場中の判定の毎晩の自動記録。days（数えた日）と groups（ALL・TAKE・TAKE_RAW（絞り込む前）・TAKE_PULLBACK・TAKE_BREAKOUT・TAKE_1030_1100・WAIT・SKIP・RECLAIM_PM・TREND_UP・CHOPPY・TREND_DOWN・PANIC・CHASE8・LOW_ALL・LOW_TAKE_RAW・LOW_STRONG_CLOSE ごとの n、sumExC＝大引けまでの全体比の合計、sumExN＝翌日まで、winC）。記録帳の「場中の判定」に、過去60日の検証の値と並べて出る。20日分たまったら、検証と同じ向きの組だけを「使える」として合図に残す
   - `intraday`: 場中の判定（/bachu）。ID は `<日付>-<コード>-<HHMM>`。intradayView の結果（price、vwap、regime、daily_trend、supports、resistances、signal、kind、reasons、limit、stop_intraday）と、チャート用の今日の5分足 bars（[分, 始, 高, 安, 終, 出来高]）。夜の「決算の記録」が `--intraday-result` で rClose（大引けまで%）・rNext（翌日の大引けまで%）を足し、累計は `settings/intraday_stats`（TAKE・WAIT・SKIP ごと）。記録帳の「場中の判定（5分足）」にローソク足・VWAP・支えと壁つきで出る
   - `settings/history`: 証券会社の取引履歴を集計したもの（銘柄ごとの損益、1日の買いの回数）。金額はここにだけ置き、リポジトリには書かない
@@ -83,7 +84,7 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 | 朝のランキング（寄り付き後） | 9:36 | 9:15ごろの値上がり・値下がりランキングの危険度と材料。`movers` に `slot: "open"` で記録 |
 | 昼の状況確認 | 11:47 | 相場、保有の含み損益、今朝の候補、値上がり・値下がりランキング（各20銘柄）の危険度と材料。`movers` に記録 |
 | 決算の記録（上方修正の追跡） | 21:38 | 保有株の適時開示の見張り（増資などは1行目）。その日の上方修正を `kessan` に記録し、次の営業日の始値で買った場合の1・5・20日後を足す。累計は `settings/kessan_stats`。`considered`（買おうとした銘柄）と `intraday`（場中の判定）の答え合わせもここ |
-| 候補の記録（約1,150銘柄） | 23:07 | `--scan-wide` で約1,150銘柄の候補（通過・見送り）を `cands` に記録し、`--evaluate` で追跡、`--signals-report` で集計して `settings/cands_stats`。さらに `--intraday-wide` で前の営業日の場中の判定を全銘柄で再現し `settings/intraday_wide_stats` に足す（2026-11-18 分から。検証期間と重ならない本番の記録）。通知なし |
+| 候補の記録（約1,150銘柄） | 23:07 | `--scan-wide` で約1,150銘柄の候補（通過・見送り）を `cands` に記録し、`--evaluate` で追跡、`--signals-report` で集計して `settings/cands_stats`。さらに `--intraday-wide` で前の営業日の場中の判定を全銘柄で再現し `settings/intraday_wide_stats` に足す（2026-11-18 分から。検証期間と重ならない本番の記録）。その日の5分足を記録帳のファイル置き場に保存し `five_index` に足す。通知なし |
 | 週の振り返り（金曜） | 金 20:13 | 1週間の売買・ルールを守れたか・仕組みの成績。`weekly` に記録 |
 | 夜の点検（保有と買い候補） | 22:20 | **明日の注文票**（保有の注文と、買い候補の指値・逆指値。逆指値が値幅制限の外なら下限の1円上。note の「終値が◯円を超えたら損切りを上げる」作戦を点検。`frozen` の保有は「放置」と1行）、今日の売買の振り返り、買い候補の判定と追跡、ランキングの答え合わせ、書き戻し |
 
