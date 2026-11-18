@@ -74,7 +74,7 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
   - `settings/movers_stats`: 答え合わせの累計（危険度ごと・材料の有無ごとの件数など）。朝の分は中の `open` に分けて持つ。記録帳のページの「ランキングの危険度の答え合わせ」がこれを表示する
 - 本人が資金や保有を変えたと言ったら、ここを更新する。
 
-### 定期実行（7つ。日本時間）
+### 定期実行（8つ。日本時間）
 
 モデル: 朝の株ウォッチと夜の点検は Opus（注文票の判断があるため）、ほかの5つは Sonnet（2026年11月17日に本人の了承で切り替え。「精度が落ちないなら」という条件つき。通知の質が落ちたら Opus に戻す）。
 
@@ -86,12 +86,13 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 | 決算の記録（上方修正の追跡） | 21:38 | 保有株の適時開示の見張り（増資などは1行目）。その日の上方修正を `kessan` に記録し、次の営業日の始値で買った場合の1・5・20日後を足す。累計は `settings/kessan_stats`。`considered`（買おうとした銘柄）と `intraday`（場中の判定）の答え合わせもここ |
 | 候補の記録（約1,150銘柄） | 23:07 | `--scan-wide` で約1,150銘柄の候補（通過・見送り）を `cands` に記録し、`--evaluate` で追跡、`--signals-report` で集計して `settings/cands_stats`。さらに `--intraday-wide` で前の営業日の場中の判定を全銘柄で再現し `settings/intraday_wide_stats` に足す（2026-11-18 分から。検証期間と重ならない本番の記録）。その日の5分足を記録帳のファイル置き場に保存し `five_index` に足す。通知なし |
 | 週の振り返り（金曜） | 金 20:13 | 1週間の売買・ルールを守れたか・仕組みの成績。`weekly` に記録 |
+| 精度点検（毎週土曜） | 土 10:13 | 合図の本番の成績（intraday_wide_stats・cands_stats・considered_stats・movers_stats）を検証の値と比べ、「検証どおり／ずれ／まだ少ない」を通知。`settings/accuracy_last` に記録し、2週続けてずれた組を「外す候補」にする（外すかは本人と相談） |
 | 夜の点検（保有と買い候補） | 22:20 | **明日の注文票**（保有の注文と、買い候補の指値・逆指値。逆指値が値幅制限の外なら下限の1円上。note の「終値が◯円を超えたら損切りを上げる」作戦を点検。`frozen` の保有は「放置」と1行）、今日の売買の振り返り、買い候補の判定と追跡、ランキングの答え合わせ、書き戻し |
 
 - `list_triggers` で名前から探す。どれも「毎回新しいセッション」「環境はデフォルト」「スマホ通知あり」。
 - 指示文を直すときは `get_trigger` で全文を取り、直した全文を `update_trigger` で送る（一部だけの差し替えはできない）。
 - 指示文には銘柄・資金を書かない。すべて記録帳から読ませる。
-- 指示文の控えは `kabu-lens/ops/prompt-morning.md`・`prompt-open.md`（朝のランキング）・`prompt-kessan.md`（決算の記録）・`prompt-weekly.md`（週の振り返り）・`prompt-cands.md`（候補の記録）・`prompt-midday.md`・`prompt-night.md`（記録帳のURLは `<記録帳のURL>` に置き換えてある）。指示文を直したら控えも直す。
+- 指示文の控えは `kabu-lens/ops/prompt-morning.md`・`prompt-open.md`（朝のランキング）・`prompt-kessan.md`（決算の記録）・`prompt-weekly.md`（週の振り返り）・`prompt-cands.md`（候補の記録）・`prompt-midday.md`・`prompt-night.md`・`prompt-accuracy.md`（精度点検）（記録帳のURLは `<記録帳のURL>` に置き換えてある）。指示文を直したら控えも直す。
 - 名前に「旧」が付いた無効の2つは、Yahoo に繋がらない環境で動いていた古いもの。消さずに置いてある。
 
 ## 実装のくわしい中身

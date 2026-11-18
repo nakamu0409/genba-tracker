@@ -1514,6 +1514,76 @@ export async function fetchDilution(code, today = new Date(Date.now() + 9 * 3600
   }
 }
 
+/**
+ * 株探の決算ページ（/stock/finance?code=）から、通期（実績と会社予想）と四半期（3か月ごと）の業績を読む。
+ * 金額は百万円。date は発表日（YYYY-MM-DD）。株探プレミアムの部分（長い過去の利益）は読まない。
+ */
+export function parseKabutanFinance(html) {
+  const num = (t) => {
+    const x = String(t).replace(/,/g, '').replace(/&nbsp;/g, '').trim()
+    return /^[-+]?\d+(\.\d+)?$/.test(x) ? Number(x) : null
+  }
+  const ymd = (t) => {
+    const m = String(t).match(/(\d{2})\/(\d{2})\/(\d{2})/)
+    return m ? `20${m[1]}-${m[2]}-${m[3]}` : null
+  }
+  const tables = String(html).match(/<table[\s\S]*?<\/table>/g) || []
+  const rowsOf = t => (t.match(/<tr[\s\S]*?<\/tr>/g) || []).map(tr => [...tr.matchAll(/<t[hd][^>]*>([\s\S]*?)<\/t[hd]>/g)].map(m => strip(m[1]).replace(/&nbsp;/g, ' ').trim()))
+  const out = { annual: [], quarterly: [] }
+  for (const t of tables) {
+    const plain = strip(t).replace(/\s+/g, '')
+    if (plain.includes('プレミアム')) continue
+    const isAnnual = plain.startsWith('決算期売上高営業益経常益最終益修正1株益修正1株配発表日')
+    const isQuarter = plain.startsWith('決算期売上高営業益経常益最終益修正1株益売上営業損益率発表日')
+    if (!isAnnual && !isQuarter) continue
+    for (const r of rowsOf(t)) {
+      let cells = r.filter(c => c !== '')
+      if (cells.length < 8) continue
+      let fc = false
+      if (cells[0] === '予') {
+        fc = true
+        cells = cells.slice(1)
+      } else if (/^予\s*\S/.test(cells[0])) {
+        fc = true
+        cells = [cells[0].replace(/^予\s*/, ''), ...cells.slice(1)]
+      }
+      const c = cells
+      const period = c[0]
+      // 通期は「2026.09」、四半期は「26.07-09」。上期・下期の表（「25.10-03」）は通期と同じ見出しなので、形で分ける
+      if (isAnnual && !/^\d{4}[.]\d{2}$/.test(period)) continue
+      if (isQuarter && !/^\d{2}[.]\d{2}-\d{2}$/.test(period)) continue
+      const row = { period, sales: num(c[1]), op: num(c[2]), ord: num(c[3]), net: num(c[4]), eps: num(c[5]), date: ymd(c[7]) }
+      if (isAnnual) {
+        if (out.annual.some(a => a.period === period && a.forecast === fc)) continue
+        out.annual.push({ ...row, div: num(c[6]), forecast: fc })
+      } else if (!fc && !out.quarterly.some(q => q.period === period)) out.quarterly.push({ ...row, margin: num(c[6]) })
+    }
+  }
+  return out
+}
+
+/**
+ * 四半期の業績から「業績の勢い」を出す。直近の四半期と、その1年前の同じ四半期を比べる。
+ * 返り値: {period, date, op_yoy_pct, sales_yoy_pct, margin, margin_prev, streak（前年比で営業益が増えた四半期が直近から何回続くか）}
+ */
+export function earningsMomentum(quarterly, upTo = null) {
+  const q = (quarterly || []).filter(x => !upTo || (x.date && x.date <= upTo))
+  if (q.length < 5) return null
+  const yoy = (a, b) => (ok(a) && ok(b) && b > 0 ? round((a / b - 1) * 100, 1) : null)
+  const i = q.length - 1
+  let streak = 0
+  for (let j = i; j >= 4; j--) {
+    if (ok(q[j].op) && ok(q[j - 4].op) && q[j].op > q[j - 4].op) streak++
+    else break
+  }
+  return { period: q[i].period, date: q[i].date, op_yoy_pct: yoy(q[i].op, q[i - 4].op), sales_yoy_pct: yoy(q[i].sales, q[i - 4].sales), margin: q[i].margin, margin_prev: q[i - 4].margin, op: q[i].op, op_prev: q[i - 4].op, streak }
+}
+
+/** 株探の決算ページを取って読む */
+export async function fetchFinance(code) {
+  return parseKabutanFinance(await fetchText(`https://kabutan.jp/stock/finance?code=${encodeURIComponent(code)}`))
+}
+
 /** 次の決算発表日。株探に予定日があればそれ、無ければ IR BANK の過去の発表日から見積もる */
 export async function fetchNextEarnings(code, today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10)) {
   try {
