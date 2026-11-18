@@ -24,7 +24,7 @@
 //   node .claude/scripts/kabu-lens.mjs --considered-result <記録.json> [--stats <累計.json>]  # 買おうとした銘柄のその後
 //   node .claude/scripts/kabu-lens.mjs --kessan-result <記録.json> [--stats <累計.json>]  # 上方修正の記録の、その後（1・5・20日）
 //   node .claude/scripts/kabu-lens.mjs --check 7203 3100 --state state.json  # 買う前チェック（株数・損切り・止める理由）
-//   node .claude/scripts/kabu-lens.mjs --intraday 7203 6758         # 場中の判定（5分足・VWAP・支えと壁・合図。約15〜20分遅れ）
+//   node .claude/scripts/kabu-lens.mjs --intraday 7203 6758:452     # 場中の判定（5分足・VWAP・支えと壁・合図。約15〜20分遅れ。「:値段」で今の値段をつなぐ）
 //   node .claude/scripts/kabu-lens.mjs --intraday-result recs.json [--stats st.json]  # 場中の判定の答え合わせ
 //   node .claude/scripts/kabu-lens.mjs --movers-result <記録.json> [--stats <累計.json>]  # 昼に出した危険度の答え合わせ（後場の結果）
 //
@@ -1923,7 +1923,7 @@ export function splitFiveMin(json) {
 }
 
 /** 場中の判定を取る（株価は15〜20分遅れ）。codes の各銘柄について intradayView と、チャート用の今日の5分足を返す */
-export async function fetchIntraday(codes) {
+export async function fetchIntraday(codes, { live = {} } = {}) {
   const out = []
   await Promise.all(codes.map(async (code) => {
     try {
@@ -1936,7 +1936,15 @@ export async function fetchIntraday(codes) {
       const dates = Object.keys(days).sort()
       const today = dates[dates.length - 1]
       const daily = d.bars.filter(b => b.date < today)
-      const view = intradayView(days[today], intradayContext(daily))
+      // 本人が楽天の画面で見た今の値段（live）があれば、遅れた5分足の後ろにつないで判定し直す
+      let bars = days[today]
+      const lp = live[code]
+      if (ok(lp) && lp > 0) {
+        const last = bars[bars.length - 1]
+        bars = [...bars, { m: last.m + 5, o: last.c, h: Math.max(last.c, lp), l: Math.min(last.c, lp), c: lp, v: 0 }]
+      }
+      const view = intradayView(bars, intradayContext(daily))
+      if (ok(lp) && lp > 0) Object.assign(view, { live_price: lp, time: '今（本人の画面の値段）', delayed_price: days[today][days[today].length - 1].c })
       // Yahoo の5分足は 9:00 の足が欠けることがあるので、始値は日足から取る
       if (now?.is_today && ok(now.open)) Object.assign(view, { open: now.open, from_open_pct: round((view.price / now.open - 1) * 100, 2), day_high: Math.max(view.day_high, now.high ?? -Infinity), day_low: Math.min(view.day_low, now.low ?? Infinity) })
       out.push({ code, name: d.name, date: today, ...view, bars: days[today].map(b => [b.m, b.o, b.h, b.l, b.c, b.v]) })
@@ -2231,12 +2239,15 @@ async function main() {
     return
   }
   if (args.includes('--intraday')) {
-    const codes = args.slice(args.indexOf('--intraday') + 1).filter(a => !a.startsWith('--')).map(c => c.toUpperCase()).filter(isTseCode)
+    // 「コード」か「コード:今の値段」（例 4888:452）。今の値段は本人が楽天の画面で見たもの
+    const items = args.slice(args.indexOf('--intraday') + 1).filter(a => !a.startsWith('--')).map(a => a.toUpperCase().split(':'))
+    const codes = [...new Set(items.map(([c]) => c).filter(isTseCode))]
+    const live = Object.fromEntries(items.filter(([c, p]) => isTseCode(c) && Number(p) > 0).map(([c, p]) => [c, Number(p)]))
     if (!codes.length) {
       console.error('使い方: node .claude/scripts/kabu-lens.mjs --intraday <銘柄コード> [...]')
       process.exit(1)
     }
-    console.log(JSON.stringify(await fetchIntraday(codes), null, 2))
+    console.log(JSON.stringify(await fetchIntraday(codes, { live }), null, 2))
     return
   }
   if (args.includes('--check')) {
