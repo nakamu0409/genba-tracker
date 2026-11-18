@@ -2338,9 +2338,15 @@ export async function miteReport(code, { price = null, state = null, stats = {},
       note
     }
   }
+  // 上場して1年たっていない株は、52週の高安と200日線が計算できないので、上場来の高安を使い、200日線は「確認できず」にする
+  const shortHistory = dailyBars.length < 252
+  const hiAll = Math.max(...dailyBars.map(b => b.h))
+  const loAll = Math.min(...dailyBars.map(b => b.l))
   const lg = {
-    from_52w_high_pct: pk.range_52w.from_high_pct, from_52w_low_pct: pk.range_52w.from_low_pct,
-    ma200: tick(pk.trend.ma_slow), above_ma200: pk.candle.close > pk.trend.ma_slow, ma200_slope: pk.trend.slow_slope,
+    short_history: shortHistory, since: shortHistory ? dailyBars[0].date : null,
+    from_52w_high_pct: shortHistory ? round((pk.candle.close / hiAll - 1) * 100) : pk.range_52w.from_high_pct,
+    from_52w_low_pct: shortHistory ? round((pk.candle.close / loAll - 1) * 100) : pk.range_52w.from_low_pct,
+    ma200: ok(pk.trend.ma_slow) ? tick(pk.trend.ma_slow) : null, above_ma200: ok(pk.trend.ma_slow) ? pk.candle.close > pk.trend.ma_slow : null, ma200_slope: ok(pk.trend.ma_slow) ? pk.trend.slow_slope : null,
     weekly: pk.trend.htf_bias, next_earnings: ne?.date || null, earnings_estimated: !!ne?.estimated,
     dilution: dl, fundamentals: fundamentals || null,
     verdict: long?.verdict || '参考のみ（業績で買い時は決まらなかった）'
