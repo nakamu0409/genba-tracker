@@ -25,6 +25,7 @@
 //   node .claude/scripts/kabu-lens.mjs --kessan-result <記録.json> [--stats <累計.json>]  # 上方修正の記録の、その後（1・5・20日）
 //   node .claude/scripts/kabu-lens.mjs --check 7203 3100 --state state.json  # 買う前チェック（株数・損切り・止める理由）
 //   node .claude/scripts/kabu-lens.mjs --intraday 7203 6758:452     # 場中の判定（5分足・VWAP・支えと壁・合図。約15〜20分遅れ。「:値段」で今の値段をつなぐ）
+//   node .claude/scripts/kabu-lens.mjs --mite 7203[:今の値段] --state st.json --stats-dir dir  # デイトレ・スイング・少し長期の判定と成績・買う前チェックをまとめて
 //   node .claude/scripts/kabu-lens.mjs --intraday-replay 7203 2026-11-18  # ある日の場中の判定を30分ごとに再現
 //   node .claude/scripts/kabu-lens.mjs --intraday-wide universe-wide.json [--stats st.json] [--five-out f.json]  # 前の営業日の場中の判定を全銘柄で再現して数える（毎晩の自動記録）。--five-out でその日の5分足も保存
 //   node .claude/scripts/kabu-lens.mjs --intraday-result recs.json [--stats st.json]  # 場中の判定の答え合わせ
@@ -2162,6 +2163,119 @@ export async function fetchIntradayWide(list, { date = null, parallel = 8, keepL
   return res
 }
 
+// 検証（本番の記録が少ないうちの目安）。場中は study_5m（2026-09〜11、20分遅れ込み、同じ時刻の全体比）、スイングは backtest（167銘柄 2017〜2026、R）
+const MITE_REF = {
+  day: {
+    TAKE: '買い場（絞り込み後）：過去34日 4,310回で、大引けまで平均より+0.18%・勝率58%、翌日まで+0.28%',
+    RAW: '形は買い場だが条件外：過去34日では平均より+0.09%（絞り込み後の半分）',
+    WAIT: '待つ：平均とほぼ同じ（+0.03%）',
+    SKIP: '見送り：平均とほぼ同じか少し悪い（−0.02%）。急騰の追いかけ（前日比+8%以上）はその日の大引けまで−0.21%',
+    LOW_STRONG_CLOSE: '低位株の強い引け：1時間足3年・139回で、翌日13時まで平均より+4.2%（中央値+1.8%、勝率58%）。翌日に途中で−5%ほど下げるのがふつう',
+    RECLAIM_PM: '後場の VWAP 奪回：翌日まで持つと平均より+0.2%ほど',
+    LOW: '低位株・荒い株：場中の形はどれも効いていない（±0.1%）。翌日まで持つと平均で不利（−0.44%）'
+  }
+}
+
+/** 本番の記録（intraday_wide_stats の1組）を文章に */
+function liveDay(stats, key) {
+  const g = stats?.groups?.[key]
+  if (!g?.n) return null
+  const days = stats.days?.length || 0
+  return `本番 ${days}日・${g.n}回：大引けまで平均より${g.sumExC / g.n >= 0 ? '+' : ''}${round(g.sumExC / g.n, 2)}%、翌日まで${g.sumExN / g.n >= 0 ? '+' : ''}${round(g.sumExN / g.n, 2)}%${days < 20 ? '（まだ日数が少ない）' : ''}`
+}
+
+/**
+ * 1銘柄について、デイトレ（場中）・スイング（日足）・少し長期（業績・位置）の3つの判定と、その合図の成績、買う前チェックをまとめる。
+ * opt: price（今の値段。本人の画面の値段）、state（/kau と同じ）、stats {intraday_wide_stats, cands_stats, backtest}
+ */
+export async function miteReport(code, { price = null, state = null, stats = {}, long = null } = {}) {
+  const today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10)
+  let bench = []
+  try {
+    bench = (await fetchYahoo('1306.T')).bars
+  } catch {
+    bench = []
+  }
+  const [d, intra, ne, dl] = await Promise.all([
+    fetchYahoo(`${code}.T`),
+    fetchIntraday([code], { live: ok(price) ? { [code]: price } : {} }).then(r => r.stocks[0]).catch(e => ({ error: e.message })),
+    fetchNextEarnings(code, today),
+    fetchDilution(code, today)
+  ])
+  // Yahoo の日足は、その日の終値が埋まるのが遅いことがある。5分足に今日（か最新の日）があり、日足に無ければ、5分足から1本作って足す
+  let dailyBars = d.bars
+  let builtFromFive = false
+  const lastDaily = dailyBars[dailyBars.length - 1]?.date
+  if (intra && !intra.error && intra.date && (!lastDaily || intra.date > lastDaily) && intra.bars?.length) {
+    const b = intra.bars
+    dailyBars = [...dailyBars, { date: intra.date, o: ok(intra.open) ? intra.open : b[0][1], h: Math.max(intra.day_high ?? -Infinity, ...b.map(x => x[2])), l: Math.min(intra.day_low ?? Infinity, ...b.map(x => x[3])), c: ok(price) ? price : intra.price, v: b.reduce((sum, x) => sum + (x[5] || 0), 0) }]
+    builtFromFive = true
+  }
+  const pk = analyze(dailyBars, bench, { symbol: `TSE:${code}`, name: d.name, currency: d.currency, benchmark: 'TSE:1306' })
+  const px = ok(price) ? price : (ok(intra?.price) ? intra.price : pk.candle.close)
+
+  // デイトレ
+  let day = null
+  if (intra && !intra.error) {
+    const marks = intra.marks || []
+    const key = intra.signal === 'TAKE' ? 'TAKE' : intra.raw_take ? 'RAW' : intra.signal
+    const verdict = intra.signal === 'TAKE' ? '買い場' : intra.signal === 'SKIP' ? '見送り' : '待つ'
+    day = {
+      verdict, time: intra.time, date: intra.date, price: intra.price, regime: intra.regime, vwap: intra.vwap, reasons: intra.reasons,
+      limit: intra.limit, stop: intra.stop_intraday, marks, low_group: intra.low_group,
+      supports: intra.supports, resistances: intra.resistances,
+      record: [MITE_REF.day[key], liveDay(stats.intraday_wide_stats, intra.signal === 'TAKE' ? 'TAKE' : intra.raw_take ? 'TAKE_RAW' : intra.signal),
+        ...marks.map(m => MITE_REF.day[m]), ...marks.map(m => liveDay(stats.intraday_wide_stats, m)),
+        intra.low_group ? MITE_REF.day.LOW : null].filter(Boolean),
+      bars: intra.bars
+    }
+  } else day = { verdict: '確認できず', reasons: [intra?.error || '5分足を取れず'] }
+
+  // スイング
+  const bc = pk.buy_candidate
+  const WHY = { NO_SETUP: '買いの形が出ていない', TREND_DOWN: '下降トレンド', HIGH_VOLATILITY: '値動きが荒い地合い', OVERHEAT: '高値づかみ危険度が高い', WEEKLY_DOWN: '週足が下向き', GAP_TOO_BIG: '窓が大きすぎる', LOW_SCORE: '買いスコアが基準未満' }
+  const swingVerdict = bc.pass ? '買い候補' : bc.why_not === 'NO_SETUP' ? '待つ（形なし）' : '見送り'
+  const KIND = { GAP: '窓あけ', PULLBACK: '押し目', BREAKOUT: '高値抜け', MOMENTUM: '勢い', NONE: '—' }
+  const bt = stats.backtest
+  const liveSwing = stats.cands_stats?.by_kind?.[`通過・${bc.kind}`]
+  const swing = {
+    verdict: swingVerdict, kind: KIND[bc.kind] || bc.kind, why_not: bc.pass ? null : (WHY[bc.why_not] || bc.why_not),
+    date: pk.date_jst, built_from_five: builtFromFive, close: pk.candle.close, buy_below: bc.pass ? tick(pk.candle.close * 1.02) : null,
+    stop: bc.stop, target: bc.target, hold_days: bc.hold_days, exit_rule: bc.exit_rule,
+    regime: pk.regime, score: pk.scores.long, overheat: pk.overheat.score, dev25: pk.trend.dev_fast_pct, htf: pk.trend.htf_bias,
+    record: [
+      bt?.by_kind?.[bc.kind] ? `検証（${bt.codes}銘柄・${bt.period}）：${KIND[bc.kind]}は ${bt.by_kind[bc.kind].closed}回で平均${bt.by_kind[bc.kind].avg_r}R・勝率${bt.by_kind[bc.kind].win_rate_pct}%（損切り幅の3倍が目標なので勝率は低め）` : null,
+      bt?.any_day ? `比べる相手：どの日に買っても平均${bt.any_day.avg_r}R。合図の上乗せは小さい` : null,
+      liveSwing?.count ? `本番（約1,150銘柄の毎晩の記録）：${liveSwing.count}回決着、平均${liveSwing.avg_r}R・勝率${liveSwing.win_rate_pct}%` : '本番の記録：まだ決着した回がない'
+    ].filter(Boolean)
+  }
+
+  // 少し長期（業績は long に渡されたときだけ。無ければ位置と注意だけ）
+  const lg = {
+    from_52w_high_pct: pk.range_52w.from_high_pct, from_52w_low_pct: pk.range_52w.from_low_pct,
+    ma200: tick(pk.trend.ma_slow), above_ma200: pk.candle.close > pk.trend.ma_slow, ma200_slope: pk.trend.slow_slope,
+    weekly: pk.trend.htf_bias, next_earnings: ne?.date || null, earnings_estimated: !!ne?.estimated,
+    dilution: dl, fundamentals: long || null,
+    verdict: long?.verdict || '準備中（業績の判定はこれから）'
+  }
+
+  // 買う前チェック
+  let kau = null
+  if (state) {
+    const correlations = []
+    for (const pos of state.positions || []) {
+      if (!pos.code || pos.code === code) continue
+      try {
+        correlations.push({ code: pos.code, name: pos.name, corr: returnCorrelation(dailyBars, (await fetchYahoo(`${pos.code}.T`)).bars) })
+      } catch {
+        correlations.push({ code: pos.code, name: pos.name, corr: null })
+      }
+    }
+    kau = preTradeCheck({ code, price: px, atr: pk.volatility.atr, regime: pk.regime, overheat: pk.overheat.score, today, earningsDate: ne?.date || null, earningsEstimated: ne?.estimated, dilution: dl, settings: state.settings, positions: state.positions, buysToday: state.buysToday, correlations })
+  }
+  return { code, name: d.name, price: px, live_price: ok(price), today, day, swing, long: lg, kau }
+}
+
 /**
  * 場中の判定（intraday コレクションの1件）の答え合わせ。判定したときの値段から、その日の大引けまでと翌営業日の大引けまでの騰落。
  * days: splitFiveMin の結果。翌営業日の足があれば final: true
@@ -2443,6 +2557,28 @@ async function main() {
       }
     }
     console.log(JSON.stringify(await intradayResult(JSON.parse(readFileSync(file, 'utf-8')), prev), null, 2))
+    return
+  }
+  if (args.includes('--mite')) {
+    const [code, p] = String(args[args.indexOf('--mite') + 1] || '').toUpperCase().split(':')
+    if (!isTseCode(code)) {
+      console.error('使い方: node .claude/scripts/kabu-lens.mjs --mite <コード>[:今の値段] [--state 状態.json] [--stats-dir フォルダ] [--long 業績.json]')
+      process.exit(1)
+    }
+    const read = (f) => {
+      try {
+        return JSON.parse(readFileSync(f, 'utf-8'))
+      } catch {
+        return null
+      }
+    }
+    const si = args.indexOf('--state')
+    const di = args.indexOf('--stats-dir')
+    const li = args.indexOf('--long')
+    const dir = di >= 0 ? args[di + 1] : null
+    const stats = dir ? Object.fromEntries(['intraday_wide_stats', 'cands_stats', 'backtest'].map(k => [k, read(`${dir}/${k}.json`)])) : {}
+    const r = await miteReport(code, { price: Number(p) > 0 ? Number(p) : null, state: si >= 0 ? read(args[si + 1]) : null, stats, long: li >= 0 ? read(args[li + 1]) : null })
+    console.log(JSON.stringify(r, null, 2))
     return
   }
   if (args.includes('--intraday-wide')) {

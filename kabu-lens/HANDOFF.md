@@ -177,6 +177,7 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 
 ### 5ステップのコマンド（`.claude/commands/`）
 
+- `/mite <銘柄> [今の値段]`：買い時の総合判定（`--mite`、`miteReport`）。デイトレ（intradayView）・スイング（analyze の buy_candidate）・少し長期（200日線・52週・週足・決算日・資金調達。業績の判定は `--long` で渡す）の3つと、それぞれの合図の成績（検証の値と本番の記録 intraday_wide_stats・cands_stats・backtest）、買う前チェック（preTradeCheck）をまとめる。Yahoo の日足は当日の終値が埋まるのが遅いので、5分足に新しい日があれば5分足から日足を1本作って足す（built_from_five）
 - `/bachu <銘柄...>`：場中の判定（`--intraday`）。結果を伝えて記録帳の `intraday` に残す。買うなら必ず `/kau` も通す
 
 `/theme`（探す）→ `/kessan`（読む）→ `/bear`（疑う）→ `/comps` `/dcf`（値付け）→ `/chart`（タイミング）→ `/thesis` `/catalysts` `/earnings`（記録）。`/stock-research` が通しで実行する。
