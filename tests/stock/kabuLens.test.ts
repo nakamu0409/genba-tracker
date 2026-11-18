@@ -782,7 +782,9 @@ describe('場中の判定（5分足）', () => {
   const up = mk([100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 109, 108, 107, 106.5, 107.5])
   const ctx = { prevClose: 100, ma25: 95, ma25Prev: 94, atrDay: 6 }
   it('上昇中の押し目で TAKE、支えと壁を出す', () => {
-    const v = intradayView(up, ctx)
+    // 10:30 前後、始値から+1%台、値動きの穏やかな株の押し目
+    const calm = mk([100, 100.15, 100.3, 100.45, 100.6, 100.75, 100.9, 101.05, 101.2, 101.35, 101.5, 101.35, 101.2, 101.05, 100.95, 101.15]).map((b, i) => ({ ...b, m: 590 + i * 5, h: Math.max(b.o, b.c) + 0.1, l: Math.min(b.o, b.c) - 0.1 }))
+    const v = intradayView(calm, { prevClose: 100, ma25: 97, ma25Prev: 96, atrDay: 2 })
     expect(v.regime).toBe('TREND_UP')
     expect(v.daily_trend).toBe('UP')
     expect(v.signal).toBe('TAKE')
@@ -790,6 +792,13 @@ describe('場中の判定（5分足）', () => {
     expect(v.supports.length).toBeGreaterThan(0)
     expect(v.resistances[0].price).toBeGreaterThan(v.price)
     expect(v.stop_intraday).toBeLessThan(v.price)
+  })
+  it('形は買い場でも、時間帯・値動きの荒さなどで外れたら WAIT（理由つき）', () => {
+    const v = intradayView(up, ctx)
+    expect(v.signal).toBe('WAIT')
+    expect(v.raw_take).toBe('PULLBACK')
+    expect(v.reasons.join('')).toContain('時間帯')
+    expect(v.reasons.join('')).toContain('値動きの荒い株')
   })
   it('日足が下向き・急騰の追いかけ・急落は SKIP', () => {
     expect(intradayView(up, { ...ctx, ma25: 105, ma25Prev: 106 }).signal).toBe('SKIP')

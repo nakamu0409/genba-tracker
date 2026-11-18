@@ -207,7 +207,7 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
 
   <section aria-labelledby="h-intra">
     <div class="sec-head"><h2 id="h-intra">場中の判定（5分足）</h2><span class="count" id="intra-count"></span></div>
-    <p class="sub">/bachu で見た銘柄の5分足と判定。株価は15〜20分遅れです。<b>合図はまだ試し中</b>で、過去60日では TAKE の上乗せはほぼありませんでした。夜の記録が「大引けまで」「翌日まで」を足して、当たったかを数えます。</p>
+    <p class="sub">/bachu で見た銘柄の5分足と判定。株価は15〜20分遅れです。<b>合図はまだ試し中</b>です。11/19 に絞り込み（10:30〜13:00、伸びすぎ・荒い株を除く）、過去34日では平均より+0.18%・勝率58%でした。夜の記録が「大引けまで」「翌日まで」を足して、当たったかを数えます。</p>
     <div class="panel" id="intra-sum-panel" hidden>
       <div class="sig-scroll"><table class="sig-table" aria-label="合図ごとの答え合わせ"><thead><tr><th>合図</th><th class="num">件数</th><th class="num">大引けまで</th><th class="num">翌日まで</th><th class="num">勝率</th></tr></thead><tbody id="intra-sum"></tbody></table></div>
     </div>
@@ -1034,7 +1034,7 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
   var wideStats = null;
   function renderWide() {
     var body = $("wide-body"); body.textContent = "";
-    var G = [["TAKE", "買い場（全部）", "+0.09／+0.04"], ["TAKE_1030_1100", "買い場 10:30・11:00", "+0.17／+0.24"], ["TAKE_BREAKOUT", "買い場（高値抜け）", "+0.14／+0.11"], ["RECLAIM_PM", "目印：後場に VWAP 奪回", "+0.01／+0.23"], ["TREND_UP", "場中 上昇", "+0.07／+0.06"], ["TREND_DOWN", "場中 下降", "−0.05／−0.10"], ["PANIC", "場中 急落", "−0.19／+0.19"], ["CHASE8", "前日比+8%以上", "−0.21／+0.97"], ["SKIP", "見送り（全部）", "−0.02／+0.01"]];
+    var G = [["TAKE", "買い場（絞り込み後）", "+0.18／+0.28"], ["TAKE_RAW", "絞り込む前の形", "+0.09／+0.04"], ["TAKE_1030_1100", "買い場 10:30・11:00", "+0.18／+0.35"], ["TAKE_BREAKOUT", "買い場（高値抜け）", "+0.08／+0.32"], ["RECLAIM_PM", "目印：後場に VWAP 奪回", "+0.01／+0.23"], ["TREND_UP", "場中 上昇", "+0.07／+0.06"], ["TREND_DOWN", "場中 下降", "−0.05／−0.10"], ["PANIC", "場中 急落", "−0.19／+0.19"], ["CHASE8", "前日比+8%以上", "−0.21／+0.97"], ["SKIP", "見送り（全部）", "−0.02／+0.01"]];
     var pct = function (v) { return (v > 0 ? "+" : "") + v.toFixed(2) + "%"; };
     G.forEach(function (g) {
       var x = wideStats && wideStats.groups && wideStats.groups[g[0]]; if (!x) return;

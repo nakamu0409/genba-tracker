@@ -36,7 +36,7 @@ for (const [code, days] of Object.entries(five)) {
       const after = day.filter(b => b.m >= entryBar.m)
       const low = Math.min(...after.map(b => b.l))
       rows.push({
-        code, date: dates[i], t, signal: v.signal, kind: v.kind, regime: v.regime, trend: v.daily_trend,
+        code, date: dates[i], t, signal: v.signal, kind: v.kind, raw: v.raw_take, regime: v.regime, trend: v.daily_trend,
         vsVwap: v.vs_vwap_pct, fromPrev: v.from_prev_pct,
         rClose: (close / entry - 1) * 100, rNext: (next / entry - 1) * 100, mae: (low / entry - 1) * 100
       })
@@ -75,6 +75,7 @@ console.log(`判定 ${rows.length}件（${new Set(rows.map(r => r.code)).size}�
 line('全体', rows)
 for (const s of ['TAKE', 'WAIT', 'SKIP']) line(`合図 ${s}`, rows.filter(r => r.signal === s))
 for (const k of ['PULLBACK', 'BREAKOUT']) line(`TAKE ${k}`, rows.filter(r => r.kind === k))
+line('絞り込む前の買い場', rows.filter(r => r.raw))
 for (const g of ['TREND_UP', 'CHOPPY', 'TREND_DOWN', 'PANIC']) line(`場中 ${g}`, rows.filter(r => r.regime === g))
 for (const g of ['UP', 'FLAT', 'DOWN']) line(`日足 ${g}`, rows.filter(r => r.trend === g))
 for (const g of ['UP', 'FLAT', 'DOWN']) line(`TAKE かつ日足 ${g}`, rows.filter(r => r.signal === 'TAKE' && r.trend === g))
@@ -94,6 +95,7 @@ function robust(name, xs) {
 }
 console.log('\n--- 前半と後半・中央値 ---')
 robust('TAKE', rows.filter(r => r.signal === 'TAKE'))
+robust('絞り込む前の買い場', rows.filter(r => r.raw))
 robust('TAKE BREAKOUT', rows.filter(r => r.kind === 'BREAKOUT'))
 robust('TAKE 10:30〜11:00', rows.filter(r => r.signal === 'TAKE' && (r.t === 630 || r.t === 660)))
 robust('場中 TREND_UP', rows.filter(r => r.regime === 'TREND_UP'))

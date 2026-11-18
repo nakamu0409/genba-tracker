@@ -1858,6 +1858,7 @@ export function intradayView(bars, ctx = {}, opt = {}) {
   const reasons = []
   let signal = 'WAIT'
   let kind = null
+  let raw = null
   if (dailyTrend === 'DOWN') reasons.push('日足は25日線の下で、25日線も下向き')
   if (regime === 'PANIC') reasons.push(`急落中：直近30分の高値から日々の値幅の${o.panicAtr}倍以上下げて、VWAPの下`)
   if (regime === 'TREND_DOWN') reasons.push('場中は下降（VWAPの下、短い平均が長い平均の下で下向き）')
@@ -1875,6 +1876,28 @@ export function intradayView(bars, ctx = {}, opt = {}) {
       kind = 'BREAKOUT'
       reasons.push('寄り付き30分の高値を上に抜けた')
     } else reasons.push('上昇中だが、平均線から離れている。押しを待つ')
+    // 絞り込み（2026年11月19日。過去34日・約1万4千回の買い場を前半・後半に分け、どちらでも成績が悪かった形を外す）
+    if (signal === 'TAKE') {
+      const now = last.m + 5
+      const atrPct = ok(ctx.atrDay) && ctx.prevClose > 0 ? ctx.atrDay / ctx.prevClose * 100 : null
+      const dev25 = ok(ctx.ma25) && ctx.ma25 > 0 ? (ctx.prevClose / ctx.ma25 - 1) * 100 : null
+      const vsV = (price / vwap - 1) * 100
+      const fo = (price / open - 1) * 100
+      const gap = (e9[k] / e20[k] - 1) * 100
+      const why = []
+      if (now < 630 || now >= 800) why.push('時間帯（10:30〜13:00 以外は成績が平凡）')
+      if (vsV >= 1.5) why.push(`VWAPから離れすぎ（+${round(vsV, 1)}%）`)
+      if (fo >= 4 || fo < -1) why.push(`始値から${fo >= 4 ? '上げすぎ' : '下げている'}（${round(fo, 1)}%）`)
+      if (gap >= 0.5) why.push('短い平均が長い平均から離れすぎ（伸びきり）')
+      if (ok(atrPct) && atrPct >= 4) why.push(`値動きの荒い株（1日に約${round(atrPct, 1)}%動く）`)
+      if (ok(dev25) && dev25 >= 10) why.push(`25日線から離れすぎ（+${round(dev25, 1)}%）`)
+      if (why.length) {
+        signal = 'WAIT'
+        raw = kind
+        kind = null
+        reasons.push(`形は買い場だが、検証で成績の出ない条件：${why.join('・')}`)
+      }
+    }
   } else reasons.push(regime === 'CHOPPY' ? 'もみ合い。方向が出るまで待つ' : '様子見')
 
   // 目印（合図とは別。試し中）：後場に VWAP を取り戻した形。過去60日では翌日まで持つと全体比+0.2%ほど（前半・後半とも）
@@ -1912,6 +1935,7 @@ export function intradayView(bars, ctx = {}, opt = {}) {
     reasons,
     limit,
     stop_intraday: stopIntraday,
+    raw_take: raw || kind,
     marks
   }
 }
@@ -2002,6 +2026,7 @@ const WIDE_GROUPS = {
   TAKE: r => r.signal === 'TAKE',
   TAKE_PULLBACK: r => r.kind === 'PULLBACK',
   TAKE_BREAKOUT: r => r.kind === 'BREAKOUT',
+  TAKE_RAW: r => !!r.raw,
   TAKE_1030_1100: r => r.signal === 'TAKE' && (r.t === 630 || r.t === 660),
   WAIT: r => r.signal === 'WAIT',
   SKIP: r => r.signal === 'SKIP',
@@ -2030,7 +2055,7 @@ export function intradayWideDay(items, { times = [570, 600, 630, 660, 780, 810, 
       const e = day.find(b => b.m >= t + delay)
       if (!e || !(e.o > 0)) continue
       const v = intradayView(seen, it.ctx || {})
-      rows.push({ t, signal: v.signal, kind: v.kind, regime: v.regime, marks: v.marks, fromPrev: v.from_prev_pct, rC: (close / e.o - 1) * 100, rN: (it.nextClose / e.o - 1) * 100 })
+      rows.push({ t, signal: v.signal, kind: v.kind, raw: v.raw_take, regime: v.regime, marks: v.marks, fromPrev: v.from_prev_pct, rC: (close / e.o - 1) * 100, rN: (it.nextClose / e.o - 1) * 100 })
     }
   }
   const base = new Map()
