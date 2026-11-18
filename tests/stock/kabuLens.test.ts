@@ -746,13 +746,19 @@ describe('株が増える資金調達（MSワラント）の警告', () => {
     a('第三者割当による第13回新株予約権(行使価額修正条項付)の発行に関するお知らせ', '2025/12/26'),
     a('第三者割当による第12回新株予約権(行使価額修正条項付)の発行に関するお知らせ', '2024/10/31'),
     a('液体レンズの採用に関するお知らせ', '2026/10/08'),
+    a('行使価額修正条項付新株予約権の月間行使状況に関するお知らせ', '2024/07/01'),
+    a('行使価額修正条項付新株予約権の月間行使状況に関するお知らせ', '2024/08/01'),
     a('(開示事項の経過)テスト株式会社の発行済み転換社債型新株予約権付社債の新株予約権行使および同社の連結子会社化完了に関するお知らせ', '2026/10/21')
   ].join('')
   const rows = parseDilution(html)
   it('MSワラントの開示だけを拾い、ストック・オプションと関係ない開示は除く', () => {
-    expect(rows.map((r: { kind: string }) => r.kind)).toEqual(['other', 'done', 'heavy', 'issue', 'issue'])
+    expect(rows.map((r: { kind: string }) => r.kind)).toEqual(['other', 'done', 'heavy', 'issue', 'issue', 'monthly', 'monthly'])
     expect(summarizeDilution(rows, '2026-11-18').active).toBe(false)
     expect(rows[1].series).toBe(13)
+  })
+  it('「行使の完了」も完了として読む', () => {
+    expect(parseDilution(a('第三者割当により発行された第19回新株予約権(行使価額修正条項付)の行使停止指定に関するお知らせ', '2026/11/12'))[0].kind).toBe('other')
+    expect(parseDilution(a('第三者割当により発行された第19回新株予約権(行使価額修正条項付)の大量行使、行使の完了及び月間行使状況に関するお知らせ', '2026/11/02'))[0].kind).toBe('done')
   })
   it('行使完了の前はまだ残っている、直近の大量行使・完了は強い注意', () => {
     expect(summarizeDilution(rows, '2026-10-10').active).toBe(true)

@@ -813,11 +813,12 @@ export async function fetchNow(codes, { top = 8, parallel = 8 } = {}) {
 
 // まず Node の fetch で取り、失敗したら curl で取り直す。
 // （プロキシ経由の環境では fetch が通らず curl だけ通ることがある）
+// 途中のキャッシュが古いページ（IR BANK で1時間以上前）を返すことがあるので no-cache を付ける
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36'
 async function fetchText(url) {
   let firstError
   try {
-    const res = await fetch(url, { headers: { 'User-Agent': UA, 'Accept-Language': 'ja' }, signal: AbortSignal.timeout(20000) })
+    const res = await fetch(url, { headers: { 'User-Agent': UA, 'Accept-Language': 'ja', 'Cache-Control': 'no-cache' }, signal: AbortSignal.timeout(20000) })
     if (res.ok) return await res.text()
     firstError = new Error(`HTTP ${res.status}`)
     if (res.status === 404) throw firstError
@@ -825,7 +826,7 @@ async function fetchText(url) {
     if (e === firstError && /404/.test(e.message)) throw e
     firstError = e
   }
-  const r = spawnSync('curl', ['-sSL', '--fail', '--max-time', '25', '-A', UA, '-H', 'Accept-Language: ja', url], { encoding: 'utf-8', maxBuffer: 64 * 1024 * 1024 })
+  const r = spawnSync('curl', ['-sSL', '--fail', '--max-time', '25', '-A', UA, '-H', 'Accept-Language: ja', '-H', 'Cache-Control: no-cache', url], { encoding: 'utf-8', maxBuffer: 64 * 1024 * 1024 })
   if (r.status !== 0 || !r.stdout) {
     const why = (r.stderr || r.error?.message || '').trim().split('\n').pop() || firstError?.message || '不明'
     throw new Error(/404/.test(why) ? 'HTTP 404' : `接続に失敗（fetch: ${firstError?.message || '-'} / curl: ${why}）`)
@@ -1452,10 +1453,10 @@ export function parseDilution(html) {
     let kind = 'other'
     if (/新株予約権行使/.test(title)) kind = 'other' // 他社の転換社債を行使した（買収など）。自社の株は増えない
     else if (/取得及び消却|消却/.test(title)) kind = 'cancel'
-    else if (/行使完了/.test(title)) kind = 'done'
+    else if (/行使の?完了|転換の?完了/.test(title)) kind = 'done'
     else if (/大量行使/.test(title)) kind = 'heavy'
     else if (/月間行使/.test(title)) kind = 'monthly'
-    else if (/発行|募集/.test(title)) kind = 'issue'
+    else if (/発行|募集/.test(title.replace(/発行された/g, ''))) kind = 'issue' // 「発行された第◯回の…」は発行の開示ではない
     const other = /新株予約権行使/.test(title)
     out.push({ date, time: m[5], title, kind, ms: ms && !other, cb: cb && !other, third, series: series ? Number(series) : null, corrected: /^\(訂正\)|^\(再訂正\)|^（訂正）/.test(title) })
   }
@@ -1481,7 +1482,10 @@ export function summarizeDilution(rows, today) {
   const lastIssue = msY1.find(r => r.kind === 'issue')
   const closedAfter = lastIssue ? msY1.some(r => (r.kind === 'done' || r.kind === 'cancel') && r.date >= lastIssue.date && (r.series == null || r.series === lastIssue.series)) : msY1.some(r => r.kind === 'done' || r.kind === 'cancel')
   const d30 = add(today, -30)
-  const s5 = new Set(rs.filter(r => (r.ms || r.cb) && r.date >= add(today, -365 * 5)).map(r => r.series ?? r.date.slice(0, 7)))
+  // 回号（第◯回）で数える。回号の無い開示しか無い会社は、発行の開示の数で数える
+  const r5 = rs.filter(r => (r.ms || r.cb) && r.date >= add(today, -365 * 5))
+  const numbered = new Set(r5.filter(r => r.series != null).map(r => r.series))
+  const s5 = numbered.size ? numbered : new Set(r5.filter(r => r.kind === 'issue').map(r => r.date))
   return {
     has_ms_1y: msY1.length > 0,
     active: msY1.length > 0 && !closedAfter,
@@ -1497,7 +1501,8 @@ export function summarizeDilution(rows, today) {
 /** 株が増える資金調達の開示（IR BANK）。取れなければ null */
 export async function fetchDilution(code, today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10)) {
   try {
-    const rows = parseDilution(await fetchText(`https://irbank.net/${code}/ir`))
+    // 途中のキャッシュが古いページを返すことがあるので、毎回ちがう URL にする
+    const rows = parseDilution(await fetchText(`https://irbank.net/${code}/ir?_=${Date.now()}`))
     return { ...summarizeDilution(rows, today), source: 'IR BANK の適時開示一覧' }
   } catch {
     return null
