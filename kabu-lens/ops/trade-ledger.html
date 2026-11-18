@@ -154,6 +154,12 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
 .mite-card h4 { font-size: .8rem; margin: 8px 0 0; color: var(--accent); }
 .mite-kau { margin-top: 8px; font-size: .78rem; background: var(--accent-soft); border-radius: 8px; padding: 6px 8px; }
 .mite-res { margin-top: 6px; font-size: .78rem; color: var(--muted); }
+.fold { all: unset; cursor: pointer; display: inline-flex; align-items: baseline; gap: 6px; border-radius: 6px; }
+.fold:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.fold::before { content: ""; width: .5em; height: .5em; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(-45deg); transition: transform .15s; position: relative; top: -.1em; }
+.fold[aria-expanded="true"]::before { transform: rotate(45deg); }
+section.folded .sec-head { margin-bottom: 0; }
+.fold-hint { color: var(--muted); font-size: .72rem; font-weight: normal; }
 </style>
 
 <div class="wrap">
@@ -1211,4 +1217,36 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
     unavailable("この表示では記録を読み込めません。claude.aiで開いてください。");
   }
 })();
+
+  // ── 欄を開いたり閉じたり（見出しをタップ）。開いている欄は、この端末に覚えておく ──
+  (function () {
+    var DEFAULT_OPEN = { "h-money": true, "h-open": true, "h-mite": true };
+    var state = {};
+    try { state = JSON.parse(localStorage.getItem("ledger-open") || "{}") || {}; } catch (e) { state = {}; }
+    var save = function () { try { localStorage.setItem("ledger-open", JSON.stringify(state)); } catch (e) { /* 覚えられなくても動く */ } };
+    Array.prototype.forEach.call(document.querySelectorAll("section[aria-labelledby]"), function (sec) {
+      var id = sec.getAttribute("aria-labelledby"), h = document.getElementById(id);
+      var head = h && h.parentNode;
+      if (!head || !head.classList.contains("sec-head")) return;
+      var body = document.createElement("div");
+      body.id = id + "-body";
+      while (head.nextSibling) body.appendChild(head.nextSibling);
+      sec.appendChild(body);
+      var btn = document.createElement("button");
+      btn.type = "button"; btn.className = "fold"; btn.setAttribute("aria-controls", body.id);
+      while (h.firstChild) btn.appendChild(h.firstChild);
+      h.appendChild(btn);
+      var set = function (open) {
+        body.hidden = !open; btn.setAttribute("aria-expanded", open ? "true" : "false");
+        sec.classList.toggle("folded", !open);
+      };
+      set(state[id] !== undefined ? !!state[id] : !!DEFAULT_OPEN[id]);
+      btn.addEventListener("click", function () { var open = body.hidden; set(open); state[id] = open; save(); });
+      // 見出しの横のボタン（＋ 銘柄を追加 など）を押したら、その欄を開く
+      Array.prototype.forEach.call(head.querySelectorAll("button"), function (b) {
+        if (b === btn) return;
+        b.addEventListener("click", function () { if (body.hidden) { set(true); state[id] = true; save(); } });
+      });
+    });
+  })();
 </script>
