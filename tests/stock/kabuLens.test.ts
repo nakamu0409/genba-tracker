@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -805,6 +805,22 @@ describe('場中の判定（5分足）', () => {
     expect(c.prevClose).toBe(139)
     expect(c.ma25).toBeCloseTo(127, 5)
     expect(c.ma25).toBeGreaterThan(c.ma25Prev)
+  })
+  it('全銘柄の1日分を数えて累計に足す（同じ日は2回足さない）', () => {
+    const flat = mk([100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100])
+    const d = intradayWideDay([{ day: up, nextClose: 110, ctx }, { day: flat, nextClose: 100, ctx }], { times: [570, 600], delay: 5 })
+    expect(d.groups.ALL.n).toBe(d.checks)
+    expect(d.groups.ALL.sumExC).toBeCloseTo(0, 6)
+    const st = mergeIntradayWide(null, { date: '2026-11-18', ...d })
+    expect(mergeIntradayWide(st, { date: '2026-11-18', ...d }).groups.ALL.n).toBe(d.checks)
+    expect(mergeIntradayWide(st, { date: '2026-11-19', ...d }).groups.ALL.n).toBe(d.checks * 2)
+  })
+  it('後場に VWAP を取り戻した形に目印', () => {
+    const am = mk([100, 99, 98, 97, 96, 95, 94, 93]).map((b, i) => ({ ...b, m: 540 + i * 5 }))
+    const pm = mk([93, 93.5, 94, 98]).map((b, i) => ({ ...b, m: 750 + i * 5, v: i === 3 ? 5000 : 1000 }))
+    const v = intradayView([...am, ...pm], { prevClose: 95, ma25: 90, ma25Prev: 89, atrDay: 20 })
+    expect(v.marks).toContain('RECLAIM_PM')
+    expect(intradayView(up, ctx).marks).toEqual([])
   })
   it('ある日を時刻ごとに再現する', () => {
     const r = intradayReplay(up, ctx, { times: [570, 600], delay: 10 })

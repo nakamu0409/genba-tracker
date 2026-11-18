@@ -147,6 +147,8 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
 .intra-card .why { font-size: .82rem; margin: 4px 0 0; padding-left: 1.1em; }
 .sg { font-size: .72rem; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; }
 .sg-TAKE { color: var(--up); } .sg-SKIP { color: var(--down); } .sg-WAIT { color: var(--muted); }
+.wide-num { white-space: nowrap; padding-left: 14px; }
+.wide-bt { display: block; font-size: .7rem; color: var(--muted); }
 </style>
 
 <div class="wrap">
@@ -208,6 +210,10 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
     <p class="sub">/bachu で見た銘柄の5分足と判定。株価は15〜20分遅れです。<b>合図はまだ試し中</b>で、過去60日では TAKE の上乗せはほぼありませんでした。夜の記録が「大引けまで」「翌日まで」を足して、当たったかを数えます。</p>
     <div class="panel" id="intra-sum-panel" hidden>
       <div class="sig-scroll"><table class="sig-table" aria-label="合図ごとの答え合わせ"><thead><tr><th>合図</th><th class="num">件数</th><th class="num">大引けまで</th><th class="num">翌日まで</th><th class="num">勝率</th></tr></thead><tbody id="intra-sum"></tbody></table></div>
+    </div>
+    <div class="panel" id="wide-panel" hidden>
+      <div class="sub" style="margin:0 0 6px">毎晩の自動記録：約1,100銘柄すべての前の営業日を、30分ごと・20分遅れで買った前提で判定し直して数えます（<span id="wide-days"></span>）。数字は同じ時刻の全銘柄平均との差。小さい字は過去60日の検証の値。本番の数字が検証と同じ向きなら「使える」に近づきます。</div>
+      <div class="sig-scroll"><table class="sig-table" aria-label="場中の判定の自動記録"><thead><tr><th>合図・形</th><th class="num">回数</th><th class="num">大引けまで</th><th class="num">翌日まで</th></tr></thead><tbody id="wide-body"></tbody></table></div>
     </div>
     <div id="intra-list" class="intra-list"></div>
     <div class="panel" id="intra-empty"><div class="empty">まだありません。場中に /bachu 銘柄名 と打つと、ここにチャートが並びます。</div></div>
@@ -1025,6 +1031,26 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
     if (x.signal === "TAKE" && typeof x.limit === "number") { var i = bars.length - 1; mk("path", { d: "M" + xx(i) + " " + (y(x.limit) + 4) + " l-5 9 h10 z", fill: col("--up") }); }
     return svg;
   }
+  var wideStats = null;
+  function renderWide() {
+    var body = $("wide-body"); body.textContent = "";
+    var G = [["TAKE", "買い場（全部）", "+0.09／+0.04"], ["TAKE_1030_1100", "買い場 10:30・11:00", "+0.17／+0.24"], ["TAKE_BREAKOUT", "買い場（高値抜け）", "+0.14／+0.11"], ["RECLAIM_PM", "目印：後場に VWAP 奪回", "+0.01／+0.23"], ["TREND_UP", "場中 上昇", "+0.07／+0.06"], ["TREND_DOWN", "場中 下降", "−0.05／−0.10"], ["PANIC", "場中 急落", "−0.19／+0.19"], ["CHASE8", "前日比+8%以上", "−0.21／+0.97"], ["SKIP", "見送り（全部）", "−0.02／+0.01"]];
+    var pct = function (v) { return (v > 0 ? "+" : "") + v.toFixed(2) + "%"; };
+    G.forEach(function (g) {
+      var x = wideStats && wideStats.groups && wideStats.groups[g[0]]; if (!x) return;
+      var tr = document.createElement("tr");
+      var bt = g[2].split("／");
+      [[g[1]], [x.n.toLocaleString("ja-JP"), 1], [x.n ? pct(x.sumExC / x.n) : "—", 1, bt[0]], [x.n ? pct(x.sumExN / x.n) : "—", 1, bt[1]]].forEach(function (c) {
+        var td = document.createElement("td"); td.textContent = c[0]; if (c[1]) td.className = "num wide-num";
+        if (c[2]) td.appendChild(el("span", "wide-bt", "検証 " + c[2]));
+        tr.appendChild(td);
+      });
+      body.appendChild(tr);
+    });
+    var days = wideStats && wideStats.days ? wideStats.days : [];
+    $("wide-days").textContent = days.length ? days.length + "日分・" + days[0].slice(5).replace("-", "/") + "〜" + days[days.length - 1].slice(5).replace("-", "/") + (days.length < 20 ? "。まだ日数が少なく、偶然の影響が大きい" : "") : "";
+    $("wide-panel").hidden = !body.children.length;
+  }
   function renderIntra() {
     var pct = function (v) { return typeof v === "number" ? (v > 0 ? "+" : "") + v.toFixed(2) + "%" : "—"; };
     var LAB = { TAKE: "買い場", WAIT: "待つ", SKIP: "見送り" }, RG = { TREND_UP: "上昇", TREND_DOWN: "下降", CHOPPY: "もみ合い", PANIC: "急落" };
@@ -1046,6 +1072,7 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
       card.appendChild(el("div", "meta num", (x.price != null ? x.price.toLocaleString("ja-JP") + "円" : "") + "　前日比 " + pct(x.from_prev_pct) + "　VWAP " + (x.vwap != null ? x.vwap : "—") + "　場中 " + (RG[x.regime] || x.regime || "—") + "　日足 " + ({ UP: "上向き", DOWN: "下向き", FLAT: "横ばい" }[x.daily_trend] || "—")));
       card.appendChild(intraChart(x));
       var ul = el("ul", "why"); (x.reasons || []).forEach(function (r) { ul.appendChild(el("li", "", r)); });
+      if ((x.marks || []).indexOf("RECLAIM_PM") >= 0) ul.appendChild(el("li", "", "目印：後場に VWAP を取り戻した形（持ち越し向き・試し中。過去60日では翌日まで持つと平均より+0.2%ほど）"));
       if (x.signal === "TAKE" && x.limit != null) ul.appendChild(el("li", "", "指値の目安 " + x.limit + "円 ／ 場中の損切りの目安 " + x.stop_intraday + "円（持ち越すなら /kau の損切り）"));
       card.appendChild(ul);
       if (typeof x.rClose === "number") card.appendChild(el("div", "meta", "答え合わせ：大引けまで " + pct(x.rClose) + (typeof x.rNext === "number" ? "　翌日まで " + pct(x.rNext) : "")));
@@ -1117,6 +1144,7 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
       }, function () {});
       db.doc("settings/cands_stats").onSnapshot(function (snap) { renderCands(snap.exists ? snap.data() : null); }, function () {});
       db.collection("intraday").limit(300).onSnapshot(function (snap) { intraDocs = snap.docs.map(function (doc) { var o = Object.assign({}, doc.data()); o.id = doc.id; return o; }); renderIntra(); }, function () {});
+      db.doc("settings/intraday_wide_stats").onSnapshot(function (snap) { wideStats = snap.exists ? snap.data() : null; renderWide(); }, function () {});
       db.doc("settings/intraday_stats").onSnapshot(function (snap) { intraStats = snap.exists ? snap.data() : null; renderIntra(); }, function () {});
       db.collection("considered").limit(500).onSnapshot(function (snap) { consDocs = snap.docs.map(function (doc) { var o = Object.assign({}, doc.data()); o.id = doc.id; return o; }); renderConsidered(); }, function () {});
       db.doc("settings/considered_stats").onSnapshot(function (snap) { consStats = snap.exists ? snap.data() : null; renderConsidered(); }, function () {});

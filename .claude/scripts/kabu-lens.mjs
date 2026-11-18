@@ -26,6 +26,7 @@
 //   node .claude/scripts/kabu-lens.mjs --check 7203 3100 --state state.json  # 買う前チェック（株数・損切り・止める理由）
 //   node .claude/scripts/kabu-lens.mjs --intraday 7203 6758:452     # 場中の判定（5分足・VWAP・支えと壁・合図。約15〜20分遅れ。「:値段」で今の値段をつなぐ）
 //   node .claude/scripts/kabu-lens.mjs --intraday-replay 7203 2026-11-18  # ある日の場中の判定を30分ごとに再現
+//   node .claude/scripts/kabu-lens.mjs --intraday-wide universe-wide.json [--stats st.json]  # 前の営業日の場中の判定を全銘柄で再現して数える（毎晩の自動記録）
 //   node .claude/scripts/kabu-lens.mjs --intraday-result recs.json [--stats st.json]  # 場中の判定の答え合わせ
 //   node .claude/scripts/kabu-lens.mjs --movers-result <記録.json> [--stats <累計.json>]  # 昼に出した危険度の答え合わせ（後場の結果）
 //
@@ -1804,10 +1805,12 @@ export function intradayView(bars, ctx = {}, opt = {}) {
   const price = last.c
   let pv = 0
   let vv = 0
+  const vwapAt = []
   for (const b of bars) {
     const tp = (b.h + b.l + b.c) / 3
     pv += tp * (b.v || 0)
     vv += b.v || 0
+    vwapAt.push(vv > 0 ? pv / vv : b.c)
   }
   const vwap = vv > 0 ? pv / vv : bars.reduce((s, b) => s + b.c, 0) / bars.length
   const closes = bars.map(b => b.c)
@@ -1874,6 +1877,13 @@ export function intradayView(bars, ctx = {}, opt = {}) {
     } else reasons.push('上昇中だが、平均線から離れている。押しを待つ')
   } else reasons.push(regime === 'CHOPPY' ? 'もみ合い。方向が出るまで待つ' : '様子見')
 
+  // 目印（合図とは別。試し中）：後場に VWAP を取り戻した形。過去60日では翌日まで持つと全体比+0.2%ほど（前半・後半とも）
+  const marks = []
+  if (bars.length >= 8 && last.m >= 750 && dailyTrend !== 'DOWN' && !(ok(fromPrev) && fromPrev >= o.chaseMax)) {
+    const wasBelow = bars.slice(-7, -1).some((b, j) => b.c < vwapAt[k - 6 + j])
+    const avgV = bars.slice(-13, -1).reduce((s2, b) => s2 + (b.v || 0), 0) / Math.min(12, bars.length - 1)
+    if (wasBelow && last.c > vwap && last.c > last.o && (last.v || 0) >= 1.5 * avgV) marks.push('RECLAIM_PM')
+  }
   const swingLow = Math.min(...bars.slice(-6).map(b => b.l))
   const limit = kind === 'PULLBACK' ? tick(Math.max(vwap, e20[k])) : kind === 'BREAKOUT' ? tick(orHigh) : null
   const stopIntraday = signal === 'TAKE' ? tick(Math.min(swingLow, vwap) - 0.3 * atr5) : null
@@ -1901,7 +1911,8 @@ export function intradayView(bars, ctx = {}, opt = {}) {
     kind,
     reasons,
     limit,
-    stop_intraday: stopIntraday
+    stop_intraday: stopIntraday,
+    marks
   }
 }
 
@@ -1983,6 +1994,125 @@ export function intradayReplay(dayBars, ctx, { times = [570, 600, 630, 660, 780,
     })
   }
   return { close, steps: out }
+}
+
+// 毎晩の自動記録で数える組（名前 → 判定がその組に入るか）
+const WIDE_GROUPS = {
+  ALL: () => true,
+  TAKE: r => r.signal === 'TAKE',
+  TAKE_PULLBACK: r => r.kind === 'PULLBACK',
+  TAKE_BREAKOUT: r => r.kind === 'BREAKOUT',
+  TAKE_1030_1100: r => r.signal === 'TAKE' && (r.t === 630 || r.t === 660),
+  WAIT: r => r.signal === 'WAIT',
+  SKIP: r => r.signal === 'SKIP',
+  RECLAIM_PM: r => r.marks.includes('RECLAIM_PM'),
+  TREND_UP: r => r.regime === 'TREND_UP',
+  CHOPPY: r => r.regime === 'CHOPPY',
+  TREND_DOWN: r => r.regime === 'TREND_DOWN',
+  PANIC: r => r.regime === 'PANIC',
+  CHASE8: r => ok(r.fromPrev) && r.fromPrev >= 8
+}
+
+/**
+ * 1日分の場中の判定を、たくさんの銘柄でまとめて再現して数える（study_5m と同じ決まり：30分ごと、20分遅れで買う、同じ時刻の全銘柄平均との差）。
+ * items: [{code, day: その日の5分足, nextClose: 翌営業日の終値, ctx}]
+ * 返り値: {groups: {組: {n, sumExC, sumExN, winC}}, checks}
+ */
+export function intradayWideDay(items, { times = [570, 600, 630, 660, 780, 810, 840, 870], delay = 20 } = {}) {
+  const rows = []
+  for (const it of items) {
+    const day = it.day
+    if (!day?.length || !ok(it.nextClose)) continue
+    const close = day[day.length - 1].c
+    for (const t of times) {
+      const seen = day.filter(b => b.m + 5 <= t)
+      if (seen.length < 3) continue
+      const e = day.find(b => b.m >= t + delay)
+      if (!e || !(e.o > 0)) continue
+      const v = intradayView(seen, it.ctx || {})
+      rows.push({ t, signal: v.signal, kind: v.kind, regime: v.regime, marks: v.marks, fromPrev: v.from_prev_pct, rC: (close / e.o - 1) * 100, rN: (it.nextClose / e.o - 1) * 100 })
+    }
+  }
+  const base = new Map()
+  for (const r of rows) {
+    const b = base.get(r.t) || { n: 0, c: 0, x: 0 }
+    b.n++
+    b.c += r.rC
+    b.x += r.rN
+    base.set(r.t, b)
+  }
+  const groups = {}
+  for (const g of Object.keys(WIDE_GROUPS)) groups[g] = { n: 0, sumExC: 0, sumExN: 0, winC: 0 }
+  for (const r of rows) {
+    const b = base.get(r.t)
+    const exC = r.rC - b.c / b.n
+    const exN = r.rN - b.x / b.n
+    for (const [g, f] of Object.entries(WIDE_GROUPS)) {
+      if (!f(r)) continue
+      const x = groups[g]
+      x.n++
+      x.sumExC += exC
+      x.sumExN += exN
+      if (exC > 0) x.winC++
+    }
+  }
+  for (const x of Object.values(groups)) {
+    x.sumExC = round(x.sumExC, 3)
+    x.sumExN = round(x.sumExN, 3)
+  }
+  return { groups, checks: rows.length }
+}
+
+/** 1日分（intradayWideDay の結果に date を付けたもの）を累計に足す。同じ日は2回足さない */
+export function mergeIntradayWide(prev, day) {
+  const st = prev ? JSON.parse(JSON.stringify(prev)) : { days: [], groups: {} }
+  if (st.days.includes(day.date)) return st
+  st.days.push(day.date)
+  st.days.sort()
+  for (const [g, x] of Object.entries(day.groups)) {
+    const c = (st.groups[g] ||= { n: 0, sumExC: 0, sumExN: 0, winC: 0 })
+    c.n += x.n
+    c.sumExC = round(c.sumExC + x.sumExC, 3)
+    c.sumExN = round(c.sumExN + x.sumExN, 3)
+    c.winC += x.winC
+  }
+  return st
+}
+
+/**
+ * 毎晩の自動記録：universe の銘柄すべてについて、前の営業日の場中の判定を再現し、その日の大引け・翌営業日（＝今日）の大引けまでで答え合わせする。
+ * 今日の夜に動かすと「前の営業日」が対象になる（翌日の終値がそろうため）。
+ */
+export async function fetchIntradayWide(list, { date = null, parallel = 8 } = {}) {
+  const items = []
+  let target = date
+  let errors = 0
+  for (let i = 0; i < list.length; i += parallel) {
+    await Promise.all(list.slice(i, i + parallel).map(async ({ code }) => {
+      try {
+        const [five, d] = await Promise.all([
+          fetchJson(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(code)}.T?range=5d&interval=5m`),
+          fetchYahoo(`${code}.T`, '6mo')
+        ])
+        const days = splitFiveMin(five)
+        const dates = Object.keys(days).sort()
+        if (dates.length < 2) return
+        const t = target || dates[dates.length - 2]
+        const j = dates.indexOf(t)
+        if (j < 0 || j + 1 >= dates.length) return
+        const next = days[dates[j + 1]]
+        items.push({ code, date: t, day: days[t], nextClose: next[next.length - 1].c, ctx: intradayContext(d.bars.filter(b => b.date < t)) })
+      } catch {
+        errors++
+      }
+    }))
+  }
+  // いちばん多い日付にそろえる（銘柄によって最後の日がずれることがあるため）
+  const cnt = {}
+  for (const it of items) cnt[it.date] = (cnt[it.date] || 0) + 1
+  target = target || Object.entries(cnt).sort((a, b) => b[1] - a[1])[0]?.[0] || null
+  const use = items.filter(it => it.date === target)
+  return { date: target, stocks: use.length, errors, ...intradayWideDay(use) }
 }
 
 /**
@@ -2266,6 +2396,23 @@ async function main() {
       }
     }
     console.log(JSON.stringify(await intradayResult(JSON.parse(readFileSync(file, 'utf-8')), prev), null, 2))
+    return
+  }
+  if (args.includes('--intraday-wide')) {
+    const i = args.indexOf('--intraday-wide')
+    const list = JSON.parse(readFileSync(args[i + 1], 'utf-8'))
+    const d = /^\d{4}-\d{2}-\d{2}$/.test(args[i + 2] || '') ? args[i + 2] : null
+    const si = args.indexOf('--stats')
+    let prev = null
+    if (si >= 0) {
+      try {
+        prev = JSON.parse(readFileSync(args[si + 1], 'utf-8'))
+      } catch {
+        prev = null
+      }
+    }
+    const day = await fetchIntradayWide(list, { date: d })
+    console.log(JSON.stringify({ day, stats: day.date && day.stocks > 0 ? mergeIntradayWide(prev, day) : prev }, null, 2))
     return
   }
   if (args.includes('--intraday-replay')) {
