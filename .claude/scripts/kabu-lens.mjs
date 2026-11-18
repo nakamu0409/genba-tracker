@@ -25,6 +25,7 @@
 //   node .claude/scripts/kabu-lens.mjs --kessan-result <記録.json> [--stats <累計.json>]  # 上方修正の記録の、その後（1・5・20日）
 //   node .claude/scripts/kabu-lens.mjs --check 7203 3100 --state state.json  # 買う前チェック（株数・損切り・止める理由）
 //   node .claude/scripts/kabu-lens.mjs --intraday 7203 6758:452     # 場中の判定（5分足・VWAP・支えと壁・合図。約15〜20分遅れ。「:値段」で今の値段をつなぐ）
+//   node .claude/scripts/kabu-lens.mjs --intraday-replay 7203 2026-11-18  # ある日の場中の判定を30分ごとに再現
 //   node .claude/scripts/kabu-lens.mjs --intraday-result recs.json [--stats st.json]  # 場中の判定の答え合わせ
 //   node .claude/scripts/kabu-lens.mjs --movers-result <記録.json> [--stats <累計.json>]  # 昼に出した危険度の答え合わせ（後場の結果）
 //
@@ -1956,6 +1957,35 @@ export async function fetchIntraday(codes, { live = {} } = {}) {
 }
 
 /**
+ * ある日の場中の判定を、時刻ごとに再現する（その時刻までに出来た足だけを使う）。
+ * 結果には、その時刻の値段と、そこから大引けまでの騰落を付ける。delay 分遅れで見えていた場合も示す。
+ */
+export function intradayReplay(dayBars, ctx, { times = [570, 600, 630, 660, 780, 810, 840, 870, 900], delay = 20 } = {}) {
+  const close = dayBars[dayBars.length - 1].c
+  const out = []
+  for (const t of times) {
+    const seen = dayBars.filter(b => b.m + 5 <= t)
+    if (seen.length < 3) continue
+    const v = intradayView(seen, ctx)
+    const at = dayBars.find(b => b.m >= t + delay)
+    out.push({
+      time: `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`,
+      price: v.price,
+      regime: v.regime,
+      signal: v.signal,
+      kind: v.kind,
+      reasons: v.reasons,
+      vwap: v.vwap,
+      limit: v.limit,
+      to_close_pct: round((close / v.price - 1) * 100, 2),
+      seen_delayed_at: at ? `${Math.floor(at.m / 60)}:${String(at.m % 60).padStart(2, '0')}` : null,
+      price_when_seen: at ? at.o : null
+    })
+  }
+  return { close, steps: out }
+}
+
+/**
  * 場中の判定（intraday コレクションの1件）の答え合わせ。判定したときの値段から、その日の大引けまでと翌営業日の大引けまでの騰落。
  * days: splitFiveMin の結果。翌営業日の足があれば final: true
  */
@@ -2236,6 +2266,23 @@ async function main() {
       }
     }
     console.log(JSON.stringify(await intradayResult(JSON.parse(readFileSync(file, 'utf-8')), prev), null, 2))
+    return
+  }
+  if (args.includes('--intraday-replay')) {
+    const i = args.indexOf('--intraday-replay')
+    const code = String(args[i + 1] || '').toUpperCase()
+    const date = args[i + 2]
+    const [five, d] = await Promise.all([
+      fetchJson(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(code)}.T?range=1mo&interval=5m`),
+      fetchYahoo(`${code}.T`, '6mo')
+    ])
+    const days = splitFiveMin(five)
+    if (!days[date]) {
+      console.error(`${date} の5分足がありません（Yahoo は直近60日まで）`)
+      process.exit(1)
+    }
+    const r = intradayReplay(days[date].map(b => ({ ...b })), intradayContext(d.bars.filter(b => b.date < date)))
+    console.log(JSON.stringify({ code, name: d.name, date, ...r, bars: days[date].map(b => [b.m, b.o, b.h, b.l, b.c, b.v]) }, null, 2))
     return
   }
   if (args.includes('--intraday')) {
