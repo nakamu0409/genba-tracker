@@ -684,6 +684,14 @@ describe('買おうとした銘柄のその後', () => {
     const r = consideredOutcome({ date: '2026-11-02', price: 100, stop: 93 }, bars, bench)
     expect(r).toMatchObject({ r1: 2, r5: 4, ex5: 2, low5: -8, high5: 6, stopHit1: false, stopHit5: true, final: false })
   })
+  it('mergeConsideredStats: /mite のスイングの判定ごとに、5日後と20日後を1回ずつ数える', () => {
+    const recs = [{ decision: 'passed', mite_swing: '買い候補', r5: 2, r20: 4 }, { decision: 'passed', mite_swing: '買い候補', r5: -1 }, { decision: 'blocked', mite_swing: '見送り', r5: -3, r20: -6 }]
+    const m1 = mergeConsideredStats(null, recs)
+    expect(mergeConsideredStats(m1.stats, m1.records).stats).toEqual(m1.stats)
+    const t = summarizeConsideredStats(m1.stats).mite.swing
+    expect(t['買い候補']).toEqual({ count5: 2, avg_5d_pct: 0.5, win5_pct: 50, count20: 1, avg_20d_pct: 4, win20_pct: 100 })
+    expect(t['見送り'].avg_20d_pct).toBe(-6)
+  })
   it('mergeConsideredStats: 判断ごとに1回だけ数える', () => {
     const recs = [{ decision: 'bought', r5: 3, ex5: 1 }, { decision: 'passed', r5: -6, ex5: -5 }, { decision: 'blocked', r5: -2 }, { decision: 'passed' }]
     const m1 = mergeConsideredStats(null, recs)

@@ -149,6 +149,11 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
 .sg-TAKE { color: var(--up); } .sg-SKIP { color: var(--down); } .sg-WAIT { color: var(--muted); }
 .wide-num { white-space: nowrap; padding-left: 14px; }
 .wide-bt { display: block; font-size: .7rem; color: var(--muted); }
+.mite-pills { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.mite-card ul { margin: 2px 0 0; padding-left: 1.1em; font-size: .82rem; }
+.mite-card h4 { font-size: .8rem; margin: 8px 0 0; color: var(--accent); }
+.mite-kau { margin-top: 8px; font-size: .78rem; background: var(--accent-soft); border-radius: 8px; padding: 6px 8px; }
+.mite-res { margin-top: 6px; font-size: .78rem; color: var(--muted); }
 </style>
 
 <div class="wrap">
@@ -203,6 +208,16 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
     <div class="list" id="open-list" aria-live="polite">
       <div class="empty" id="open-empty">記録を読み込んでいます。保有中の銘柄が、現在値・含み損益・損切りまでの損失額と一緒にここに並びます。</div>
     </div>
+  </section>
+
+  <section aria-labelledby="h-mite">
+    <div class="sec-head"><h2 id="h-mite">総合判定（/mite）</h2><span class="count" id="mite-count"></span></div>
+    <p class="sub">/mite で見た銘柄の、デイトレ・スイング・少し長期の判定と買う前チェック。毎晩の記録が、見た日の値段から5日後・20日後を足し、スイングの判定ごとに当たったかを数えます。</p>
+    <div class="panel" id="mite-sum-panel" hidden>
+      <div class="sig-scroll"><table class="sig-table" aria-label="スイングの判定ごとの答え合わせ"><thead><tr><th>スイングの判定</th><th class="num">5日後</th><th class="num">20日後</th></tr></thead><tbody id="mite-sum"></tbody></table></div>
+    </div>
+    <div id="mite-list" class="intra-list"></div>
+    <div class="panel" id="mite-empty"><div class="empty">まだありません。/mite 銘柄名 と打つと、ここに並びます。</div></div>
   </section>
 
   <section aria-labelledby="h-intra">
@@ -998,6 +1013,42 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
     el.textContent = "ここに無い売買もあります。証券会社の取引履歴（" + String(hh.from || "").slice(5).replace("-", "/") + "〜" + String(hh.to || "").slice(5).replace("-", "/") + "、" + (hh.trades || "?") + "件）で数えた実現損益は " + (hh.realized > 0 ? "+" : "") + Math.round(hh.realized).toLocaleString("ja-JP") + "円（勝ち" + (hh.winners || 0) + "銘柄・負け" + (hh.losers || 0) + "銘柄）。下の数字は、記録帳に入れた売買だけの集計です。";
   }
 
+  var miteDocs = [];
+  function renderMite() {
+    var pct = function (v) { return typeof v === "number" ? (v > 0 ? "+" : "") + v.toFixed(1) + "%" : "—"; };
+    var sum = $("mite-sum"); sum.textContent = "";
+    var ms = consStats && consStats.mite && consStats.mite.swing;
+    if (ms) Object.keys(ms).forEach(function (v) {
+      var c = ms[v], tr = document.createElement("tr");
+      var cells = [[v], [c.n5 ? pct(c.sum5 / c.n5) + "（" + c.n5 + "回・勝率" + Math.round(c.win5 / c.n5 * 100) + "%）" : "—", 1], [c.n20 ? pct(c.sum20 / c.n20) + "（" + c.n20 + "回）" : "—", 1]];
+      cells.forEach(function (cc) { var td = document.createElement("td"); td.textContent = cc[0]; if (cc[1]) td.className = "num"; tr.appendChild(td); });
+      sum.appendChild(tr);
+    });
+    $("mite-sum-panel").hidden = !sum.children.length;
+    var cls = function (v) { return /買い/.test(v || "") ? "sg-TAKE" : /見送り/.test(v || "") ? "sg-SKIP" : "sg-WAIT"; };
+    var list = $("mite-list"); list.textContent = "";
+    miteDocs.slice().sort(function (a, b) { return String(b.createdAt || b.date) < String(a.createdAt || a.date) ? -1 : 1; }).slice(0, 8).forEach(function (x) {
+      var card = el("div", "intra-card mite-card");
+      var h = el("h3", "", (x.name || x.code) + " ");
+      h.appendChild(el("span", "meta", String(x.date || "").slice(5).replace("-", "/") + " ・ " + (typeof x.price === "number" ? x.price.toLocaleString("ja-JP") + "円" : "")));
+      card.appendChild(h);
+      var pills = el("div", "mite-pills");
+      [["デイトレ", x.day_verdict], ["スイング", x.swing_verdict + (x.swing_kind && x.swing_kind !== "—" ? "（" + x.swing_kind + "）" : "")], ["少し長期", x.long_verdict || "参考のみ"]].forEach(function (p) { pills.appendChild(el("span", "sg " + cls(p[1]), p[0] + "：" + p[1])); });
+      card.appendChild(pills);
+      var sec = function (t, lines) { lines = lines.filter(Boolean); if (!lines.length) return; card.appendChild(el("h4", "", t)); var u = el("ul"); lines.forEach(function (l) { u.appendChild(el("li", "", l)); }); card.appendChild(u); };
+      sec("デイトレ", [x.day_reason]);
+      sec("スイング", [x.swing_why, x.swing_buy_below ? "翌営業日 " + x.swing_buy_below + "円以下なら指値" : null, x.swing_stop ? "損切り " + x.swing_stop + "円" + (x.swing_target ? "・目標 " + x.swing_target + "円" : "") : null]);
+      sec("少し長期", [x.long_quarter, x.long_forecast, x.long_position, x.long_caution]);
+      var k = el("div", "mite-kau", x.kau_ok === false ? "買う前チェック：止める理由あり（" + (x.kau_blocks || []).join("／") + "）" : "買う前チェック：" + (x.kau_summary || "通過"));
+      card.appendChild(k);
+      var c = consDocs.filter(function (d) { return d.id === x.date + "-" + x.code; })[0];
+      if (c && (typeof c.r5 === "number" || typeof c.r1 === "number")) card.appendChild(el("div", "mite-res", "その後：" + (typeof c.r1 === "number" ? "翌日 " + pct(c.r1) : "") + (typeof c.r5 === "number" ? "・5日後 " + pct(c.r5) : "") + (typeof c.r20 === "number" ? "・20日後 " + pct(c.r20) : "")));
+      list.appendChild(card);
+    });
+    $("mite-empty").hidden = !!miteDocs.length;
+    $("mite-count").textContent = miteDocs.length ? miteDocs.length + " 件" : "";
+  }
+
   var intraDocs = [], intraStats = null;
   function intraChart(x) {
     var bars = (x.bars || []).map(function (b) { return { m: b[0], o: b[1], h: b[2], l: b[3], c: b[4] }; });
@@ -1144,11 +1195,12 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
         renderSignals();
       }, function () {});
       db.doc("settings/cands_stats").onSnapshot(function (snap) { renderCands(snap.exists ? snap.data() : null); }, function () {});
+      db.collection("mite").limit(300).onSnapshot(function (snap) { miteDocs = snap.docs.map(function (doc) { var o = Object.assign({}, doc.data()); o.id = doc.id; return o; }); renderMite(); }, function () {});
       db.collection("intraday").limit(300).onSnapshot(function (snap) { intraDocs = snap.docs.map(function (doc) { var o = Object.assign({}, doc.data()); o.id = doc.id; return o; }); renderIntra(); }, function () {});
       db.doc("settings/intraday_wide_stats").onSnapshot(function (snap) { wideStats = snap.exists ? snap.data() : null; renderWide(); }, function () {});
       db.doc("settings/intraday_stats").onSnapshot(function (snap) { intraStats = snap.exists ? snap.data() : null; renderIntra(); }, function () {});
-      db.collection("considered").limit(500).onSnapshot(function (snap) { consDocs = snap.docs.map(function (doc) { var o = Object.assign({}, doc.data()); o.id = doc.id; return o; }); renderConsidered(); }, function () {});
-      db.doc("settings/considered_stats").onSnapshot(function (snap) { consStats = snap.exists ? snap.data() : null; renderConsidered(); }, function () {});
+      db.collection("considered").limit(500).onSnapshot(function (snap) { consDocs = snap.docs.map(function (doc) { var o = Object.assign({}, doc.data()); o.id = doc.id; return o; }); renderConsidered(); renderMite(); }, function () {});
+      db.doc("settings/considered_stats").onSnapshot(function (snap) { consStats = snap.exists ? snap.data() : null; renderConsidered(); renderMite(); }, function () {});
       db.doc("settings/history").onSnapshot(function (snap) { renderHistory(snap.exists ? snap.data() : null); }, function () {});
       db.collection("weekly").limit(100).onSnapshot(function (snap) { renderWeekly(snap.docs.map(function (doc) { var o = Object.assign({}, doc.data()); o.id = doc.id; return o; })); }, function () {});
       db.doc("settings/kessan_stats").onSnapshot(function (snap) { renderKessan(snap.exists ? snap.data() : null); }, function () {});

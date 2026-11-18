@@ -1671,8 +1671,23 @@ const CONSIDERED_KEYS = ['bought', 'passed', 'blocked']
 export function mergeConsideredStats(prev, records) {
   const stats = prev && prev.bought ? JSON.parse(JSON.stringify(prev)) : {}
   for (const k of CONSIDERED_KEYS) stats[k] ||= { n: 0, sum5: 0, win5: 0, drop5: 0, nEx: 0, sumEx5: 0 }
-  const out = records.map((r) => {
+  // /mite のスイングの判定ごとの成績（場中の判定は毎晩の全銘柄の記録で数える）。5日後は counted、20日後は counted20 で1回だけ足す
+  stats.mite ||= { swing: {} }
+  const addMite = (r, n) => {
+    if (!r.mite_swing) return
+    const c = (stats.mite.swing[r.mite_swing] ||= { n5: 0, sum5: 0, win5: 0, n20: 0, sum20: 0, win20: 0 })
+    c['n' + n]++
+    c['sum' + n] = round(c['sum' + n] + r['r' + n])
+    if (r['r' + n] > 0) c['win' + n]++
+  }
+  const out0 = records.map((r) => {
+    if (r.counted20 || !ok(r.r20) || !r.mite_swing) return r
+    addMite(r, 20)
+    return { ...r, counted20: true }
+  })
+  const out = out0.map((r) => {
     if (r.counted || !ok(r.r5) || !CONSIDERED_KEYS.includes(r.decision)) return r
+    addMite(r, 5)
     const c = stats[r.decision]
     c.n++
     c.sum5 = round(c.sum5 + r.r5)
@@ -1692,6 +1707,15 @@ export function summarizeConsideredStats(stats) {
   for (const k of CONSIDERED_KEYS) {
     const c = stats[k]
     out[k] = c && c.n ? { count: c.n, avg_5d_pct: round(c.sum5 / c.n), win_rate_pct: round(c.win5 / c.n * 100, 0), drop5_pct: round(c.drop5 / c.n * 100, 0), avg_vs_topix_5d_pct: c.nEx ? round(c.sumEx5 / c.nEx) : null } : { count: 0 }
+  }
+  if (stats.mite) {
+    out.mite = {}
+    for (const side of ['swing']) {
+      out.mite[side] = Object.fromEntries(Object.entries(stats.mite[side] || {}).map(([v, c]) => [v, {
+        count5: c.n5, avg_5d_pct: c.n5 ? round(c.sum5 / c.n5) : null, win5_pct: c.n5 ? round(c.win5 / c.n5 * 100, 0) : null,
+        count20: c.n20, avg_20d_pct: c.n20 ? round(c.sum20 / c.n20) : null, win20_pct: c.n20 ? round(c.win20 / c.n20 * 100, 0) : null
+      }]))
+    }
   }
   return out
 }
@@ -2367,7 +2391,24 @@ export async function miteReport(code, { price = null, state = null, stats = {},
     }
     kau = preTradeCheck({ code, price: px, atr: pk.volatility.atr, regime: pk.regime, overheat: pk.overheat.score, today, earningsDate: ne?.date || null, earningsEstimated: ne?.estimated, dilution: dl, settings: state.settings, positions: state.positions, buysToday: state.buysToday, correlations })
   }
-  return { code, name: d.name, price: px, live_price: ok(price), today, day, swing, long: lg, kau }
+  const pc = v => (ok(v) ? `${v > 0 ? '+' : ''}${v}%` : '—')
+  const fq = lg.fundamentals?.quarter
+  const ff = lg.fundamentals?.forecast
+  // 記録帳の mite に入れる形（name は日本語の銘柄名に置き換えて使う）
+  const ledger = {
+    code, date: today, price: px, live_price: ok(price),
+    day_verdict: day.verdict, day_reason: (day.reasons || [])[0] || null,
+    swing_verdict: swing.verdict, swing_kind: swing.kind, swing_why: swing.why_not ? `理由：${swing.why_not}` : null,
+    swing_buy_below: swing.buy_below, swing_stop: swing.stop, swing_target: swing.target,
+    long_verdict: '参考のみ',
+    long_quarter: fq ? `直近の四半期（${fq.period}）：営業益 前年比${ok(fq.op_yoy_pct) ? pc(fq.op_yoy_pct) : '（前年が赤字）'}・売上 ${pc(fq.sales_yoy_pct)}` : null,
+    long_forecast: ff ? `会社予想（${ff.period}）：営業益 ${pc(ff.op_growth_pct)}・売上 ${pc(ff.sales_growth_pct)}` : null,
+    long_position: lg.short_history ? `上場来の高値から${pc(lg.from_52w_high_pct)}（${lg.since} 上場）` : `52週高値から${pc(lg.from_52w_high_pct)}・200日線の${lg.above_ma200 ? '上' : '下'}`,
+    long_caution: lg.dilution && (lg.dilution.has_ms_1y || lg.dilution.third_party_1y?.length) ? '注意：株が増える資金調達あり' : null,
+    kau_ok: kau ? kau.ok : null, kau_blocks: kau ? kau.blocks : [],
+    kau_summary: kau && kau.ok ? (kau.shares_100_unit ? `${kau.shares_100_unit}株（${kau.cost_jpy.toLocaleString('ja-JP')}円）・損切り ${kau.stop}円・損失 約${kau.loss_if_stopped_jpy.toLocaleString('ja-JP')}円` : `100株は${kau.limited_by}を超える（かぶミニなら${kau.mini_shares_max}株）`) : null
+  }
+  return { code, name: d.name, price: px, live_price: ok(price), today, day, swing, long: lg, kau, ledger }
 }
 
 /**

@@ -17,7 +17,7 @@
    b. 前営業日の、反応が大きかった決算・修正：`node <保存先> --kessan-react <前営業日の YYYYMMDD> > /tmp/k_react.json`（1〜2分）。rows[]（code、time、title、kind、revise_pct、react=最初の反応%、entryDate、entry）。
 3. 記録帳のデータベースを ArtifactData で読む（ツール一覧に無ければ ToolSearch で `select:ArtifactData`）。同じ url で、
    - collection "kessan"、action "query"、query {"where": [["final", "eq", false]], "limit": 1000}
-   - collection "considered"、action "query"、query {"where": [["final", "eq", false]], "limit": 500}：本人が買おうとした銘柄（code、name、date、price、stop、decision（bought / passed / blocked）、reason）
+   - collection "considered"、action "query"、query {"where": [["final", "eq", false]], "limit": 500}：本人が買おうとした銘柄（code、name、date、price、stop、decision（bought / passed / blocked）、reason、mite_swing（/mite のスイングの判定。無いこともある））
    - collection "settings"、doc_id "kessan_stats" と doc_id "considered_stats"（まだ無いこともある）
    - collection "intraday"、action "query"、query {"where": [["final", "eq", false]], "limit": 500}：場中の判定（/bachu）の記録（code、date、time、price、signal）と、collection "settings"、doc_id "intraday_stats"（まだ無いこともある）
    - collection "trades"、action "list"、query {"limit": 300}：売買の記録（保有中は status が open）
@@ -26,17 +26,17 @@
 4b. considered の decision の見直し：decision が "passed" の記録で、trades に同じ code で date が同じか翌営業日の買いの記録があれば、decision を "bought" に update する。
 5. 答え合わせ（3つ。それぞれタイムアウト5分）：
    a. 決算・修正：kessan の記録を [{id, code, date, time, kind, react, counted, final, ...}] で /tmp/krecs.json、累計を /tmp/kstats.json に書き、`node <保存先> --kessan-result /tmp/krecs.json --stats /tmp/kstats.json > /tmp/kres.json`（累計が無ければ `--stats` なし）。出力：records[]（entryDate、entry、react、stuck=1日じゅう張り付き、openAtHigh、r1・r5・r20、ex1・ex5・ex20、counted、final、dropped、updated、pending）、total（all、react_under12、react12、react7_12）、stats。
-   b. 買おうとした銘柄：considered の記録を [{id, code, date, price, stop, decision, counted, final, ...}] で /tmp/crecs.json、累計を /tmp/cstats.json に書き、`node <保存先> --considered-result /tmp/crecs.json --stats /tmp/cstats.json > /tmp/cres.json`。出力：records[]（r1・r5・r20=記録した値段からの騰落%、ex5、low5・low20=途中の最大の下げ%、stopHit5・stopHit20=損切りに届いたか、counted、final、updated）、total（bought・passed・blocked ごとの count、avg_5d_pct、win_rate_pct、drop5_pct）、stats。
+   b. 買おうとした銘柄：considered の記録を [{id, code, date, price, stop, decision, mite_swing, counted, counted20, final, ...}] で /tmp/crecs.json、累計を /tmp/cstats.json に書き、`node <保存先> --considered-result /tmp/crecs.json --stats /tmp/cstats.json > /tmp/cres.json`。出力：records[]（r1・r5・r20=記録した値段からの騰落%、ex5、low5・low20=途中の最大の下げ%、stopHit5・stopHit20=損切りに届いたか、counted、counted20、final、updated）、total（bought・passed・blocked ごとの count、avg_5d_pct、win_rate_pct、drop5_pct と、mite.swing＝/mite のスイングの判定ごとの5日後・20日後）、stats。
    c. 場中の判定：intraday の記録を [{id, code, date, price, signal, final}] で /tmp/irecs.json、累計を /tmp/istats.json に書き、`node <保存先> --intraday-result /tmp/irecs.json --stats /tmp/istats.json > /tmp/ires.json`（累計が無ければ `--stats` なし）。出力：updates[]（id、rClose=判定した値段から大引けまでの%、rNext=翌営業日の大引けまでの%、final）、stats（TAKE・WAIT・SKIP ごとの n、sumClose、sumNext、nNext、winClose）。記録が0件なら飛ばす。
 6. 書き戻す（batch。既存の記録は update で if_version に読んだときの version）：
    - kessan：updated の記録に entryDate、entry、react、stuck、openAtHigh、r1、r5、r20、ex1、ex5、ex20、counted、final、dropped、last、lastDate
-   - considered：updated の記録に r1、r5、r20、ex1、ex5、ex20、low1、low5、low20、high5、high20、stopHit5、stopHit20、counted、final、last、lastDate（と手順4bの decision）
+   - considered：updated の記録に r1、r5、r20、ex1、ex5、ex20、low1、low5、low20、high5、high20、stopHit5、stopHit20、counted、counted20、final、last、lastDate（と手順4bの decision）。records の中で counted か counted20 が新しく true になった記録は、updated でなくても書く
    - intraday：updates の各記録に rClose、rNext、final
    - settings の "kessan_stats" と "considered_stats" に、それぞれの stats をそのまま set（手順5c をしたなら "intraday_stats" にも）
    書いてよいのは kessan、considered、intraday、settings/kessan_stats、settings/considered_stats、settings/intraday_stats だけ（trades は読むだけ）。失敗したら1回だけやり直す。
 7. 結果を PushNotification で送る（6〜12行。同じ内容を最後の返答にも書く）：
    - **保有株に flagged があれば、それを1行目に**（銘柄名・時刻・表題・何の印か）。DILUTION か DANGER なら「保有株に重要な開示。中身を確認し、決めておいた売る条件に当たるか考えてください」と添え、note に本人の売る条件があれば、そのまま書く。決めた損切りを下げる案や買い増しの案は出さない。無ければ「保有株の適時開示：なし」と1行。
-   - 買おうとした銘柄：今日5日後か20日後の結果が出たものを3つまで（銘柄名・判断・記録した値段からの%）。見送った・止められた銘柄が大きく下げていれば「見送って正解」、大きく上げていれば「見送って逃した」と事実として書く（責めない）。累計（total）の bought・passed・blocked の件数と5日後の平均を1行。
+   - 買おうとした銘柄：今日5日後か20日後の結果が出たものを3つまで（銘柄名・判断・記録した値段からの%）。見送った・止められた銘柄が大きく下げていれば「見送って正解」、大きく上げていれば「見送って逃した」と事実として書く（責めない）。累計（total）の bought・passed・blocked の件数と5日後の平均を1行。total.mite.swing があれば、/mite のスイングの判定ごとの件数と5日後の平均を1行。
    - 場中の判定（手順5c。記録があった日だけ1行）：今日答えが出た件数と、累計の TAKE・SKIP それぞれの件数と「大引けまで」「翌日まで」の平均。
    - 「決算・修正の記録（◯月◯日）」：今日記録した件数と、累計（react12・react7_12・all）の件数と5日後の平均。
    - 各30件未満のうちは「まだ件数が少なく、偶然の影響が大きい」と必ず添える。銘柄名を挙げるときは、買い候補ではないと1行で明記する。
