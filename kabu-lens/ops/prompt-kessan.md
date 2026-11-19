@@ -29,11 +29,12 @@
    b. 買おうとした銘柄：considered の記録を [{id, code, date, price, stop, decision, mite_swing, counted, counted20, final, ...}] で /tmp/crecs.json、累計を /tmp/cstats.json に書き、`node <保存先> --considered-result /tmp/crecs.json --stats /tmp/cstats.json > /tmp/cres.json`。出力：records[]（r1・r5・r20=記録した値段からの騰落%、ex5、low5・low20=途中の最大の下げ%、stopHit5・stopHit20=損切りに届いたか、counted、counted20、final、updated）、total（bought・passed・blocked ごとの count、avg_5d_pct、win_rate_pct、drop5_pct と、mite.swing＝/mite のスイングの判定ごとの5日後・20日後）、stats。
    c. 場中の判定：intraday の記録を [{id, code, date, price, signal, final}] で /tmp/irecs.json、累計を /tmp/istats.json に書き、`node <保存先> --intraday-result /tmp/irecs.json --stats /tmp/istats.json > /tmp/ires.json`（累計が無ければ `--stats` なし）。出力：updates[]（id、rClose=判定した値段から大引けまでの%、rNext=翌営業日の大引けまでの%、final）、stats（TAKE・WAIT・SKIP ごとの n、sumClose、sumNext、nNext、winClose）。記録が0件なら飛ばす。
 6. 書き戻す（batch。既存の記録は update で if_version に読んだときの version）：
+   - 答えが出終わった記録（出力で final が true になったもの）は update せず、読んだ data に出力の項目を重ねて id（doc_id）を入れ、kessan と considered それぞれ配列にして、下の「まとめる」で archive の「kessan-<今日の YYYY-MM-DD>」「considered-<今日の YYYY-MM-DD>」に入れて元の記録を消す（if_version は手順3で読んだ version。手順4b で update した記録は、その結果の version）。final でないものは次のとおり update する：
    - kessan：updated の記録に entryDate、entry、react、stuck、openAtHigh、r1、r5、r20、ex1、ex5、ex20、counted、final、dropped、last、lastDate
    - considered：updated の記録に r1、r5、r20、ex1、ex5、ex20、low1、low5、low20、high5、high20、stopHit5、stopHit20、counted、counted20、final、last、lastDate（と手順4bの decision）。records の中で counted か counted20 が新しく true になった記録は、updated でなくても書く
    - intraday：updates の各記録に rClose、rNext、final
    - settings の "kessan_stats" と "considered_stats" に、それぞれの stats をそのまま set（手順5c をしたなら "intraday_stats" にも）
-   書いてよいのは kessan、considered、intraday、settings/kessan_stats、settings/considered_stats、settings/intraday_stats だけ（trades は読むだけ）。失敗したら1回だけやり直す。
+   書いてよいのは kessan、considered、intraday、settings/kessan_stats、settings/considered_stats、settings/intraday_stats、archive だけ（trades は読むだけ）。消すのは「まとめる」の (d) で、まとめの保存に成功した kessan と considered だけ。失敗したら1回だけやり直す。
 7. 結果を PushNotification で送る（6〜12行。同じ内容を最後の返答にも書く）：
    - **保有株に flagged があれば、それを1行目に**（銘柄名・時刻・表題・何の印か）。DILUTION か DANGER なら「保有株に重要な開示。中身を確認し、決めておいた売る条件に当たるか考えてください」と添え、note に本人の売る条件があれば、そのまま書く。決めた損切りを下げる案や買い増しの案は出さない。無ければ「保有株の適時開示：なし」と1行。
    - 買おうとした銘柄：今日5日後か20日後の結果が出たものを3つまで（銘柄名・判断・記録した値段からの%）。見送った・止められた銘柄が大きく下げていれば「見送って正解」、大きく上げていれば「見送って逃した」と事実として書く（責めない）。累計（total）の bought・passed・blocked の件数と5日後の平均を1行。total.mite.swing があれば、/mite のスイングの判定ごとの件数と5日後の平均を1行。
@@ -41,6 +42,13 @@
    - 「決算・修正の記録（◯月◯日）」：今日記録した件数と、累計（react12・react7_12・all）の件数と5日後の平均。
    - 各30件未満のうちは「まだ件数が少なく、偶然の影響が大きい」と必ず添える。銘柄名を挙げるときは、買い候補ではないと1行で明記する。
    - 最後に「最終判断はご自身で」。
+
+## まとめる（記録帳のデータベースは全部で25,000件までなので、答えが出終わった記録を1日1件にまとめる）
+答えが出終わった記録の配列（各記録に id＝元の doc_id）を、collection "archive" の doc_id「<col>-<日付>」1件にまとめ、元の記録を消す：
+(a) ArtifactData で action "get"、collection "archive"、doc_id「<col>-<日付>」、out_dir "/tmp/arch_old_<col>" を試す。あれば、保存されたファイルの場所と version を控える。
+(b) `node <kabu-lens.mjs の保存先> --archive-doc <col> <日付> <配列の JSON> --existing <(a) のファイル> > /tmp/arch_<col>.json`（(a) が無ければ `--existing` なし）。
+(c) collection "archive"、doc_id「<col>-<日付>」に action "set"、file_path "/tmp/arch_<col>.json"（(a) であれば if_version）。
+(d) (c) が成功したときだけ、元の記録を batch の delete で消す（collection は元の col、if_version は最後に読んだときの version。1回50件まで）。(c) が失敗したら消さない（次の夜にまた答え合わせされるだけで、害は無い）。
 
 ## 決まり
 - 買い候補として勧めない。「買ってよい」「狙い目」のような言い方はしない。断定的な売買の推奨はしない。
