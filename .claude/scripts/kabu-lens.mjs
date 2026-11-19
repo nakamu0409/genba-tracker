@@ -2473,7 +2473,7 @@ export async function fetchIntradayWide(list, { date = null, parallel = 8, keepL
           const ld = dates[dates.length - 1]
           const past = d.bars.filter(b => b.date < ld)
           const turnover = past.slice(-20).reduce((s, b) => s + b.c * b.v, 0) / 20
-          ;(paperDays[ld] ||= {})[code] = { name: name || d.name, bars: days[ld], ctx: intradayContext(past), turnover }
+          ;(paperDays[ld] ||= {})[code] = { name: name || d.name, bars: days[ld], ctx: intradayContext(past), turnover, surge: surgePullback(past) }
           if (dates.length > 1) prevOf[ld] = dates[dates.length - 2]
         }
         if (keepLatest && dates.length) {
@@ -2509,6 +2509,45 @@ export async function fetchIntradayWide(list, { date = null, parallel = 8, keepL
   return res
 }
 
+/**
+ * 急騰した株の押し目で、反発を確かめた日か（study_surge_pullback.mjs の「反発を確認 × ストップ高に近い急騰」）。
+ * daily: 日足 [{date, o, h, l, c, v}]（最後の足＝合図を見る日。買うのは翌日の寄り）。
+ * 急騰＝1日+15%以上で高値引け（売買代金1億円以上）。そこから15営業日以内に高値から−8%以上押し、上げ幅の61.8%より深くは下げず、
+ * 押したあと初めて「終値が前日の高値を超える陽線」になった日なら {surgeDate, high, low, stop: 押しの安値×0.99, dropPct}。違えば null
+ */
+export function surgePullback(daily) {
+  const d = daily || []
+  const L = d.length - 1
+  if (L < 30) return null
+  const turnAvg = (i) => {
+    let s = 0
+    for (let k = Math.max(0, i - 19); k <= i; k++) s += d[k].c * (d[k].v || 0)
+    return s / Math.min(20, i + 1)
+  }
+  for (let i = Math.max(6, L - 15); i < L; i++) {
+    const day = d[i].c / d[i - 1].c - 1
+    if (!(day >= 0.15 && day <= 1 && d[i].c >= d[i].h * 0.999) || turnAvg(i - 1) < 1e8) continue
+    const baseLow = Math.min(...d.slice(i - 5, i + 1).map(x => x.l))
+    let hi = d[i].h
+    let low = Infinity
+    let pulled = false
+    let signal = null
+    for (let j = i + 1; j <= L; j++) {
+      const b = d[j]
+      if (!pulled) hi = Math.max(hi, b.h)
+      low = Math.min(low, b.l)
+      if (!pulled && b.l <= hi * 0.92) pulled = true
+      if (low < hi - 0.618 * (hi - baseLow)) break
+      if (pulled && b.c > d[j - 1].h && b.c > b.o) {
+        if (j === L) signal = { surgeDate: d[i].date, high: hi, low, stop: round(low * 0.99, 1), dropPct: round((1 - low / hi) * 100, 1) }
+        break
+      }
+    }
+    if (signal) return signal
+  }
+  return null
+}
+
 // ---- 練習口座（シミュレーション）----------------------------------------------
 // 合図どおりに「仮の資金」で買って売ったら、どうなったかを毎日数える。本人の売買とは別。
 // ・デイトレ：場中の買い場（10:30〜13:00、低位株・荒い株は除く）。見えてから20分後に指値の目安で指値、30分で約定しなければ取り消し。
@@ -2520,7 +2559,7 @@ export async function fetchIntradayWide(list, { date = null, parallel = 8, keepL
 export const PAPER_DEFAULTS = {
   capital: 1000000, riskPct: 1, maxPosPct: 30, swingMax: 3, dayMax: 2, lowMax: 1, bbMax: 5, bbGapPct: 2, slipPct: 0.1,
   dayFrom: 630, dayTo: 780, delay: 20, fillWindow: 30, lowAt: 870, lowEntryM: 890, lowTpPct: 5, lowSlPct: 8, lowExitM: 780,
-  swingGapPct: 2, swingMaxDays: 40
+  swingGapPct: 2, swingMaxDays: 40, surgeMax: 2, surgeTpR: 3, surgeHold: 10
 }
 
 export function paperNew(params = {}) {
@@ -2615,7 +2654,7 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [] }
     else if (x.l <= pos.stop) close(pos, pos.stop * (1 - slip), '損切り')
     else if (pos.target && x.o >= pos.target) close(pos, x.o, '目標（寄り）')
     else if (pos.target && x.h >= pos.target) close(pos, pos.target, '目標')
-    else if (pos.held >= p.swingMaxDays) close(pos, x.c * (1 - slip), '期間切れ')
+    else if (pos.held >= (pos.maxDays || p.swingMaxDays)) close(pos, x.c * (1 - slip), '期間切れ')
     else {
       pos.last = x.c
       keep.push(pos)
@@ -2667,6 +2706,29 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [] }
       close(pos, bars[bars.length - 1].c, '大引け')
     }
     bbCount++
+  }
+  // 2c. 急騰した株の押し目（前の営業日に反発を確認 → 寄りで買う。損切りは押しの安値の1%下、目標 surgeTpR、surgeHold 日目の引けまで）
+  const surges = Object.entries(stocks).filter(([, s]) => s.surge && s.bars?.length).sort((a, b) => (b[1].turnover || 0) - (a[1].turnover || 0))
+  let surgeCount = 0
+  for (const [code, s] of surges) {
+    if (surgeCount >= (p.surgeMax ?? 2)) break
+    if (st.positions.some(x => x.code === code)) continue
+    const x = ohlcOf(s.bars)
+    if (x.h === x.l) continue
+    const entry = x.o * (1 + slip)
+    const stop = s.surge.stop
+    if (!(entry > stop)) continue
+    const qty = sizeOf(entry, stop, st.cash)
+    if (qty < 100) continue
+    surgeCount++
+    const pos = open('surge', code, s.name || '', entry, qty, { stop, target: r1(entry + (p.surgeTpR ?? 3) * (entry - stop)), maxDays: p.surgeHold ?? 10, surgeDate: s.surge.surgeDate, dropPct: s.surge.dropPct })
+    pos.held = 1
+    if (x.l <= pos.stop) close(pos, pos.stop * (1 - slip), '損切り（当日）')
+    else if (x.h >= pos.target) close(pos, pos.target, '目標（当日）')
+    else {
+      pos.last = x.c
+      st.positions.push(pos)
+    }
   }
   // 3. デイトレ（場中の買い場）
   const events = []

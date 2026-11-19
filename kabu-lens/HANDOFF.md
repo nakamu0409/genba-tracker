@@ -315,3 +315,9 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
   - 消すには読んだときの version が要るので、一括の掃除はしない（数千件の version を書き写すことになる）。その夜に読んだ記録だけを、読んだ version で消す。手順は各指示文の「まとめる」：(a) 既存のまとめを out_dir で get → (b) `--archive-doc <col> <日付> 新しい記録.json --existing 既存.json` → (c) archive に set → (d) (c) が成功したときだけ元の記録を batch delete。
   - 累計（settings の *_stats）は別に持っているので数字は変わらない。cands の集計（`--signals-report`）は `--also <archive を out_dir に保存したフォルダ>` でまとめた分も足す。
   - 11/19 に、それまでの movers 236件を archive の3件に、目印22件を1件にまとめた。DB は約400件。
+
+### 2026-11-19 練習口座に「急騰後の押し目（反発確認）」を足した
+- 根拠：`research/swing/study_surge_pullback.mjs`（README の「急騰した株の押し目買い」）。少し下げたらすぐ買うのは −0.16R、反発を確認すると +0.02R。上乗せが残ったのは「1日+15%で高値引けの急騰 → 高値から−8%以上の押し（上げ幅の61.8%より浅い）→ 押したあと初めて前日の高値を超える陽線」の翌日の寄りで買う形だけ（1,136件・+0.12R、3Rなら+0.17R、前半後半とも+）。
+- `surgePullback(daily)`：最後の足がその合図の日なら `{surgeDate, high, low, stop: 押しの安値×0.99, dropPct}`。直近1年で394回（合図があった日は約160日）。
+- 練習口座の track `surge`：`fetchIntradayWide` が前の営業日までの日足で合図を見て（`paperDays[..].surge`）、`paperStep` が寄りで買う。損切りは押しの安値の1%下、目標3R（`surgeTpR`）、10営業日目（`surgeHold`。買った日を1日目）の引けまで。1日2件まで（`surgeMax`）。売買代金の大きい順。
+- 本人の売買の決まりにはまだ入れていない（練習口座で本番の成績を見てから）。

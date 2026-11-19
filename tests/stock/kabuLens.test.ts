@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -1093,5 +1093,43 @@ describe('答えが出終わった記録をまとめる', () => {
     const m = archiveMerge([{ id: 'a', date: '2026-10-02', v: 1 }, { id: 'b', date: '2026-10-01' }], [{ id: 'a', date: '2026-10-02', v: 2 }])
     expect(m.map(r => r.id)).toEqual(['b', 'a'])
     expect(m[1].v).toBe(2)
+  })
+})
+
+describe('急騰した株の押し目（反発を確認）', () => {
+  // 30日の助走（売買代金は十分）→ +20% の高値引け → 押し → 反発の陽線
+  const mk = (closes: number[]) => closes.map((c, i) => ({ date: `2026-01-${String(i + 1).padStart(2, '0')}`, o: c, h: c, l: c, c, v: 1e6 }))
+  const run = () => {
+    const d: { date: string, o: number, h: number, l: number, c: number, v: number }[] = mk(Array(30).fill(1000))
+    d.push({ date: 'S', o: 1010, h: 1200, l: 1005, c: 1200, v: 2e6 }) // 急騰（高値引け）
+    d.push({ date: 'P1', o: 1190, h: 1220, l: 1150, c: 1160, v: 1e6 })
+    d.push({ date: 'P2', o: 1150, h: 1160, l: 1100, c: 1110, v: 1e6 }) // 1220 から −9.8%
+    return d
+  }
+  it('押したあと初めて前日の高値を超える陽線で引けた日に合図', () => {
+    const d = run()
+    expect(surgePullback(d)).toBeNull()
+    d.push({ date: 'R', o: 1115, h: 1175, l: 1110, c: 1170, v: 1e6 })
+    expect(surgePullback(d)).toMatchObject({ surgeDate: 'S', high: 1220, low: 1100, stop: 1089, dropPct: 9.8 })
+  })
+  it('合図の次の日はもう出さない（最初の反発だけ）', () => {
+    const d = run()
+    d.push({ date: 'R', o: 1115, h: 1175, l: 1110, c: 1170, v: 1e6 })
+    d.push({ date: 'R2', o: 1170, h: 1200, l: 1165, c: 1195, v: 1e6 })
+    expect(surgePullback(d)).toBeNull()
+  })
+  it('上げ幅の61.8%より深く下げたら崩れたとみる', () => {
+    const d = run()
+    d.push({ date: 'X', o: 1100, h: 1100, l: 1040, c: 1050, v: 1e6 })
+    d.push({ date: 'R', o: 1055, h: 1120, l: 1050, c: 1115, v: 1e6 })
+    expect(surgePullback(d)).toBeNull()
+  })
+  it('練習口座：寄りで買い、損切り・3R・10日目の引け', () => {
+    const st = paperNew({ capital: 1000000 })
+    const day = (o: number, h: number, l: number, c: number) => [{ m: 540, o, h, l, c, v: 1000 }]
+    let r = paperStep(st, { date: '2026-02-02', stocks: { 1111: { name: 'テスト', bars: day(1000, 1010, 990, 1005), turnover: 1e9, surge: { stop: 950, surgeDate: '2026-01-20', dropPct: 10 } } } })
+    expect(r.opened[0]).toMatchObject({ track: 'surge', code: '1111', entry: 1001, stop: 950, target: 1154, maxDays: 10 })
+    r = paperStep(r.state, { date: '2026-02-03', stocks: { 1111: { bars: day(1010, 1160, 1005, 1150) } } })
+    expect(r.trades[0]).toMatchObject({ track: 'surge', exit: 1154, reason: '目標' })
   })
 })
