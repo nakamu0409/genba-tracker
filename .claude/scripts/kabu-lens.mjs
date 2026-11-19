@@ -2078,6 +2078,13 @@ export async function fetchIntraday(codes, { live = {} } = {}) {
       // 本人が楽天の画面で見た今の値段（live）があれば、遅れた5分足の後ろにつないで判定し直す
       let bars = days[today]
       const lp = live[code]
+      // 朝の早い時間は、遅れのせいで今日の5分足がまだ無い。そのときは今の値段を前の日の足につながない
+      const jstToday = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10)
+      const noTodayYet = ok(lp) && lp > 0 && today < jstToday && new Date(Date.now() + 9 * 3600e3).getUTCDay() % 6 !== 0
+      if (noTodayYet) {
+        out.push({ code, name: d.name, date: today, error: `今日（${jstToday}）の5分足がまだ届いていません（約15〜20分遅れ）。9:20〜9:30ごろからもう一度` })
+        return
+      }
       if (ok(lp) && lp > 0) {
         const last = bars[bars.length - 1]
         bars = [...bars, { m: last.m + 5, o: last.c, h: Math.max(last.c, lp), l: Math.min(last.c, lp), c: lp, v: 0 }]
