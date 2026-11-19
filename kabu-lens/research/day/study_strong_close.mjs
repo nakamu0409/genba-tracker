@@ -39,7 +39,7 @@ for (const [code, days] of Object.entries(hour)) {
     const e15 = day.find(b => b.m === 900)
     // 張り付き（買えない）：14時台か15時台の足に値幅が無い＝ストップ高などで売り物が無いことが多い
     const b14 = day.find(b => b.m === 840)
-    const stuck = (b14 && b14.h === b14.l) || (e15 && e15.h === e15.l) || (e15 && e15.o >= hi)
+    const stuck = !b14 || !e15 || b14.h === b14.l || e15.h === e15.l || e15.o >= hi // 14時台か15時の足が無い日も、売買が無かった（張り付き）とみなす
     const entry = e15 ? e15.o : p
     const at = m => (nd.find(b => b.m >= m) || nd[nd.length - 1]).o
     const r = x => (x / entry - 1) * 100
