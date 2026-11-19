@@ -1068,6 +1068,7 @@ describe('引け前の目印・企業の行動・PTSの記録', () => {
     expect(r).toMatchObject({ final: true, nextDate: '2026-11-20', gap_pct: 1, filled: true, oc_pct: 1.98, cc_pct: 3, ex_oc_pct: 1.98 })
     expect(nextDayOutcome(bars, { date: '2026-11-19', ref: 100, limit: 100 }).filled).toBe(false)
     expect(nextDayOutcome(bars, { date: '2026-11-24', ref: 105 })).toMatchObject({ final: false, pending: true })
+    expect(nextDayOutcome(bars, { date: '2026-11-19', limitPct: 0.5 })).toMatchObject({ limit: 100, filled: false, cc_pct: 3 })
   })
   it('株式分割：5営業日目がまだ無ければ final にしない', () => {
     expect(nextDayOutcome(bars, { date: '2026-11-19', ref: 100, hold: 3 })).toMatchObject({ final: true, holdDate: '2026-11-24', hold_pct: 3.96 })

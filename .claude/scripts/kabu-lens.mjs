@@ -2380,7 +2380,7 @@ export function mergeMarks(prev, date, marks) {
 
 /**
  * ある日（rec.date）の後の、翌営業日の値動き。企業の行動（自社株買い・増配・株式分割）と夜のPTSの答え合わせに使う。
- * rec: {date, ref: 基準の値段（その日の終値）, ref2?: もう1つの基準（PTSの値段など）, limit?: 寄指の値段, hold?: 何営業日目の大引けまで持つか（既定1）}
+ * rec: {date, ref?: 基準の値段（無ければ date の日の終値）, ref2?: もう1つの基準（PTSの値段など）, limit?: 寄指の値段, limitPct?: limit が無いとき ref×(1+limitPct%) を呼値で切り下げて寄指とする, hold?: 何営業日目の大引けまで持つか（既定1）}
  * bench: 1306 の日足（全体との差を出す）。返り値の final が false なら、まだ日がそろっていない
  */
 export function nextDayOutcome(bars, rec, bench = []) {
@@ -2392,7 +2392,9 @@ export function nextDayOutcome(bars, rec, bench = []) {
   const ref = ok(rec.ref) ? rec.ref : prev?.c
   const out = { final: false, nextDate: b.date, open: b.o, high: b.h, low: b.l, close: b.c }
   out.gap_pct = round((b.o / ref - 1) * 100, 2)
-  out.filled = ok(rec.limit) ? b.o <= rec.limit : true
+  const limit = ok(rec.limit) ? rec.limit : ok(rec.limitPct) && ok(ref) ? tickFloor(ref * (1 + rec.limitPct / 100)) : null
+  if (ok(limit)) out.limit = limit
+  out.filled = ok(limit) ? b.o <= limit : true
   out.oc_pct = round((b.c / b.o - 1) * 100, 2)
   out.cc_pct = round((b.c / ref - 1) * 100, 2)
   if (ok(rec.ref2) && rec.ref2 > 0) {
