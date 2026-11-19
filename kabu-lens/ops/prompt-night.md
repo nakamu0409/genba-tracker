@@ -62,7 +62,7 @@
    - trades の open の記録：last、lastAt、scan（{date, regime, score, overheat, close, atr}）、pts、ptsAt、ptsPct（PTSの取引が無ければ null）
    - watchlist の各記録：scan、verdict（「11/17 買い候補：押し目、スコア78」「11/17 条件未達：値動き荒い」のような一言）
    - signals：手順7の新しい記録と追跡結果
-   - movers：手順8の records（今日の記録すべて）に、手順8a で読んだ data と afternoon_open、close、afternoon_pct、worst_dip_pct、best_pop_pct、basis を重ねて id（doc_id）を入れた配列を作り、update はせずに、下の「まとめる」で archive の「movers-<今日の YYYY-MM-DD>」に入れて元の記録を消す（if_version は手順8a で読んだ version）
+   - movers：手順8が成功したら、手順8a で読んだ今日の記録すべてについて、読んだ data に手順8の records の afternoon_open、close、afternoon_pct、worst_dip_pct、best_pop_pct、basis を重ねて id（doc_id）を入れた配列を作り、update はせずに、下の「まとめる」で archive の「movers-<今日の YYYY-MM-DD>」に入れて元の記録を消す（if_version は手順8a で読んだ version）。手順8が失敗したら movers は何も変えない
    - settings の movers_stats：手順8の stats をそのまま set（日数が増えたときだけ）
    - archive：「まとめる」の movers-<今日>
    ほかの項目・記録は変えない。消すのは「まとめる」の (d) で、まとめの保存に成功した movers だけ。失敗したら1回だけやり直し、だめなら「記録帳の更新に失敗」と書く。
@@ -72,7 +72,7 @@
 (a) ArtifactData で action "get"、collection "archive"、doc_id「<col>-<日付>」、out_dir "/tmp/arch_old_<col>" を試す。あれば、保存されたファイルの場所と version を控える。
 (b) `node <kabu-lens.mjs の保存先> --archive-doc <col> <日付> <配列の JSON> --existing <(a) のファイル> > /tmp/arch_<col>.json`（(a) が無ければ `--existing` なし）。
 (c) collection "archive"、doc_id「<col>-<日付>」に action "set"、file_path "/tmp/arch_<col>.json"（(a) であれば if_version）。
-(d) (c) が成功したときだけ、元の記録を batch の delete で消す（collection は元の col、if_version は最後に読んだときの version。1回50件まで）。(c) が失敗したら消さない（次の夜にまた答え合わせされるだけで、害は無い）。
+(d) (c) が成功したときだけ、元の記録を batch の delete で消す（collection は元の col、if_version は最後に読んだときの version。1回50件まで）。(c) が失敗したら消さない。
 
 ## 通知（PushNotification。16〜24行。同じ内容の全文を最後の返答にも書く）
 1. 1行目：「（ルール ◯◯版）」と ruleVersion を添えて、いちばん大事な一文（損切り割れ・作戦の値段を超えて損切りを上げる日・決算後のPTSの反応・明日の決算・保有期限・買い候補の有無）。

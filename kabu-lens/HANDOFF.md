@@ -310,4 +310,8 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 - **夜のPTS**（`pts_moves`）：株探のPTSランキング上下それぞれ先頭15件。基準は当日の終値（ref）とPTSの値段（ref2）。出来高1万株未満は group に `_thin`。
 - 答え合わせは `--next-day-result recs.json --stats st.json`（`nextDayOutcome`・`mergeNextDay`）。翌営業日の寄りの窓、寄指で約定したか（filled）、寄り→引け（と1306との差）、終値→終値、株式分割は5営業日目の大引けまで。累計は `settings/nextday_stats` の group ごと（buyback_s0〜s2・divup・split・up・down・up_thin・down_thin）。
 - 11/19 の夜の分は、その日の定期実行が終わったあとに手で入れた（11/18 の目印22件、11/19 の自社株買い1件、PTS上下30件ずつ）。
-- **記録帳のデータベースは全部で25,000件まで**（11/19 時点で約650件）。cands・marks・pts_moves が毎日増えるので、半年ほどで古い記録をファイル（asset）に移す仕組みが必要になる。
+- **記録帳のデータベースは全部で25,000件まで。** 答えが出終わった記録は、毎晩の定期実行が collection `archive` の doc「<collection>-<日付>」1件（`{col, date, count, records}`）にまとめ、元の記録を消す（11/19 本人了承）。
+  - まとめるのは cands（23:07・決着したもの）、events・pts_moves（23:07・final）、marks（23:07・最初から1日1件で書く）、movers（22:20・答え合わせのあと）、kessan（21:38・final）。considered は件数が少なく記録帳のページ（最新15件・/mite との突き合わせ）に出るのでまとめない。signals・paper_trades・intraday・trades も対象外。
+  - 消すには読んだときの version が要るので、一括の掃除はしない（数千件の version を書き写すことになる）。その夜に読んだ記録だけを、読んだ version で消す。手順は各指示文の「まとめる」：(a) 既存のまとめを out_dir で get → (b) `--archive-doc <col> <日付> 新しい記録.json --existing 既存.json` → (c) archive に set → (d) (c) が成功したときだけ元の記録を batch delete。
+  - 累計（settings の *_stats）は別に持っているので数字は変わらない。cands の集計（`--signals-report`）は `--also <archive を out_dir に保存したフォルダ>` でまとめた分も足す。
+  - 11/19 に、それまでの movers 236件を archive の3件に、目印22件を1件にまとめた。DB は約400件。
