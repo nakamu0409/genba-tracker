@@ -296,3 +296,8 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 - pickEvents（buyback・divup・split）。--buyback の出力に kind・expect_pct・sell。夜の注文票は expect_pct の順に dayTradeMax 件。株式分割は5営業日目の引成で売り、保険に寄値×0.92 の逆指値。
 - 練習口座：track "bb"（自社株買い・増配。寄り→引け）と "split"（5日目の引け）。
 - 11/19 本人の希望で dayTradeMax を 2→5（夜の注文票の企業の行動・スイングを取りこぼさないため）。extra に「場中に値動きを見て追加で買うのはそのうち2回まで」を添えた。練習口座の bbMax も 5。
+
+### 2026-11-19 ルールの版
+- settings/main に ruleVersion（日付）・ruleLog（版ごとの変更点）・ruleNote。ルールを変えるときは本人の承認のうえで ruleVersion をその日に、ruleLog に足す。練習口座の数字を見る前に条件をいじらない。
+- 夜の点検の1行目に「（ルール ◯◯版）」。/kau・/mite の considered に ruleVersion。
+- 参考にした記事：zenn.dev/okikusan のシリーズ Vol.6（ルールの検証と毎日の点検、版管理、判定時刻と約定時刻を分ける、作った期間と別の期間で確かめる）。

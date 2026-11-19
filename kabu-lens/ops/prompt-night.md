@@ -12,7 +12,7 @@
 
 ## 情報の置き場所（ここだけを正とする）
 トレード記録帳（claude.ai のアーティファクト <記録帳のURL> ）の共有データベースを ArtifactData で読む（ツール一覧に無ければ ToolSearch で `select:ArtifactData` を読み込む）。銘柄・資金・ルールをこの指示文の中から探さない（ここには書いていない）。
-- 資金とルール：action "get"、collection "settings"、doc_id "main"。項目：capital（資金の合計）、cash（現金）、capitalAt（その日付）、riskPct（1回の損失の上限・資金の%）、maxPosPct（1銘柄の上限・資金の%）、maxOpenRiskMult（持ち越す株が全部損切りに当たったときの損の合計の上限＝1回の損失の上限 × これ。無ければ maxPositions＝同時に持つ銘柄数）、dayTradeMax（1日の買いの回数の上限）、dayLossPct（デイトレの1日の損失上限・資金の%）、extra（そのほかの決めごと。1行に1つ）、universe（毎晩点検する基本の銘柄。{code, name} の配列。約170銘柄）。
+- 資金とルール：action "get"、collection "settings"、doc_id "main"。項目：capital（資金の合計）、cash（現金）、capitalAt（その日付）、riskPct（1回の損失の上限・資金の%）、maxPosPct（1銘柄の上限・資金の%）、maxOpenRiskMult（持ち越す株が全部損切りに当たったときの損の合計の上限＝1回の損失の上限 × これ。無ければ maxPositions＝同時に持つ銘柄数）、dayTradeMax（1日の買いの回数の上限）、dayLossPct（デイトレの1日の損失上限・資金の%）、extra（そのほかの決めごと。1行に1つ）、universe（毎晩点検する基本の銘柄。{code, name} の配列。約170銘柄）、ruleVersion（今のルールの版。日付）。
 - 売買の記録：action "list"、collection "trades"、query {"limit": 300}。status が "open" は保有中、"plan" は買いの予定、"closed" は売り終わったもの。項目：name、code、date（買った日）、entry（買値）、qty（株数）、stop（損切り）、target（利確）、last・lastAt（現在値と日付）、style（swing / day）、holdUntil（保有期限）、exit・exitDate、rule（yes=ルールどおり / no=ルール違反）、events、research、note（経緯）、scan、pts・ptsAt・ptsPct、frozen（true なら本人が放置すると決めた保有）。
 - 監視リスト：action "list"、collection "watchlist"。項目：name、code、style、entry、stop、note、scan、verdict。
 - 買い候補の追跡：action "list"、collection "signals"、query {"limit": 1000}。1件が「ある日に出た買い候補」。項目：code、name、date、kind（GAP / PULLBACK / BREAKOUT / MOMENTUM）、pass（true=通過 / false=ルールで見送り）、reason、close、stop、score、overheat、regime、status（PENDING / OPEN / TARGET / STOPPED / TIME_EXIT / SKIPPED_GAP / SKIPPED_BELOW_STOP）、entryDate、entry、target、exitDate、exit、r、bars、maxUpR、maxDownR、last、lastDate。
@@ -67,7 +67,7 @@
    ほかの項目・記録は変えない。削除はしない。失敗したら1回だけやり直し、だめなら「記録帳の更新に失敗」と書く。
 
 ## 通知（PushNotification。16〜24行。同じ内容の全文を最後の返答にも書く）
-1. 1行目：いちばん大事な一文（損切り割れ・作戦の値段を超えて損切りを上げる日・決算後のPTSの反応・明日の決算・保有期限・買い候補の有無）。
+1. 1行目：「（ルール ◯◯版）」と ruleVersion を添えて、いちばん大事な一文（損切り割れ・作戦の値段を超えて損切りを上げる日・決算後のPTSの反応・明日の決算・保有期限・買い候補の有無）。
 2. **明日の注文票**（保有銘柄ごとに1行。楽天でそのまま入れられる形で）：
    - 例「さくら食品（9999）100株：逆指値付通常注文＝1,200円の指値売り＋950円以下で成行売り」「あおば電機（9998）200株：480円以下で成行売り（逆指値）」（どちらも書き方の例。実際は保有銘柄で書く）。
    - target がある銘柄は逆指値付通常注文（利確の指値＋損切りの逆指値）。無い銘柄は逆指値だけ。stop が空なら「損切り未設定。今夜決める（候補 ◯円・◯円）」（frozen: true の保有は除く）。
