@@ -1352,9 +1352,10 @@ export function parseTdnetList(html) {
   return { rows, last_page: pages.length ? Math.max(...pages) : 1 }
 }
 
-// ---- 自社株買いの発表（2026-11-19。research/swing/README.md「自社株買いの発表のあと」）----
-// 決算と別の日に、15:00以降に出た自社株買いの決定 → 翌営業日の寄りで買い、その日の大引けで売る（10年で平均+0.70%、どの年もプラス）。
-// 翌朝の窓が+2%を超えると効きが小さいので、寄指（前日の終値×1.02 以下）で買う。立会外（ToSTNeT）での取得は除く
+// ---- 自社株買いの発表（2026-11-19。research/swing/README.md「自社株買いの発表のあと」と訂正）----
+// 決算と別の日に、15:00以降に出た自社株買いの決定 → 翌営業日の寄りで買い、その日の大引けで売る。
+// 寄指（前日の終値×1.02 以下）で買える日は10年で平均+0.43%（734回）。立会外（ToSTNeT）での取得は除く。
+// さらに「久しぶり（1年以内に自社株買いが無い）」「15:00〜15:29の発表」「25日線の下」の良い条件が2つ以上で +0.70〜0.78%、0なら −0.06%
 export function isBuybackTitle(t) {
   const s = String(t || '')
   return /自己株式/.test(s) && /取得/.test(s) && /(決定|事項)/.test(s) && !/(取得状況|結果|終了|完了|経過|ToSTNeT|立会外)/.test(s)
@@ -1383,6 +1384,26 @@ export function pickBuybacks(rows, universe = null) {
     out.push({ code: r.code, name: r.name, time: r.time, title: r.title })
   }
   return out
+}
+
+/** 自社株買いの良い条件の数（0〜3）。repeat＝1年以内にも自社株買いの決定があった、dev25＝25日線からの位置（%）、time＝発表の時刻 */
+export function buybackScore({ time, dev25, repeat }) {
+  const why = []
+  if (repeat === false) why.push('久しぶりの自社株買い')
+  if (time && time < '15:30') why.push('15時台前半の発表')
+  if (ok(dev25) && dev25 < 0) why.push('25日線の下')
+  return { score: why.length, why }
+}
+
+/** IR BANK の適時開示一覧から、date より前の1年以内に自社株買いの決定があったか */
+export async function fetchBuybackRepeat(code, date) {
+  const html = await fetchText(`https://irbank.net/${code}/ir?_=${Date.now()}`)
+  const from = `${Number(date.slice(0, 4)) - 1}${date.slice(4)}`
+  for (const m of String(html).matchAll(/title="[^"|]*\| ([^"]*?)（(\d{4})\/(\d{2})\/(\d{2}) (\d{2}:\d{2})提出）"/g)) {
+    const d = `${m[2]}-${m[3]}-${m[4]}`
+    if (d < date && d >= from && isBuybackTitle(m[1])) return true
+  }
+  return false
 }
 
 /** ある日の適時開示をまとめて取る（date は YYYYMMDD、省略で今日。codes を渡すとその銘柄だけ残す） */
@@ -3073,16 +3094,26 @@ async function main() {
     const rows = pickBuybacks(td.rows, uni)
     for (const r of rows) {
       try {
-        const y = await fetchYahoo(`${r.code}.T`, '1mo')
+        const y = await fetchYahoo(`${r.code}.T`, '3mo')
         const last = y.bars[y.bars.length - 1]
         r.close_date = last.date
         r.close = last.c
         r.limit = tickFloor(last.c * 1.02)
+        const c25 = y.bars.slice(-25).map(b => b.c)
+        r.dev25 = c25.length === 25 ? round((last.c / (c25.reduce((a, b) => a + b, 0) / 25) - 1) * 100, 1) : null
       } catch (e) {
         r.error = e.message
       }
+      try {
+        r.repeat = await fetchBuybackRepeat(r.code, td.date)
+      } catch {
+        r.repeat = null
+      }
+      Object.assign(r, buybackScore(r))
+      r.skip = r.score === 0
     }
-    console.log(JSON.stringify({ date: td.date, total_disclosures: td.total, error: td.error || null, rule: '翌営業日に寄指（limit 以下なら寄りで買う）→ 約定したら同じ日の引成で売る。決算と同じ日の発表・立会外の取得は除いてある', rows }, null, 2))
+    rows.sort((a, b) => b.score - a.score)
+    console.log(JSON.stringify({ date: td.date, total_disclosures: td.total, error: td.error || null, rule: '翌営業日に寄指（limit 以下なら寄りで買う）→ 約定したら同じ日の引成で売る。決算と同じ日の発表・立会外の取得は除いてある。score（良い条件の数）が大きい順。score 0 は見送り（10年で平均 −0.06%）。寄指で買える日の平均は +0.43%、score 2以上は +0.70〜0.78%', rows }, null, 2))
     return
   }
   if (args.includes('--scan-now')) {
@@ -3153,6 +3184,17 @@ async function main() {
         try {
           const td = await fetchTdnet(day.paper.prevDate.replace(/-/g, ''))
           buybacks = pickBuybacks(td.rows, list.map(x => x.code))
+          for (const b of buybacks) {
+            const ctx = day.paper.stocks[b.code]?.ctx
+            b.dev25 = ctx?.prevClose > 0 && ctx?.ma25 > 0 ? round((ctx.prevClose / ctx.ma25 - 1) * 100, 1) : null
+            try {
+              b.repeat = await fetchBuybackRepeat(b.code, day.paper.prevDate)
+            } catch {
+              b.repeat = null
+            }
+            Object.assign(b, buybackScore(b))
+          }
+          buybacks = buybacks.filter(b => b.score > 0).sort((a, b) => b.score - a.score)
         } catch {
           buybacks = []
         }

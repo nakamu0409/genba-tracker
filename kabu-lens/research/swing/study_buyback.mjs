@@ -1,7 +1,7 @@
 // 自社株買いの発表のあと、株価は上がり続けるか（約1,400銘柄・2013年〜）
 // 使い方: node --max-old-space-size=7000 kabu-lens/research/swing/study_buyback.mjs   （先に fetch_irevents.mjs）
 // ・発表：表題に「自己株式」と「取得」があり、「決定」か「事項」を含むもの（取得状況・結果・終了・完了の報告は除く）
-// ・反応日：15:00以降の発表は翌営業日、場中は当日。反応＝反応日の始値 ÷ 発表前の終値（窓）
+// ・15:00以降の発表だけ（場中の発表は寄りで買えない）。反応日＝翌営業日。窓＝反応日の始値 ÷ 発表日の終値
 // ・買い方A：反応日の始値（発表の翌朝の寄り）。買い方B：反応日の終値（その日の大引け）。1日じゅう値幅の無い日は買えない
 // ・比べ方：同じ日に全銘柄を同じ形（始値か終値）で買った平均との差（超過）。5・20・60営業日後の終値
 // ・売買代金（20日平均）1億円以上。決算と同じ日の発表は分けて見る（決算の影響が混ざるため）
@@ -43,8 +43,9 @@ for (const [code, list] of Object.entries(irev)) {
     if (!isBuyback(r.title)) continue
     const i0 = st.idx.get(r.date)
     if (i0 === undefined) continue
-    const after = r.time >= '15:00'
-    const rd = after ? i0 + 1 : i0, pre = after ? i0 : i0 - 1
+    // 場中（15:00より前）の発表は、その日の寄りでは知りようがないので数えない（2026-11-19 訂正。最初の版は数えていて、成績が甘く出た）
+    if (r.time < '15:00') continue
+    const rd = i0 + 1, pre = i0
     if (rd >= st.d.length || pre < 20 || seen.has(rd)) continue
     seen.add(rd)
     if (st.turn[pre] < 1e8) continue

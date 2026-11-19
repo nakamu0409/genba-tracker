@@ -286,7 +286,7 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 - 本人は積立を別にやっている。この株の口座は「上乗せを取りにいく口座」として扱う。
 
 ### 2026-11-19 自社株買いの翌日
-- 10年の検証（research/swing/README.md）で、決算と別の日の15:00以降の自社株買いの発表は、翌日の寄りで買い大引けで売ると平均+0.70%（どの年もプラス）。本人と決めて取り入れた。
+- 10年の検証（research/swing/README.md）で、決算と別の日の15:00以降の自社株買いの発表は、翌日の寄指（終値×1.02以下）で買い大引けで売ると平均+0.43%（734回）。最初に出した+0.70%は場中の発表を混ぜた甘い数字で、同じ日に訂正した。良い条件（久しぶり・15時台前半・25日線の下）2つ以上で+0.70%前後、0は−0.06%なので見送り（buybackScore・fetchBuybackRepeat。--buyback の score・skip、練習口座も score 0 を除き score 順）。本人と決めて取り入れた。
 - `--buyback [YYYYMMDD] --universe universe-wide.json`：TDnet の1日分から選ぶ（isBuybackTitle・pickBuybacks。立会外・経過・状況報告・決算と同じ日・15時前は除く）。limit＝終値×1.02 を呼値で切り捨て（tickFloor）＝寄指の値段。
 - 夜の点検の手順5b・3a：自社株買いを注文票の先頭に（寄指で買い→引成で売り。dayTradeMax の回数に数える。持ち越さないので損の合計には入れず、現金からは引く）。
 - 練習口座：`--paper-buyback` で前の営業日の分を TDnet から取り、track "bb"（寄りが limit 以下なら寄りで買い、大引けで売る。1日 bbMax=2 回まで）。記録帳では「自社株買いの翌日」。

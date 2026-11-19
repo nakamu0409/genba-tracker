@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, isBuybackTitle, tickFloor, pickBuybacks, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -996,5 +996,13 @@ describe('自社株買いの発表', () => {
     expect(r.trades[0]).toMatchObject({ track: 'bb', entry: 1010, exit: 1028, reason: '大引け' })
     const gap = paperStep(paperNew(), { date: '2026-11-20', stocks: { 1111: { name: 'A', bars: [{ ...bars[0], o: 1030 }, bars[1]], ctx: { prevClose: 1000 } } }, buybacks: [{ code: '1111' }] })
     expect(gap.trades).toHaveLength(0)
+  })
+})
+
+describe('自社株買いの良い条件', () => {
+  it('久しぶり・15時台前半・25日線の下を数える', () => {
+    expect(buybackScore({ time: '15:00', dev25: -3, repeat: false }).score).toBe(3)
+    expect(buybackScore({ time: '15:30', dev25: 4, repeat: true }).score).toBe(0)
+    expect(buybackScore({ time: '16:00', dev25: null, repeat: null }).score).toBe(0)
   })
 })
