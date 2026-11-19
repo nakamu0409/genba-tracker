@@ -1352,6 +1352,39 @@ export function parseTdnetList(html) {
   return { rows, last_page: pages.length ? Math.max(...pages) : 1 }
 }
 
+// ---- 自社株買いの発表（2026-11-19。research/swing/README.md「自社株買いの発表のあと」）----
+// 決算と別の日に、15:00以降に出た自社株買いの決定 → 翌営業日の寄りで買い、その日の大引けで売る（10年で平均+0.70%、どの年もプラス）。
+// 翌朝の窓が+2%を超えると効きが小さいので、寄指（前日の終値×1.02 以下）で買う。立会外（ToSTNeT）での取得は除く
+export function isBuybackTitle(t) {
+  const s = String(t || '')
+  return /自己株式/.test(s) && /取得/.test(s) && /(決定|事項)/.test(s) && !/(取得状況|結果|終了|完了|経過|ToSTNeT|立会外)/.test(s)
+}
+
+/** 東証の呼値（ふつうの銘柄）で、x 以下の一番近い値段にそろえる */
+export function tickFloor(x) {
+  if (!ok(x) || x <= 0) return null
+  const step = x <= 3000 ? 1 : x <= 5000 ? 5 : x <= 30000 ? 10 : x <= 50000 ? 50 : x <= 300000 ? 100 : 500
+  return Math.floor(x / step + 1e-9) * step
+}
+
+/**
+ * TDnet の1日分の開示から、翌朝に買う自社株買いを選ぶ。
+ * rows: parseTdnetList の rows。universe: 対象にする銘柄コードの配列（売買の多い株）。省略なら全部
+ */
+export function pickBuybacks(rows, universe = null) {
+  const set = universe ? new Set(universe) : null
+  const kessan = new Set(rows.filter(r => /決算短信|決算発表|四半期決算/.test(r.title)).map(r => r.code))
+  const seen = new Set()
+  const out = []
+  for (const r of rows) {
+    if (!isBuybackTitle(r.title) || r.time < '15:00' || kessan.has(r.code) || seen.has(r.code)) continue
+    if (set && !set.has(r.code)) continue
+    seen.add(r.code)
+    out.push({ code: r.code, name: r.name, time: r.time, title: r.title })
+  }
+  return out
+}
+
 /** ある日の適時開示をまとめて取る（date は YYYYMMDD、省略で今日。codes を渡すとその銘柄だけ残す） */
 export async function fetchTdnet(date, { codes = [], maxPages = 40 } = {}) {
   const ymd = date || new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10).replace(/-/g, '')
@@ -2233,6 +2266,7 @@ export async function fetchIntradayWide(list, { date = null, parallel = 8, keepL
   const items = []
   const latest = {}
   const paperDays = {}
+  const prevOf = {}
   let target = date
   let errors = 0
   for (let i = 0; i < list.length; i += parallel) {
@@ -2250,6 +2284,7 @@ export async function fetchIntradayWide(list, { date = null, parallel = 8, keepL
           const past = d.bars.filter(b => b.date < ld)
           const turnover = past.slice(-20).reduce((s, b) => s + b.c * b.v, 0) / 20
           ;(paperDays[ld] ||= {})[code] = { name: name || d.name, bars: days[ld], ctx: intradayContext(past), turnover }
+          if (dates.length > 1) prevOf[ld] = dates[dates.length - 2]
         }
         if (keepLatest && dates.length) {
           const ld = dates[dates.length - 1]
@@ -2274,7 +2309,7 @@ export async function fetchIntradayWide(list, { date = null, parallel = 8, keepL
   const res = { date: target, stocks: use.length, errors, ...intradayWideDay(use) }
   if (paper) {
     const pd = Object.entries(paperDays).sort((a, b) => Object.keys(b[1]).length - Object.keys(a[1]).length)[0]
-    res.paper = pd ? { date: pd[0], stocks: pd[1] } : null
+    res.paper = pd ? { date: pd[0], prevDate: prevOf[pd[0]] || null, stocks: pd[1] } : null
   }
   if (keepLatest) {
     // いちばん多くの銘柄がそろった最後の日の5分足（毎晩保存して、60日より長いデータにする）
@@ -2293,7 +2328,7 @@ export async function fetchIntradayWide(list, { date = null, parallel = 8, keepL
 // ・株数：損切りまでの損が資金の riskPct% 以内、1銘柄は資金の maxPosPct% 以内、現金の範囲で、100株単位
 // ・成行（寄り・逆指値・時間切れ）は0.1%不利に約定するとみる。指値は指値の値段。手数料は0（楽天のゼロコース）
 export const PAPER_DEFAULTS = {
-  capital: 1000000, riskPct: 1, maxPosPct: 30, swingMax: 3, dayMax: 2, lowMax: 1, slipPct: 0.1,
+  capital: 1000000, riskPct: 1, maxPosPct: 30, swingMax: 3, dayMax: 2, lowMax: 1, bbMax: 2, bbGapPct: 2, slipPct: 0.1,
   dayFrom: 630, dayTo: 780, delay: 20, fillWindow: 30, lowAt: 870, lowEntryM: 890, lowTpPct: 5, lowSlPct: 8, lowExitM: 780,
   swingGapPct: 2, swingMaxDays: 40
 }
@@ -2307,10 +2342,11 @@ const ohlcOf = bars => ({ o: bars[0].o, h: Math.max(...bars.map(b => b.h)), l: M
 
 /**
  * 練習口座を1営業日すすめる。
- * input: {date, stocks: {code: {name, bars: その日の5分足 [{m,o,h,l,c,v}], ctx: intradayContext（前日まで）, turnover}}, cands: 買い候補（pass のもの。date が前の営業日の分を使う）}
+ * input: {date, stocks: {code: {name, bars: その日の5分足 [{m,o,h,l,c,v}], ctx: intradayContext（前日まで）, turnover}}, cands: 買い候補（pass のもの。date が前の営業日の分を使う）,
+ *   buybacks: 前の営業日の15:00以降に発表された自社株買い [{code, name}]（pickBuybacks）}
  * 返り値: {state, trades: その日に決着した売買, opened: その日に買った売買}
  */
-export function paperStep(prev, { date, stocks = {}, cands = [] }) {
+export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [] }) {
   const st = JSON.parse(JSON.stringify(prev))
   const p = st.params
   if (st.days.includes(date)) return { state: st, trades: [], opened: [], skipped: true }
@@ -2409,6 +2445,23 @@ export function paperStep(prev, { date, stocks = {}, cands = [] }) {
       pos.last = x.c
       st.positions.push(pos)
     }
+  }
+  // 2b. 自社株買いの翌日（寄指＝前日の終値×1.02 以下で寄りに買い、大引けで売る）
+  let bbCount = 0
+  for (const b of buybacks) {
+    if (bbCount >= (p.bbMax ?? 2)) break
+    if (st.positions.some(x => x.code === b.code)) continue
+    const s = stocks[b.code]
+    const bars = s?.bars
+    if (!bars?.length || bars[0].m > 545 || !(s.ctx?.prevClose > 0)) continue
+    const limit = tickFloor(s.ctx.prevClose * (1 + (p.bbGapPct ?? 2) / 100))
+    const o = bars[0].o
+    if (!(o > 0) || o > limit || bars.every(x => x.h === x.l)) continue
+    const qty = Math.floor(Math.min(equity0 * p.maxPosPct / 100, st.cash) / o / 100) * 100
+    if (qty < 100) continue
+    const pos = open('bb', b.code, b.name || s.name || '', o, qty, { limit })
+    close(pos, bars[bars.length - 1].c, '大引け')
+    bbCount++
   }
   // 3. デイトレ（場中の買い場）
   const events = []
@@ -3010,6 +3063,28 @@ async function main() {
     console.log(JSON.stringify(await intradayResult(JSON.parse(readFileSync(file, 'utf-8')), prev), null, 2))
     return
   }
+  if (args.includes('--buyback')) {
+    // 自社株買い：その日の15:00以降の発表（決算と別の日）を、翌朝の寄指（終値×1.02 以下）の注文の形で出す
+    const i = args.indexOf('--buyback')
+    const d = /^\d{8}$/.test(args[i + 1] || '') ? args[i + 1] : null
+    const ui = args.indexOf('--universe')
+    const uni = ui >= 0 ? JSON.parse(readFileSync(args[ui + 1], 'utf-8')).map(x => x.code) : null
+    const td = await fetchTdnet(d)
+    const rows = pickBuybacks(td.rows, uni)
+    for (const r of rows) {
+      try {
+        const y = await fetchYahoo(`${r.code}.T`, '1mo')
+        const last = y.bars[y.bars.length - 1]
+        r.close_date = last.date
+        r.close = last.c
+        r.limit = tickFloor(last.c * 1.02)
+      } catch (e) {
+        r.error = e.message
+      }
+    }
+    console.log(JSON.stringify({ date: td.date, total_disclosures: td.total, error: td.error || null, rule: '翌営業日に寄指（limit 以下なら寄りで買う）→ 約定したら同じ日の引成で売る。決算と同じ日の発表・立会外の取得は除いてある', rows }, null, 2))
+    return
+  }
   if (args.includes('--scan-now')) {
     const list = JSON.parse(readFileSync(args[args.indexOf('--scan-now') + 1], 'utf-8'))
     console.log(JSON.stringify(await scanIntradayNow(list), null, 2))
@@ -3072,8 +3147,18 @@ async function main() {
           cands = []
         }
       }
-      const r = paperStep(ps, { date: day.paper.date, stocks: day.paper.stocks, cands: Array.isArray(cands) ? cands : [] })
-      paper = { date: day.paper.date, skipped: !!r.skipped, trades: r.trades, opened: r.opened, summary: paperSummary(r.state, r.trades), equity: r.state.history[r.state.history.length - 1] || null }
+      // 前の営業日の15:00以降に出た自社株買い（TDnet）。--paper-buyback を付けたときだけ取る
+      let buybacks = []
+      if (args.includes('--paper-buyback') && day.paper.prevDate) {
+        try {
+          const td = await fetchTdnet(day.paper.prevDate.replace(/-/g, ''))
+          buybacks = pickBuybacks(td.rows, list.map(x => x.code))
+        } catch {
+          buybacks = []
+        }
+      }
+      const r = paperStep(ps, { date: day.paper.date, stocks: day.paper.stocks, cands: Array.isArray(cands) ? cands : [], buybacks })
+      paper = { date: day.paper.date, buybacks, skipped: !!r.skipped, trades: r.trades, opened: r.opened, summary: paperSummary(r.state, r.trades), equity: r.state.history[r.state.history.length - 1] || null }
       const po = args.indexOf('--paper-out')
       if (po >= 0) writeFileSync(args[po + 1], JSON.stringify(r.state))
       paper.state_file = po >= 0 ? args[po + 1] : null
@@ -3090,7 +3175,7 @@ async function main() {
           const pp = args.indexOf('--paper2-params')
           s2 = paperNew(pp >= 0 ? JSON.parse(args[pp + 1]) : {})
         }
-        const r2 = paperStep(s2, { date: day.paper.date, stocks: day.paper.stocks, cands: Array.isArray(cands) ? cands : [] })
+        const r2 = paperStep(s2, { date: day.paper.date, stocks: day.paper.stocks, cands: Array.isArray(cands) ? cands : [], buybacks })
         const o2 = args.indexOf('--paper2-out')
         if (o2 >= 0) writeFileSync(args[o2 + 1], JSON.stringify(r2.state))
         paper.second = { skipped: !!r2.skipped, trades: r2.trades.map(t => ({ ...t, id: 'aggr-' + t.id, account: 'aggr' })), opened: r2.opened, summary: paperSummary(r2.state, r2.trades), equity: r2.state.history[r2.state.history.length - 1] || null, state_file: o2 >= 0 ? args[o2 + 1] : null }

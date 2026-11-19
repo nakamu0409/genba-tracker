@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, isBuybackTitle, tickFloor, pickBuybacks, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -963,5 +963,38 @@ describe('練習口座（シミュレーション）', () => {
     const r = paperStep(st, { date: '2026-11-19', stocks: { 2222: { bars: [{ m: 540, o: 290, h: 292, l: 270, c: 272, v: 1 }] } } })
     expect(r.trades[0].reason).toBe('損切り')
     expect(r.trades[0].exit).toBeLessThan(276.1)
+  })
+})
+
+describe('自社株買いの発表', () => {
+  it('取得の決定だけを拾い、状況・結果の報告や立会外は除く', () => {
+    expect(isBuybackTitle('自己株式取得に係る事項の決定に関するお知らせ')).toBe(true)
+    expect(isBuybackTitle('自己株式の取得に係る事項の決定及び自己株式の消却に関するお知らせ')).toBe(true)
+    expect(isBuybackTitle('自己株式の取得状況に関するお知らせ')).toBe(false)
+    expect(isBuybackTitle('自己株式の取得結果及び取得終了に関するお知らせ')).toBe(false)
+    expect(isBuybackTitle('自己株式の取得及び自己株式立会外買付取引（ToSTNeT-3）による自己株式の買付けに関するお知らせ')).toBe(false)
+  })
+  it('15:00以降・決算と別の日・対象の銘柄だけを選ぶ', () => {
+    const rows = [
+      { time: '15:30', code: '1111', name: 'A', title: '自己株式取得に係る事項の決定に関するお知らせ' },
+      { time: '13:00', code: '2222', name: 'B', title: '自己株式取得に係る事項の決定に関するお知らせ' },
+      { time: '15:00', code: '3333', name: 'C', title: '2027年3月期 第2四半期決算短信' },
+      { time: '15:00', code: '3333', name: 'C', title: '自己株式取得に係る事項の決定に関するお知らせ' },
+      { time: '16:00', code: '4444', name: 'D', title: '自己株式取得に係る事項の決定に関するお知らせ' }
+    ]
+    expect(pickBuybacks(rows, ['1111', '2222', '3333']).map(r => r.code)).toEqual(['1111'])
+  })
+  it('呼値にそろえる', () => {
+    expect(tickFloor(384.54)).toBe(384)
+    expect(tickFloor(3999)).toBe(3995)
+    expect(tickFloor(12345)).toBe(12340)
+  })
+  it('練習口座：寄りが前日の終値×1.02以下なら寄りで買い、大引けで売る', () => {
+    const bars = [{ m: 540, o: 1010, h: 1030, l: 1005, c: 1025, v: 1 }, { m: 925, o: 1025, h: 1030, l: 1020, c: 1028, v: 1 }]
+    const r = paperStep(paperNew(), { date: '2026-11-20', stocks: { 1111: { name: 'A', bars, ctx: { prevClose: 1000 } } }, buybacks: [{ code: '1111', name: 'A' }] })
+    expect(r.trades).toHaveLength(1)
+    expect(r.trades[0]).toMatchObject({ track: 'bb', entry: 1010, exit: 1028, reason: '大引け' })
+    const gap = paperStep(paperNew(), { date: '2026-11-20', stocks: { 1111: { name: 'A', bars: [{ ...bars[0], o: 1030 }, bars[1]], ctx: { prevClose: 1000 } } }, buybacks: [{ code: '1111' }] })
+    expect(gap.trades).toHaveLength(0)
   })
 })

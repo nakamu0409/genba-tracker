@@ -284,3 +284,9 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 ### 2026-11-19 現金を遊ばせない（夜の点検）
 - 本人と決定。夜の点検の手順3b：空き＝（1回の損失の上限 × maxOpenRiskMult）−（持ち越す保有の (終値 − stop) × qty。stop が無い保有は上限いっぱい）と、使える現金を出し、候補を上から順に株数を決めて注文票に入れる（空きか現金が尽きるまで、最大 dayTradeMax 件）。注文票の最初に「空き：損の合計 あと約◯円・現金 約◯円 → 明日の買い ◯件」。ops/prompt-night.md。
 - 本人は積立を別にやっている。この株の口座は「上乗せを取りにいく口座」として扱う。
+
+### 2026-11-19 自社株買いの翌日
+- 10年の検証（research/swing/README.md）で、決算と別の日の15:00以降の自社株買いの発表は、翌日の寄りで買い大引けで売ると平均+0.70%（どの年もプラス）。本人と決めて取り入れた。
+- `--buyback [YYYYMMDD] --universe universe-wide.json`：TDnet の1日分から選ぶ（isBuybackTitle・pickBuybacks。立会外・経過・状況報告・決算と同じ日・15時前は除く）。limit＝終値×1.02 を呼値で切り捨て（tickFloor）＝寄指の値段。
+- 夜の点検の手順5b・3a：自社株買いを注文票の先頭に（寄指で買い→引成で売り。dayTradeMax の回数に数える。持ち越さないので損の合計には入れず、現金からは引く）。
+- 練習口座：`--paper-buyback` で前の営業日の分を TDnet から取り、track "bb"（寄りが limit 以下なら寄りで買い、大引けで売る。1日 bbMax=2 回まで）。記録帳では「自社株買いの翌日」。
