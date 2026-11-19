@@ -301,3 +301,4 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 - settings/main に ruleVersion（日付）・ruleLog（版ごとの変更点）・ruleNote。ルールを変えるときは本人の承認のうえで ruleVersion をその日に、ruleLog に足す。練習口座の数字を見る前に条件をいじらない。
 - 夜の点検の1行目に「（ルール ◯◯版）」。/kau・/mite の considered に ruleVersion。
 - 参考にした記事：zenn.dev/okikusan のシリーズ Vol.6（ルールの検証と毎日の点検、版管理、判定時刻と約定時刻を分ける、作った期間と別の期間で確かめる）。
+- 11/19 本人の希望で、買う前は /mite だけでよいことにした（/mite に /kau のチェックが入っている。/kau は株数だけ確かめたいとき、/bachu は場中のスクショつきで流れを見たいとき）。extra の「買う前チェック」の行を更新。
