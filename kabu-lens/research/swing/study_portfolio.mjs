@@ -89,7 +89,8 @@ function run(P) {
         const rps = entry - s.stop
         if (!(rps > 0)) continue
         const room = riskOne * P.maxOpenRiskMult - openRisk()
-        const qty = Math.floor(Math.min(riskOne / rps, maxPos / entry, cash / entry, Math.max(0, room) / rps) / 100) * 100
+        const usable = Math.max(0, cash - equityPrev * (P.reservePct || 0) / 100)
+        const qty = Math.floor(Math.min(riskOne / rps, maxPos / entry, usable / entry, Math.max(0, room) / rps) / 100) * 100
         if (qty < 100) continue
         buys++
         n++
@@ -201,6 +202,15 @@ report('全部入り・1回の損2%', { ...BASE, riskPct: 2 })
 report('全部入り・攻め（1回の損5%・1銘柄50%）', { ...BASE, riskPct: 5, maxPosPct: 50 })
 report('全部入り・300万円', { ...BASE, capital: 3e6 })
 
+if (process.env.TUNE) {
+  console.log('\n======== スイングと現金の取り合いを減らす案（前半・後半も）')
+  for (const [name, o] of [['今のまま（上限×3）', {}], ['損の合計の上限×2', { maxOpenRiskMult: 2 }], ['損の合計の上限×1', { maxOpenRiskMult: 1 }], ['現金を資産の30%残す', { reservePct: 30 }], ['現金を資産の50%残す', { reservePct: 50 }], ['上限×2 ＋ 現金30%残す', { maxOpenRiskMult: 2, reservePct: 30 }]]) {
+    report(name + '・10年', { ...BASE, ...o })
+    report(name + '・前半', { ...BASE, ...o, end: '2021-11-19' })
+    report(name + '・後半', { ...BASE, ...o, start: '2021-11-19' })
+  }
+  process.exit(0)
+}
 console.log('\n======== 確かめ（甘く出ていないか）')
 report('全部入り・企業の行動の売買を毎回0.1%ずつ不利に', { ...BASE, evSlip: 0.001 })
 report('全部入り・企業の行動の売買を毎回0.3%ずつ不利に（寄りと引けの値段のぶれ）', { ...BASE, evSlip: 0.003 })
