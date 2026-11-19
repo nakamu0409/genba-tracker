@@ -321,3 +321,4 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 - `surgePullback(daily)`：最後の足がその合図の日なら `{surgeDate, high, low, stop: 押しの安値×0.99, dropPct}`。直近1年で394回（合図があった日は約160日）。
 - 練習口座の track `surge`：`fetchIntradayWide` が前の営業日までの日足で合図を見て（`paperDays[..].surge`）、`paperStep` が寄りで買う。損切りは押しの安値の1%下、目標3R（`surgeTpR`）、10営業日目（`surgeHold`。買った日を1日目）の引けまで。1日2件まで（`surgeMax`）。売買代金の大きい順。
 - 本人の売買の決まりにはまだ入れていない（練習口座で本番の成績を見てから）。
+- 11/20 から攻めの口座（`settings/paper_aggr`）に資金を200万円足した（本人の希望。現金切れでデイトレが0回だったため）。params.capital・cash と、それまでの history の equity・cash に同じ額を足し、300万円で始めたとみなす。`deposits` に記録。基本の口座は100万円のまま。
