@@ -2381,7 +2381,7 @@ export async function fetchIntradayWide(list, { date = null, parallel = 8, keepL
 // ・株数：損切りまでの損が資金の riskPct% 以内、1銘柄は資金の maxPosPct% 以内、現金の範囲で、100株単位
 // ・成行（寄り・逆指値・時間切れ）は0.1%不利に約定するとみる。指値は指値の値段。手数料は0（楽天のゼロコース）
 export const PAPER_DEFAULTS = {
-  capital: 1000000, riskPct: 1, maxPosPct: 30, swingMax: 3, dayMax: 2, lowMax: 1, bbMax: 2, bbGapPct: 2, slipPct: 0.1,
+  capital: 1000000, riskPct: 1, maxPosPct: 30, swingMax: 3, dayMax: 2, lowMax: 1, bbMax: 5, bbGapPct: 2, slipPct: 0.1,
   dayFrom: 630, dayTo: 780, delay: 20, fillWindow: 30, lowAt: 870, lowEntryM: 890, lowTpPct: 5, lowSlPct: 8, lowExitM: 780,
   swingGapPct: 2, swingMaxDays: 40
 }

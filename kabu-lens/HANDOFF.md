@@ -295,3 +295,4 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 - study_events.mjs：寄指で買える日の1日目（全体比）は 増配 +0.48%（431回、8/10年プラス）、株式分割は1日目−0.14%だが5日 +0.85%・20日 +1.41%。優待の新設・拡充は効かない。
 - pickEvents（buyback・divup・split）。--buyback の出力に kind・expect_pct・sell。夜の注文票は expect_pct の順に dayTradeMax 件。株式分割は5営業日目の引成で売り、保険に寄値×0.92 の逆指値。
 - 練習口座：track "bb"（自社株買い・増配。寄り→引け）と "split"（5日目の引け）。
+- 11/19 本人の希望で dayTradeMax を 2→5（夜の注文票の企業の行動・スイングを取りこぼさないため）。extra に「場中に値動きを見て追加で買うのはそのうち2回まで」を添えた。練習口座の bbMax も 5。
