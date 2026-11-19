@@ -19,7 +19,7 @@
    - collection "kessan"、action "query"、query {"where": [["final", "eq", false]], "limit": 1000}
    - collection "considered"、action "query"、query {"where": [["final", "eq", false]], "limit": 500}：本人が買おうとした銘柄（code、name、date、price、stop、decision（bought / passed / blocked）、reason、mite_swing（/mite のスイングの判定。無いこともある））
    - collection "settings"、doc_id "kessan_stats" と doc_id "considered_stats"（まだ無いこともある）
-   - collection "intraday"、action "query"、query {"where": [["final", "eq", false]], "limit": 500}：場中の判定（/bachu）の記録（code、date、time、price、signal）と、collection "settings"、doc_id "intraday_stats"（まだ無いこともある）
+   - collection "intraday"、action "query"、query {"where": [["final", "eq", false]], "limit": 500}：場中の判定（/mite に今の値段を添えたときや /bachu）の記録（code、date、time、price、signal）と、collection "settings"、doc_id "intraday_stats"（まだ無いこともある）
    - collection "trades"、action "list"、query {"limit": 300}：売買の記録（保有中は status が open）
 3b. 保有株の適時開示の見張り：`node <保存先> --tdnet <今日の YYYYMMDD> <保有中のコード...> > /tmp/td.json`（1〜2分）。rows と flagged を見る。tags：DILUTION=増資など株が増える話、DANGER=継続企業の前提・上場廃止など、LOSS=特別損失・評価損、REVISION=業績予想の修正、EARNINGS=決算短信、TOB=買収など、DELAY=提出の延期など。error なら「適時開示を確認できず」と1行。
 4. 新しい記録を作る（collection "kessan" に batch で set。1回50件まで）。doc_id は「<発表日 YYYY-MM-DD>-<code>」。すでに同じ doc_id があれば作らない。項目：code、name（見出しの最初の「、」の前）、date、time、title、kind、revise_pct、final: false、createdAt。手順2a の REVISE_UP すべてと、手順2b の rows すべて（react、entryDate、entry も入れる。見出しや手順3bで買収（TOB・MBO）と分かる銘柄は除く）。

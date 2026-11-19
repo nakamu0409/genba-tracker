@@ -12,7 +12,7 @@
 
 ## 情報の置き場所（ここだけを正とする）
 トレード記録帳（claude.ai のアーティファクト <記録帳のURL> ）の共有データベースを ArtifactData で読む（ツール一覧に無ければ ToolSearch で `select:ArtifactData` を読み込む）。銘柄・資金・ルールをこの指示文の中から探さない（ここには書いていない）。
-- 資金とルール：action "get"、collection "settings"、doc_id "main"。項目：capital（資金の合計）、cash（現金）、capitalAt（その日付）、riskPct（1回の損失の上限・資金の%）、maxPosPct（1銘柄の上限・資金の%）、maxOpenRiskMult（持ち越す株が全部損切りに当たったときの損の合計の上限＝1回の損失の上限 × これ。無ければ maxPositions＝同時に持つ銘柄数）、dayTradeMax（1日の買いの回数の上限）、dayLossPct（デイトレの1日の損失上限・資金の%）、extra（そのほかの決めごと。1行に1つ）、universe（毎晩点検する基本の銘柄。{code, name} の配列。約170銘柄）、ruleVersion（今のルールの版。日付）。
+- 資金とルール：action "get"、collection "settings"、doc_id "main"。項目：capital（資金の合計）、cash（現金）、capitalAt（その日付）、riskPct（1回の損失の上限・資金の%）、maxPosPct（1銘柄の上限・資金の%）、maxOpenRiskMult（持ち越す株が全部損切りに当たったときの損の合計の上限＝1回の損失の上限 × これ。デイトレの株は数えない）、dayTradeMax（1日の買いの回数の上限）、dayLossPct（デイトレの1日の損失上限・資金の%）、extra（そのほかの決めごと。1行に1つ）、universe（毎晩点検する基本の銘柄。{code, name} の配列。約170銘柄）、ruleVersion（今のルールの版。日付）。
 - 売買の記録：action "list"、collection "trades"、query {"limit": 300}。status が "open" は保有中、"plan" は買いの予定、"closed" は売り終わったもの。項目：name、code、date（買った日）、entry（買値）、qty（株数）、stop（損切り）、target（利確）、last・lastAt（現在値と日付）、style（swing / day）、holdUntil（保有期限）、exit・exitDate、rule（yes=ルールどおり / no=ルール違反）、events、research、note（経緯）、scan、pts・ptsAt・ptsPct、frozen（true なら本人が放置すると決めた保有）。
 - 監視リスト：action "list"、collection "watchlist"。項目：name、code、style、entry、stop、note、scan、verdict。
 - 買い候補の追跡：action "list"、collection "signals"、query {"limit": 1000}。1件が「ある日に出た買い候補」。項目：code、name、date、kind（GAP / PULLBACK / BREAKOUT / MOMENTUM）、pass（true=通過 / false=ルールで見送り）、reason、close、stop、score、overheat、regime、status（PENDING / OPEN / TARGET / STOPPED / TIME_EXIT / SKIPPED_GAP / SKIPPED_BELOW_STOP）、entryDate、entry、target、exitDate、exit、r、bars、maxUpR、maxDownR、last、lastDate。
@@ -33,7 +33,7 @@
 ## 判断の決まり（記録帳の settings の数字を使う）
 - 1回の損失の上限（円）= capital × riskPct ÷ 100。1銘柄の上限（円）= capital × maxPosPct ÷ 100。
 - 株数：損失の上限 ÷（買値 − 損切り）、1銘柄の上限 ÷ 買値、cash ÷ 買値 の一番小さいものを100株単位に切り捨てる。0株なら「100株では上限を超える／現金が足りない」と書く（1株単位の株数は出さない。本人はかぶミニを使わない）。
-- 保有中の銘柄には、毎回かならず次を点検して書く。note に「保有継続と決定」などとあっても止めない：stop が空 →「計画不備：損切りが未設定」と候補の値段（終値 − 2 × ATR と、直近スイング安値のすぐ下）／終値かPTSが stop 以下 →「損切り割れ」を1行目に／1銘柄の上限超え／損失の上限超え／損の合計の上限超え（maxOpenRiskMult。無ければ保有が maxPositions 超え）／cash がほぼ無い。ただし frozen: true の保有は手順5の書き方にする。
+- 保有中の銘柄には、毎回かならず次を点検して書く。note に「保有継続と決定」などとあっても止めない：stop が空 →「計画不備：損切りが未設定」と候補の値段（終値 − 2 × ATR と、直近スイング安値のすぐ下）／終値かPTSが stop 以下 →「損切り割れ」を1行目に／1銘柄の上限超え／損失の上限超え／損の合計の上限超え（maxOpenRiskMult）／cash がほぼ無い。ただし frozen: true の保有は手順5の書き方にする。
 - 決めた損切りを下げる案は出さない。買値以上に引き上げる案はよい（例：利益が出て、損切り幅の2倍以上上がったら、損切りを買値に上げる案）。
 - 下がっている保有銘柄の買い増しは勧めない。急騰した銘柄の追いかけ買いは勧めない。値動きの荒い低位株・材料だけで急騰した銘柄を自分から候補に挙げない。PTSのランキング上位だという理由だけで買い候補にしない。
 - 決算の3営業日前から当日までの銘柄は、新しく買う候補にしない（見込みの日付でも同じ）。GAP は決算の直後に出ることが多く、これは問題ない。
@@ -76,7 +76,7 @@
    - 企業の行動（手順3a）があれば先に、1銘柄1行。自社株買い・増配：「【自社株買い・良い条件◯つ（why）】」か「【増配】」＋「◯◯（コード）◯株：明日の寄りで『寄指 ◯円』の買い（寄りが◯円を超えたら買わない）→ 約定したら同じ日の『引成』で売り。持ち越さない」。株式分割：「【株式分割】◯◯（コード）◯株：明日の寄りで『寄指 ◯円』の買い → 約定したら『寄値×0.92以下で成行』の逆指値。5営業日目の引成で売る（◯月◯日）」。skip の銘柄は「見送り（良い条件なし）」と名前だけ。無ければ「企業の行動：なし」と1行。続けて1行「検証（10年・寄指で買える日）：翌日の寄り→引けで 自社株買い+0.43%（良い条件2つ以上+0.70%前後）・増配+0.48%、株式分割は5日で+0.85%。負ける日も4割。本番ではまだ確かめ中」。
    - 最初に1行：「空き：損の合計 あと約◯円・現金 約◯円 → 明日の買い ◯件」（手順3b）。
    - 買い候補（手順3b で注文票に入れたもの）1つにつき1行：「◯◯（コード）：明日9:15以降、◯円以下なら指値で◯株。買えたらすぐ『◯円以下で成行売り』の逆指値。目標◯円／最長◯営業日。損失は最大約◯円」。◯円以下は「今日の終値 × 1.02」。株数は手順3b の株数。決算前なら書かない。同じ日に複数約定しても、損の合計の上限と現金の中に収まるように手順3b で計算してある、と1行添える。
-   - 最後に1行「買う前に /kau。場中の様子は /bachu。明日の買いは dayTradeMax 回まで」。
+   - 最後に1行「注文票の銘柄はチェック済み。ほかの銘柄を買うなら /mite 銘柄（株数・損切り・場中の判定まで1つで出る）。明日の買いは dayTradeMax 回まで」。
 3. 保有銘柄ごとに1行：終値、含み損益（円と%）、PTS、次の決算日（見込みなら「見込み」）、点検結果。
 4. 今日の売買の振り返り（手順6）。
 5. PTSランキングの傾向（1行）。
