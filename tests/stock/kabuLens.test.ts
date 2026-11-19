@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { parseKabutanFinance, splitFiveMin, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -907,5 +907,38 @@ describe('5分足の取り込み', () => {
     // 10:55 の足の途中（11:02）までしか来ていなければ、その足も除く
     json.chart.result[0].meta.regularMarketTime = base + 420
     expect(splitFiveMin(json)['2026-11-19'].map(b => b.m)).toEqual([650])
+  })
+})
+
+describe('練習口座（シミュレーション）', () => {
+  const flat = (m0, n, o, h, l, c) => Array.from({ length: n }, (_, i) => ({ m: m0 + i * 5, o, h, l, c, v: 1000 }))
+  it('スイング：前の夜の候補を寄りで買い、目標に届いたら売る。同じ日は2回すすめない', () => {
+    const st0 = paperNew({ capital: 1000000 })
+    const cands = [{ code: '1111', name: 'A', date: '2026-11-18', pass: true, close: 1000, stop: 950, target: 1150, score: 80 }]
+    const d1 = { date: '2026-11-19', cands, stocks: { 1111: { name: 'A', bars: flat(540, 6, 1005, 1010, 990, 1000) } } }
+    const r1 = paperStep(st0, d1)
+    expect(r1.opened).toHaveLength(1)
+    const pos = r1.state.positions[0]
+    expect(pos.qty % 100).toBe(0)
+    expect(pos.qty * (pos.entry - 950)).toBeLessThanOrEqual(10000 + 1) // 損切りまでの損は資金の1%以内
+    expect(paperStep(r1.state, d1).skipped).toBe(true)
+    const r2 = paperStep(r1.state, { date: '2026-11-20', cands, stocks: { 1111: { name: 'A', bars: flat(540, 6, 1100, 1160, 1090, 1150) } } })
+    expect(r2.trades[0].reason).toBe('目標')
+    expect(r2.trades[0].exit).toBe(1150)
+    expect(r2.state.positions).toHaveLength(0)
+    expect(paperSummary(r2.state, r2.trades).tracks.swing.trades).toBe(1)
+  })
+  it('寄りが候補の終値より2%を超えて高いと買わない', () => {
+    const cands = [{ code: '1111', date: '2026-11-18', pass: true, close: 1000, stop: 950, target: 1150, score: 80 }]
+    const r = paperStep(paperNew(), { date: '2026-11-19', cands, stocks: { 1111: { bars: flat(540, 6, 1030, 1040, 1020, 1030) } } })
+    expect(r.opened).toHaveLength(0)
+  })
+  it('低位株の強い引け：翌日に損切り−8%に当たったら損切り', () => {
+    const st = paperNew()
+    st.positions.push({ track: 'low', code: '2222', name: 'B', entryDate: '2026-11-18', entry: 300, qty: 1000, last: 300, held: 0 })
+    st.cash -= 300000
+    const r = paperStep(st, { date: '2026-11-19', stocks: { 2222: { bars: [{ m: 540, o: 290, h: 292, l: 270, c: 272, v: 1 }] } } })
+    expect(r.trades[0].reason).toBe('損切り')
+    expect(r.trades[0].exit).toBeLessThan(276.1)
   })
 })

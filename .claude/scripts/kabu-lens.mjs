@@ -29,6 +29,7 @@
 //   node .claude/scripts/kabu-lens.mjs --mite 7203[:今の値段] --state st.json --stats-dir dir  # デイトレ・スイング・少し長期の判定と成績・買う前チェックをまとめて
 //   node .claude/scripts/kabu-lens.mjs --intraday-replay 7203 2026-11-18  # ある日の場中の判定を30分ごとに再現
 //   node .claude/scripts/kabu-lens.mjs --intraday-wide universe-wide.json [--stats st.json] [--five-out f.json]  # 前の営業日の場中の判定を全銘柄で再現して数える（毎晩の自動記録）。--five-out でその日の5分足も保存
+//     [--paper 練習口座.json --paper-cands 候補.json --paper-out 新しい練習口座.json]  # 練習口座（仮の資金で合図どおりに売買）を今日の分すすめる
 //   node .claude/scripts/kabu-lens.mjs --intraday-result recs.json [--stats st.json]  # 場中の判定の答え合わせ
 //   node .claude/scripts/kabu-lens.mjs --movers-result <記録.json> [--stats <累計.json>]  # 昼に出した危険度の答え合わせ（後場の結果）
 //
@@ -2228,13 +2229,14 @@ export function mergeIntradayWide(prev, day) {
  * 毎晩の自動記録：universe の銘柄すべてについて、前の営業日の場中の判定を再現し、その日の大引け・翌営業日（＝今日）の大引けまでで答え合わせする。
  * 今日の夜に動かすと「前の営業日」が対象になる（翌日の終値がそろうため）。
  */
-export async function fetchIntradayWide(list, { date = null, parallel = 8, keepLatest = false } = {}) {
+export async function fetchIntradayWide(list, { date = null, parallel = 8, keepLatest = false, paper = false } = {}) {
   const items = []
   const latest = {}
+  const paperDays = {}
   let target = date
   let errors = 0
   for (let i = 0; i < list.length; i += parallel) {
-    await Promise.all(list.slice(i, i + parallel).map(async ({ code }) => {
+    await Promise.all(list.slice(i, i + parallel).map(async ({ code, name }) => {
       try {
         const [five, d] = await Promise.all([
           fetchJson(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(code)}.T?range=5d&interval=5m`),
@@ -2242,6 +2244,13 @@ export async function fetchIntradayWide(list, { date = null, parallel = 8, keepL
         ])
         const days = splitFiveMin(five)
         const dates = Object.keys(days).sort()
+        if (paper && dates.length) {
+          // 練習口座用：いちばん新しい日の5分足と、その前の日までの日足から作る場中の前提
+          const ld = dates[dates.length - 1]
+          const past = d.bars.filter(b => b.date < ld)
+          const turnover = past.slice(-20).reduce((s, b) => s + b.c * b.v, 0) / 20
+          ;(paperDays[ld] ||= {})[code] = { name: name || d.name, bars: days[ld], ctx: intradayContext(past), turnover }
+        }
         if (keepLatest && dates.length) {
           const ld = dates[dates.length - 1]
           ;(latest[ld] ||= {})[code] = days[ld].map(b => [b.m, b.o, b.h, b.l, b.c, b.v])
@@ -2263,12 +2272,248 @@ export async function fetchIntradayWide(list, { date = null, parallel = 8, keepL
   target = target || Object.entries(cnt).sort((a, b) => b[1] - a[1])[0]?.[0] || null
   const use = items.filter(it => it.date === target)
   const res = { date: target, stocks: use.length, errors, ...intradayWideDay(use) }
+  if (paper) {
+    const pd = Object.entries(paperDays).sort((a, b) => Object.keys(b[1]).length - Object.keys(a[1]).length)[0]
+    res.paper = pd ? { date: pd[0], stocks: pd[1] } : null
+  }
   if (keepLatest) {
     // いちばん多くの銘柄がそろった最後の日の5分足（毎晩保存して、60日より長いデータにする）
     const ld = Object.entries(latest).sort((a, b) => Object.keys(b[1]).length - Object.keys(a[1]).length)[0]
     res.latest = ld ? { date: ld[0], bars: ld[1] } : null
   }
   return res
+}
+
+// ---- 練習口座（シミュレーション）----------------------------------------------
+// 合図どおりに「仮の資金」で買って売ったら、どうなったかを毎日数える。本人の売買とは別。
+// ・デイトレ：場中の買い場（10:30〜13:00、低位株・荒い株は除く）。見えてから20分後に指値の目安で指値、30分で約定しなければ取り消し。
+//   約定したら場中の損切りの目安に逆指値、届かなければ大引け。1日2回まで
+// ・スイング：前の夜の買い候補（通過）。寄りが終値の+2%以内なら寄りで買う。損切り・目標（3R）・最長40営業日。同時に3銘柄まで
+// ・低位株の強い引け：14:30の判定で目印 → 14:50に買い、翌日 利確+5%・損切り−8%、どちらも無ければ翌日13時。1日1回まで
+// ・株数：損切りまでの損が資金の riskPct% 以内、1銘柄は資金の maxPosPct% 以内、現金の範囲で、100株単位
+// ・成行（寄り・逆指値・時間切れ）は0.1%不利に約定するとみる。指値は指値の値段。手数料は0（楽天のゼロコース）
+export const PAPER_DEFAULTS = {
+  capital: 1000000, riskPct: 1, maxPosPct: 30, swingMax: 3, dayMax: 2, lowMax: 1, slipPct: 0.1,
+  dayFrom: 630, dayTo: 780, delay: 20, fillWindow: 30, lowAt: 870, lowEntryM: 890, lowTpPct: 5, lowSlPct: 8, lowExitM: 780,
+  swingGapPct: 2, swingMaxDays: 40
+}
+
+export function paperNew(params = {}) {
+  const p = { ...PAPER_DEFAULTS, ...params }
+  return { params: p, start: null, cash: p.capital, positions: [], history: [], days: [] }
+}
+
+const ohlcOf = bars => ({ o: bars[0].o, h: Math.max(...bars.map(b => b.h)), l: Math.min(...bars.map(b => b.l)), c: bars[bars.length - 1].c })
+
+/**
+ * 練習口座を1営業日すすめる。
+ * input: {date, stocks: {code: {name, bars: その日の5分足 [{m,o,h,l,c,v}], ctx: intradayContext（前日まで）, turnover}}, cands: 買い候補（pass のもの。date が前の営業日の分を使う）}
+ * 返り値: {state, trades: その日に決着した売買, opened: その日に買った売買}
+ */
+export function paperStep(prev, { date, stocks = {}, cands = [] }) {
+  const st = JSON.parse(JSON.stringify(prev))
+  const p = st.params
+  if (st.days.includes(date)) return { state: st, trades: [], opened: [], skipped: true }
+  const slip = p.slipPct / 100
+  const trades = []
+  const opened = []
+  const r1 = x => Math.round(x * 10) / 10
+  const equityNow = () => st.cash + st.positions.reduce((s, x) => s + x.qty * x.last, 0)
+  const equity0 = equityNow()
+  const sizeOf = (price, stop, cash) => {
+    const rps = price - stop
+    if (!(price > 0) || !(rps > 0)) return 0
+    const n = Math.min(equity0 * p.riskPct / 100 / rps, equity0 * p.maxPosPct / 100 / price, cash / price)
+    return Math.floor(n / 100) * 100
+  }
+  const close = (pos, price, reason) => {
+    const exit = r1(price)
+    st.cash += pos.qty * exit
+    const pnl = Math.round((exit - pos.entry) * pos.qty)
+    trades.push({ id: `${pos.entryDate}-${pos.track}-${pos.code}`, track: pos.track, code: pos.code, name: pos.name, entryDate: pos.entryDate, entry: pos.entry, exitDate: date, exit, qty: pos.qty, pnl, pnlPct: round((exit / pos.entry - 1) * 100, 2), reason, held: pos.held || 0 })
+  }
+  const open = (track, code, name, entry, qty, extra = {}) => {
+    const pos = { track, code, name, entryDate: date, entry: r1(entry), qty, last: r1(entry), held: 0, ...extra }
+    st.cash -= pos.qty * pos.entry
+    opened.push({ ...pos })
+    return pos
+  }
+  const keep = []
+  // 1. 持っている株の決着（低位株の強い引けは今日の13時まで、スイングは今日の日足で）
+  for (const pos of st.positions) {
+    const bars = stocks[pos.code]?.bars
+    if (!bars?.length) {
+      pos.held = (pos.held || 0) + 1
+      keep.push(pos)
+      continue
+    }
+    if (pos.track === 'low') {
+      const tp = pos.entry * (1 + p.lowTpPct / 100)
+      const sl = pos.entry * (1 - p.lowSlPct / 100)
+      let done = false
+      const first = bars[0]
+      if (first.o >= tp) {
+        close(pos, first.o, '利確（寄り）')
+        done = true
+      } else if (first.o <= sl) {
+        close(pos, first.o * (1 - slip), '損切り（寄り）')
+        done = true
+      }
+      for (const b of bars) {
+        if (done) break
+        if (b.m >= p.lowExitM) {
+          close(pos, b.o * (1 - slip), '翌日13時')
+          done = true
+        } else if (b.l <= sl) {
+          close(pos, sl * (1 - slip), '損切り')
+          done = true
+        } else if (b.h >= tp) {
+          close(pos, tp, '利確')
+          done = true
+        }
+      }
+      if (!done) close(pos, bars[bars.length - 1].c * (1 - slip), '翌日の引け')
+      continue
+    }
+    // スイング
+    const x = ohlcOf(bars)
+    pos.held = (pos.held || 0) + 1
+    if (x.o <= pos.stop) close(pos, x.o * (1 - slip), '損切り（寄り）')
+    else if (x.l <= pos.stop) close(pos, pos.stop * (1 - slip), '損切り')
+    else if (pos.target && x.o >= pos.target) close(pos, x.o, '目標（寄り）')
+    else if (pos.target && x.h >= pos.target) close(pos, pos.target, '目標')
+    else if (pos.held >= p.swingMaxDays) close(pos, x.c * (1 - slip), '期間切れ')
+    else {
+      pos.last = x.c
+      keep.push(pos)
+    }
+  }
+  st.positions = keep
+  // 2. スイングの買い（前の営業日の夜の候補）
+  const prevDate = cands.filter(c => c.date < date).map(c => c.date).sort().pop()
+  const todays = cands.filter(c => c.date === prevDate && c.pass !== false).sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+  for (const c of todays) {
+    if (st.positions.filter(x => x.track === 'swing').length >= p.swingMax) break
+    if (st.positions.some(x => x.code === c.code)) continue
+    const bars = stocks[c.code]?.bars
+    if (!bars?.length || !(c.close > 0) || !(c.stop > 0)) continue
+    const x = ohlcOf(bars)
+    if (x.o > c.close * (1 + p.swingGapPct / 100) || x.o <= c.stop) continue
+    const entry = x.o * (1 + slip)
+    const qty = sizeOf(entry, c.stop, st.cash)
+    if (qty < 100) continue
+    const pos = open('swing', c.code, c.name || stocks[c.code]?.name || '', entry, qty, { stop: c.stop, target: c.target ?? null, kind: c.kind || null, score: c.score ?? null })
+    if (x.l <= pos.stop) close(pos, pos.stop * (1 - slip), '損切り（当日）')
+    else if (pos.target && x.h >= pos.target) close(pos, pos.target, '目標（当日）')
+    else {
+      pos.last = x.c
+      st.positions.push(pos)
+    }
+  }
+  // 3. デイトレ（場中の買い場）
+  const events = []
+  const lows = []
+  for (const [code, s] of Object.entries(stocks)) {
+    const bars = s.bars
+    if (!bars?.length || !s.ctx) continue
+    for (let t = p.dayFrom; t < p.dayTo + 20; t += 5) {
+      const seen = bars.filter(b => b.m + 5 <= t)
+      if (seen.length < 3) continue
+      const v = intradayView(seen, s.ctx)
+      if (!v) continue
+      if (v.signal === 'TAKE' && !v.low_group && ok(v.limit) && ok(v.stop_intraday)) {
+        events.push({ t, code, name: s.name, limit: v.limit, stop: v.stop_intraday, kind: v.kind, turnover: s.turnover || 0 })
+        break
+      }
+    }
+    const seenL = bars.filter(b => b.m + 5 <= p.lowAt)
+    if (seenL.length >= 3) {
+      const v = intradayView(seenL, s.ctx)
+      if (v?.marks?.includes('LOW_STRONG_CLOSE')) lows.push({ code, name: s.name, turnover: s.turnover || 0 })
+    }
+  }
+  events.sort((a, b) => a.t - b.t || b.turnover - a.turnover)
+  let dayCount = 0
+  let dayCash = st.cash
+  for (const e of events) {
+    if (dayCount >= p.dayMax) break
+    if (st.positions.some(x => x.code === e.code)) continue
+    const bars = stocks[e.code].bars
+    const from = e.t + p.delay
+    const k = bars.findIndex(b => b.m >= from && b.m < from + p.fillWindow && b.l <= e.limit)
+    if (k < 0) continue
+    const price = Math.min(e.limit, bars[k].o)
+    const qty = sizeOf(price, e.stop, dayCash)
+    if (qty < 100) continue
+    dayCount++
+    dayCash -= qty * price
+    const pos = open('day', e.code, e.name || '', price, qty, { stop: e.stop, kind: e.kind, seenAt: `${Math.floor(e.t / 60)}:${String(e.t % 60).padStart(2, '0')}` })
+    let done = false
+    if (bars[k].l <= e.stop) {
+      close(pos, e.stop * (1 - slip), '損切り（約定した足）')
+      done = true
+    }
+    for (const b of bars.slice(k + 1)) {
+      if (done) break
+      if (b.o <= e.stop) {
+        close(pos, b.o * (1 - slip), '損切り')
+        done = true
+      } else if (b.l <= e.stop) {
+        close(pos, e.stop * (1 - slip), '損切り')
+        done = true
+      }
+    }
+    if (!done) close(pos, bars[bars.length - 1].c, '大引け')
+  }
+  // 4. 低位株の強い引け（14:50に買って翌日に決着）
+  lows.sort((a, b) => b.turnover - a.turnover)
+  let lowCount = 0
+  for (const l of lows) {
+    if (lowCount >= p.lowMax) break
+    if (st.positions.some(x => x.code === l.code)) continue
+    const bars = stocks[l.code].bars
+    const b = bars.find(x => x.m >= p.lowEntryM)
+    if (!b) continue
+    const entry = b.o * (1 + slip)
+    const qty = sizeOf(entry, entry * (1 - p.lowSlPct / 100), st.cash)
+    if (qty < 100) continue
+    const pos = open('low', l.code, l.name || '', entry, qty)
+    pos.last = bars[bars.length - 1].c
+    st.positions.push(pos)
+    lowCount++
+  }
+  // 5. その日の終わりの資産
+  st.start ||= date
+  st.days.push(date)
+  st.cash = Math.round(st.cash)
+  const equity = Math.round(equityNow())
+  st.history.push({ date, equity, cash: st.cash, positions: st.positions.length, trades: trades.length, pnl: trades.reduce((s, x) => s + x.pnl, 0) })
+  return { state: st, trades, opened }
+}
+
+/** 練習口座の成績のまとめ（全体と、デイトレ・スイング・低位株の別） */
+export function paperSummary(state, trades = []) {
+  const p = state.params
+  const last = state.history[state.history.length - 1]
+  const by = {}
+  for (const t of trades) {
+    const g = (by[t.track] ||= { n: 0, win: 0, pnl: 0, sumPct: 0 })
+    g.n++
+    if (t.pnl > 0) g.win++
+    g.pnl += t.pnl
+    g.sumPct += t.pnlPct
+  }
+  let peak = p.capital
+  let maxDd = 0
+  for (const h of state.history) {
+    peak = Math.max(peak, h.equity)
+    maxDd = Math.min(maxDd, (h.equity / peak - 1) * 100)
+  }
+  return {
+    start: state.start, days: state.days.length, capital: p.capital, equity: last?.equity ?? p.capital,
+    return_pct: round(((last?.equity ?? p.capital) / p.capital - 1) * 100, 2), max_drawdown_pct: round(maxDd, 2),
+    tracks: Object.fromEntries(Object.entries(by).map(([k, g]) => [k, { trades: g.n, win_rate_pct: round(g.win / g.n * 100, 0), pnl: g.pnl, avg_pct: round(g.sumPct / g.n, 2) }]))
+  }
 }
 
 // 検証（本番の記録が少ないうちの目安）。場中は study_5m（2026-09〜11、20分遅れ込み、同じ時刻の全体比）、スイングは backtest（167銘柄 2017〜2026、R）
@@ -2789,7 +3034,34 @@ async function main() {
       }
     }
     const fo = args.indexOf('--five-out')
-    const day = await fetchIntradayWide(list, { date: d, keepLatest: fo >= 0 })
+    const pi = args.indexOf('--paper')
+    const day = await fetchIntradayWide(list, { date: d, keepLatest: fo >= 0, paper: pi >= 0 })
+    // 練習口座：--paper 状態.json（無ければ新しく始める）--paper-cands 買い候補.json（cands の pass。配列）--paper-out 結果.json
+    let paper = null
+    if (pi >= 0 && day.paper) {
+      let ps = null
+      try {
+        ps = JSON.parse(readFileSync(args[pi + 1], 'utf-8'))
+      } catch {
+        ps = null
+      }
+      if (!ps?.params) ps = paperNew()
+      let cands = []
+      const ci = args.indexOf('--paper-cands')
+      if (ci >= 0) {
+        try {
+          cands = JSON.parse(readFileSync(args[ci + 1], 'utf-8'))
+        } catch {
+          cands = []
+        }
+      }
+      const r = paperStep(ps, { date: day.paper.date, stocks: day.paper.stocks, cands: Array.isArray(cands) ? cands : [] })
+      paper = { date: day.paper.date, skipped: !!r.skipped, trades: r.trades, opened: r.opened, summary: paperSummary(r.state, r.trades), equity: r.state.history[r.state.history.length - 1] || null }
+      const po = args.indexOf('--paper-out')
+      if (po >= 0) writeFileSync(args[po + 1], JSON.stringify(r.state))
+      paper.state_file = po >= 0 ? args[po + 1] : null
+    }
+    delete day.paper
     let five = null
     if (fo >= 0 && day.latest) {
       // その日の5分足を保存（{date, bars: {code: [[分, 始, 高, 安, 終, 出来高], ...]}}。分は 9:00=540）
@@ -2797,7 +3069,7 @@ async function main() {
       five = { date: day.latest.date, stocks: Object.keys(day.latest.bars).length, file: args[fo + 1] }
     }
     delete day.latest
-    console.log(JSON.stringify({ day, stats: day.date && day.stocks > 0 ? mergeIntradayWide(prev, day) : prev, five }, null, 2))
+    console.log(JSON.stringify({ day, stats: day.date && day.stocks > 0 ? mergeIntradayWide(prev, day) : prev, five, paper }, null, 2))
     return
   }
   if (args.includes('--intraday-replay')) {
