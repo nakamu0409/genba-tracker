@@ -229,6 +229,7 @@ section.folded .sec-head { margin-bottom: 0; }
     <p class="sub">仮の資金100万円で、合図どおりに買って売ったらどうなったかを毎晩数えます（本人の売買とは別）。デイトレ＝場中の買い場に指値（30分で約定しなければ取り消し）、損切りの目安に逆指値、届かなければ大引け。1日2回まで。スイング＝前の夜の買い候補を寄りで（終値の+2%以内なら）、損切り・目標・最長40営業日、3銘柄まで。低位株＝強い引けの目印で14:50に買い、翌日 +5%／−8%／13時。1回の損は資金の1%まで、1銘柄は30%まで、100株単位。成行は0.1%不利に約定、手数料0。</p>
     <div class="panel" id="paper-panel" hidden>
       <div id="paper-head" class="paper-head"></div>
+      <div id="paper-aggr" class="paper-head" hidden></div>
       <svg id="paper-chart" class="paper-chart" viewBox="0 0 300 60" preserveAspectRatio="none" role="img" aria-label="資産の動き"></svg>
       <div class="sig-scroll"><table class="sig-table" aria-label="やり方ごとの成績"><thead><tr><th>やり方</th><th class="num">回数</th><th class="num">勝率</th><th class="num">損益</th><th class="num">1回の平均</th></tr></thead><tbody id="paper-tracks"></tbody></table></div>
       <div class="sub" style="margin:8px 0 4px" id="paper-pos-h"></div>
@@ -1044,7 +1045,7 @@ section.folded .sec-head { margin-bottom: 0; }
     el.textContent = "ここに無い売買もあります。証券会社の取引履歴（" + String(hh.from || "").slice(5).replace("-", "/") + "〜" + String(hh.to || "").slice(5).replace("-", "/") + "、" + (hh.trades || "?") + "件）で数えた実現損益は " + (hh.realized > 0 ? "+" : "") + Math.round(hh.realized).toLocaleString("ja-JP") + "円（勝ち" + (hh.winners || 0) + "銘柄・負け" + (hh.losers || 0) + "銘柄）。下の数字は、記録帳に入れた売買だけの集計です。";
   }
 
-  var paperState = null, paperTrades = [], paperBf = null;
+  var paperState = null, paperTrades = [], paperBf = null, paperAggr = null;
   var TRACK = { day: "デイトレ", swing: "スイング", low: "低位株の強い引け" };
   function renderPaper() {
     var yen = function (v) { return (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(Math.round(v)).toLocaleString("ja-JP") + "円"; };
@@ -1055,6 +1056,17 @@ section.folded .sec-head { margin-bottom: 0; }
       bf.textContent = "参考（試運転）：過去" + s0.days + "日（" + String(s0.start).slice(5).replace("-", "/") + "〜）を同じやり方でさかのぼると、100万円 → " + Math.round(s0.equity).toLocaleString("ja-JP") + "円（" + pc(s0.return_pct) + "、一番下げたとき " + pc(s0.max_drawdown_pct) + "）。" + (paperBf.note || "");
       bf.hidden = false;
     }
+    var ag = $("paper-aggr"); ag.textContent = "";
+    if (paperAggr && paperAggr.history && paperAggr.history.length) {
+      var acap = paperAggr.params && paperAggr.params.capital || 1000000, ah = paperAggr.history, al = ah[ah.length - 1];
+      var apk = acap, add = 0; ah.forEach(function (x) { apk = Math.max(apk, x.equity); add = Math.min(add, (x.equity / apk - 1) * 100); });
+      var at = paperTrades.filter(function (t) { return t.account === "aggr"; });
+      ag.appendChild(el("span", "muted", "攻めの口座（1回の損 資金の" + (paperAggr.params.riskPct) + "%・候補を全部）"));
+      ag.appendChild(el("b", al.equity >= acap ? "up" : "down", Math.round(al.equity).toLocaleString("ja-JP") + "円"));
+      ag.appendChild(el("span", al.equity >= acap ? "up" : "down", pc((al.equity / acap - 1) * 100)));
+      ag.appendChild(el("span", "muted", "一番下げたとき " + pc(add) + "・決着 " + at.length + "回"));
+      ag.hidden = false;
+    } else ag.hidden = true;
     var st = paperState;
     if (!st || !st.history || !st.history.length) { $("paper-panel").hidden = true; $("paper-empty").hidden = false; return; }
     $("paper-empty").hidden = true; $("paper-panel").hidden = false;
@@ -1076,7 +1088,8 @@ section.folded .sec-head { margin-bottom: 0; }
     pl.setAttribute("points", vals.map(function (v, i) { return (vals.length > 1 ? i / (vals.length - 1) * 300 : 0) + "," + y(v); }).join(" "));
     svg.appendChild(pl);
     var by = {};
-    paperTrades.forEach(function (t) { var g = by[t.track] || (by[t.track] = { n: 0, w: 0, pnl: 0, pct: 0 }); g.n++; if (t.pnl > 0) g.w++; g.pnl += t.pnl; g.pct += t.pnlPct; });
+    var mine = paperTrades.filter(function (t) { return t.account !== "aggr"; });
+    mine.forEach(function (t) { var g = by[t.track] || (by[t.track] = { n: 0, w: 0, pnl: 0, pct: 0 }); g.n++; if (t.pnl > 0) g.w++; g.pnl += t.pnl; g.pct += t.pnlPct; });
     var tb = $("paper-tracks"); tb.textContent = "";
     ["day", "swing", "low"].forEach(function (k) {
       var g = by[k]; var tr = document.createElement("tr");
@@ -1098,7 +1111,7 @@ section.folded .sec-head { margin-bottom: 0; }
       pb.appendChild(li);
     });
     var tt = $("paper-trades"); tt.textContent = "";
-    paperTrades.slice().sort(function (a, b) { return String(b.exitDate).localeCompare(String(a.exitDate)) || String(b.id).localeCompare(String(a.id)); }).slice(0, 30).forEach(function (t) {
+    mine.slice().sort(function (a, b) { return String(b.exitDate).localeCompare(String(a.exitDate)) || String(b.id).localeCompare(String(a.id)); }).slice(0, 30).forEach(function (t) {
       var tr = document.createElement("tr");
       [[String(t.exitDate).slice(5).replace("-", "/")], [t.name || t.code], [TRACK[t.track] || t.track], [t.entry, 1], [t.exit, 1], [yen(t.pnl) + "（" + pc(t.pnlPct) + "）", 1, t.pnl], [t.reason || ""]].forEach(function (c) {
         tr.appendChild(el("td", (c[1] ? "num" : "") + (c[2] > 0 ? " up" : c[2] < 0 ? " down" : ""), String(c[0])));
@@ -1291,6 +1304,7 @@ section.folded .sec-head { margin-bottom: 0; }
       db.collection("mite").limit(300).onSnapshot(function (snap) { miteDocs = snap.docs.map(function (doc) { var o = Object.assign({}, doc.data()); o.id = doc.id; return o; }); renderMite(); }, function () {});
       db.collection("intraday").limit(300).onSnapshot(function (snap) { intraDocs = snap.docs.map(function (doc) { var o = Object.assign({}, doc.data()); o.id = doc.id; return o; }); renderIntra(); }, function () {});
       db.doc("settings/paper").onSnapshot(function (snap) { paperState = snap.exists ? snap.data() : null; renderPaper(); }, function () {});
+      db.doc("settings/paper_aggr").onSnapshot(function (snap) { paperAggr = snap.exists ? snap.data() : null; renderPaper(); }, function () {});
       db.doc("settings/paper_backfill").onSnapshot(function (snap) { paperBf = snap.exists ? snap.data() : null; renderPaper(); }, function () {});
       db.collection("paper_trades").limit(1000).onSnapshot(function (snap) { paperTrades = snap.docs.map(function (doc) { var o = Object.assign({}, doc.data()); o.id = doc.id; return o; }); renderPaper(); }, function () {});
       db.doc("settings/intraday_wide_stats").onSnapshot(function (snap) { wideStats = snap.exists ? snap.data() : null; renderWide(); }, function () {});

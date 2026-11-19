@@ -3077,6 +3077,24 @@ async function main() {
       const po = args.indexOf('--paper-out')
       if (po >= 0) writeFileSync(args[po + 1], JSON.stringify(r.state))
       paper.state_file = po >= 0 ? args[po + 1] : null
+      // 2つ目の口座（攻めの口座など）：--paper2 状態.json --paper2-params '{"riskPct":5}' --paper2-out 新しい状態.json。同じ日の同じデータで動かす
+      const p2 = args.indexOf('--paper2')
+      if (p2 >= 0) {
+        let s2 = null
+        try {
+          s2 = JSON.parse(readFileSync(args[p2 + 1], 'utf-8'))
+        } catch {
+          s2 = null
+        }
+        if (!s2?.params) {
+          const pp = args.indexOf('--paper2-params')
+          s2 = paperNew(pp >= 0 ? JSON.parse(args[pp + 1]) : {})
+        }
+        const r2 = paperStep(s2, { date: day.paper.date, stocks: day.paper.stocks, cands: Array.isArray(cands) ? cands : [] })
+        const o2 = args.indexOf('--paper2-out')
+        if (o2 >= 0) writeFileSync(args[o2 + 1], JSON.stringify(r2.state))
+        paper.second = { skipped: !!r2.skipped, trades: r2.trades.map(t => ({ ...t, id: 'aggr-' + t.id, account: 'aggr' })), opened: r2.opened, summary: paperSummary(r2.state, r2.trades), equity: r2.state.history[r2.state.history.length - 1] || null, state_file: o2 >= 0 ? args[o2 + 1] : null }
+      }
     }
     delete day.paper
     let five = null

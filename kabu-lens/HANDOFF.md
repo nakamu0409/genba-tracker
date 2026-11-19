@@ -276,3 +276,7 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 ### 2026-11-19 保有の上限を「損の合計」に
 - 本人と決めて、銘柄数の上限（maxPositions 3）をやめた。settings/main の `maxOpenRiskMult: 3`：持ち越す株が全部損切りに当たったときの損の合計を「1回の損の上限 × 3」までにする（preTradeCheck の caps に「損の合計の上限」。損切りの無い保有は上限いっぱいとみる）。style が day の保有（その日のうちに売るデイトレ）は数えない。extra にも1行。
 - 状態ファイルの positions に stop と style を入れる（kau.md・mite.md）。
+
+### 2026-11-19 攻めの口座
+- 練習口座をもう1つ、同じ日の同じデータで動かす：`--paper2 状態 --paper2-params '{"riskPct":5,"maxPosPct":50,"swingMax":10,"dayMax":2,"lowMax":3}' --paper2-out 新しい状態`。状態は `settings/paper_aggr`、売買は `paper_trades`（id が aggr- で始まり account: "aggr"）。記録帳の練習口座の欄に1行で並ぶ。
+- 試運転（34日）：今の口座 +2.5%（一番下げたとき −5.5%）に対し、攻めの口座 −13.0%（−17.0%）。この期間はスイングの候補が悪く（12回で勝ち1回）、攻めた分だけ負けが大きくなった。現物だけだと株数は現金で決まり、攻めても張れる量はあまり増えない。
