@@ -302,3 +302,12 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 - 夜の点検の1行目に「（ルール ◯◯版）」。/kau・/mite の considered に ruleVersion。
 - 参考にした記事：zenn.dev/okikusan のシリーズ Vol.6（ルールの検証と毎日の点検、版管理、判定時刻と約定時刻を分ける、作った期間と別の期間で確かめる）。
 - 11/19 本人の希望で、買う前は /mite だけでよいことにした（/mite に /kau のチェックが入っている。/kau は株数だけ確かめたいとき、/bachu は場中のスクショつきで流れを見たいとき）。extra の「買う前チェック」の行を更新。
+
+### 2026-11-19 記録を増やした（目印・企業の行動・夜のPTS）
+- 本人の方針：「データは取れるだけ取っていこう」。23:07 の「候補の記録」に手順 6e〜6h を足した（ops/prompt-cands.md）。
+- **引け前の目印**（`marks`、累計は `settings/marks_stats`）：`--intraday-wide` の出力 `marks` に、前の営業日の目印を1件ずつ出す（`marksOutcomes`）。低位株の強い引けは通知どおり（14:50の足の始値で買い、翌日 +5%／−8%／13時。`lowExit`）、後場の VWAP 奪回は初めて出た時刻の20分後の足で買い、翌日の大引けまで。`--marks-stats` で日ごとに累計（同じ日は2回足さない）。
+- **企業の行動の全件**（`events`）：`--buyback <今日>` の rows を、見送り（skip）も含めて全部記録。寄指の値段は答え合わせのときに発表日の終値×1.02で計算する（`limitPct: 2`。夜は Yahoo の日足に今日の分がまだ無いことがあるため）。
+- **夜のPTS**（`pts_moves`）：株探のPTSランキング上下それぞれ先頭15件。基準は当日の終値（ref）とPTSの値段（ref2）。出来高1万株未満は group に `_thin`。
+- 答え合わせは `--next-day-result recs.json --stats st.json`（`nextDayOutcome`・`mergeNextDay`）。翌営業日の寄りの窓、寄指で約定したか（filled）、寄り→引け（と1306との差）、終値→終値、株式分割は5営業日目の大引けまで。累計は `settings/nextday_stats` の group ごと（buyback_s0〜s2・divup・split・up・down・up_thin・down_thin）。
+- 11/19 の夜の分は、その日の定期実行が終わったあとに手で入れた（11/18 の目印22件、11/19 の自社株買い1件、PTS上下30件ずつ）。
+- **記録帳のデータベースは全部で25,000件まで**（11/19 時点で約650件）。cands・marks・pts_moves が毎日増えるので、半年ほどで古い記録をファイル（asset）に移す仕組みが必要になる。
