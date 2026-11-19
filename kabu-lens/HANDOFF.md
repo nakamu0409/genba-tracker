@@ -290,3 +290,8 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 - `--buyback [YYYYMMDD] --universe universe-wide.json`：TDnet の1日分から選ぶ（isBuybackTitle・pickBuybacks。立会外・経過・状況報告・決算と同じ日・15時前は除く）。limit＝終値×1.02 を呼値で切り捨て（tickFloor）＝寄指の値段。
 - 夜の点検の手順5b・3a：自社株買いを注文票の先頭に（寄指で買い→引成で売り。dayTradeMax の回数に数える。持ち越さないので損の合計には入れず、現金からは引く）。
 - 練習口座：`--paper-buyback` で前の営業日の分を TDnet から取り、track "bb"（寄りが limit 以下なら寄りで買い、大引けで売る。1日 bbMax=2 回まで）。記録帳では「自社株買いの翌日」。
+
+### 2026-11-19 増配・株式分割も足した
+- study_events.mjs：寄指で買える日の1日目（全体比）は 増配 +0.48%（431回、8/10年プラス）、株式分割は1日目−0.14%だが5日 +0.85%・20日 +1.41%。優待の新設・拡充は効かない。
+- pickEvents（buyback・divup・split）。--buyback の出力に kind・expect_pct・sell。夜の注文票は expect_pct の順に dayTradeMax 件。株式分割は5営業日目の引成で売り、保険に寄値×0.92 の逆指値。
+- 練習口座：track "bb"（自社株買い・増配。寄り→引け）と "split"（5日目の引け）。

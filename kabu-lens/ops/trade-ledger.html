@@ -226,7 +226,7 @@ section.folded .sec-head { margin-bottom: 0; }
 
   <section aria-labelledby="h-paper">
     <div class="sec-head"><h2 id="h-paper">練習口座（シミュレーション）</h2><span class="count" id="paper-count"></span></div>
-    <p class="sub">仮の資金100万円で、合図どおりに買って売ったらどうなったかを毎晩数えます（本人の売買とは別）。デイトレ＝場中の買い場に指値（30分で約定しなければ取り消し）、損切りの目安に逆指値、届かなければ大引け。1日2回まで。スイング＝前の夜の買い候補を寄りで（終値の+2%以内なら）、損切り・目標・最長40営業日、3銘柄まで。低位株＝強い引けの目印で14:50に買い、翌日 +5%／−8%／13時。自社株買い＝前の日の15時以降に発表（決算と別の日）された株のうち良い条件（久しぶり・15時台前半・25日線の下）が1つ以上のものを、寄りが前日の終値の+2%以内なら寄りで買い、大引けで売る（1日2回まで）。1回の損は資金の1%まで、1銘柄は30%まで、100株単位。成行は0.1%不利に約定、手数料0。</p>
+    <p class="sub">仮の資金100万円で、合図どおりに買って売ったらどうなったかを毎晩数えます（本人の売買とは別）。デイトレ＝場中の買い場に指値（30分で約定しなければ取り消し）、損切りの目安に逆指値、届かなければ大引け。1日2回まで。スイング＝前の夜の買い候補を寄りで（終値の+2%以内なら）、損切り・目標・最長40営業日、3銘柄まで。低位株＝強い引けの目印で14:50に買い、翌日 +5%／−8%／13時。自社株買い＝前の日の15時以降に発表（決算と別の日）された株のうち良い条件（久しぶり・15時台前半・25日線の下）が1つ以上のものと、増配を、寄りが前日の終値の+2%以内なら寄りで買い、大引けで売る。株式分割は同じく寄りで買い、5営業日目の大引けで売る（合わせて1日2回まで）。1回の損は資金の1%まで、1銘柄は30%まで、100株単位。成行は0.1%不利に約定、手数料0。</p>
     <div class="panel" id="paper-panel" hidden>
       <div id="paper-head" class="paper-head"></div>
       <div id="paper-aggr" class="paper-head" hidden></div>
@@ -1046,7 +1046,7 @@ section.folded .sec-head { margin-bottom: 0; }
   }
 
   var paperState = null, paperTrades = [], paperBf = null, paperAggr = null;
-  var TRACK = { day: "デイトレ", swing: "スイング", low: "低位株の強い引け", bb: "自社株買いの翌日" };
+  var TRACK = { day: "デイトレ", swing: "スイング", low: "低位株の強い引け", bb: "自社株買い・増配の翌日", split: "株式分割（5日）" };
   function renderPaper() {
     var yen = function (v) { return (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(Math.round(v)).toLocaleString("ja-JP") + "円"; };
     var pc = function (v) { return (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(2) + "%"; };
@@ -1091,7 +1091,7 @@ section.folded .sec-head { margin-bottom: 0; }
     var mine = paperTrades.filter(function (t) { return t.account !== "aggr"; });
     mine.forEach(function (t) { var g = by[t.track] || (by[t.track] = { n: 0, w: 0, pnl: 0, pct: 0 }); g.n++; if (t.pnl > 0) g.w++; g.pnl += t.pnl; g.pct += t.pnlPct; });
     var tb = $("paper-tracks"); tb.textContent = "";
-    ["bb", "day", "swing", "low"].forEach(function (k) {
+    ["bb", "split", "day", "swing", "low"].forEach(function (k) {
       var g = by[k]; var tr = document.createElement("tr");
       [[TRACK[k]], [g ? g.n : 0, 1], [g ? Math.round(g.w / g.n * 100) + "%" : "—", 1], [g ? yen(g.pnl) : "—", 1, g && g.pnl], [g ? pc(g.pct / g.n) : "—", 1, g && g.pct]].forEach(function (c) {
         var td = el("td", (c[1] ? "num" : "") + (c[2] > 0 ? " up" : c[2] < 0 ? " down" : ""), String(c[0])); tr.appendChild(td);

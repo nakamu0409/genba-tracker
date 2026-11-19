@@ -1386,6 +1386,38 @@ export function pickBuybacks(rows, universe = null) {
   return out
 }
 
+/** 増配の開示（表題に「増配」があるもの。減配・無配・下方は除く） */
+export function isDividendUpTitle(t) {
+  const s = String(t || '')
+  return /増配/.test(s) && !/(減配|無配|下方)/.test(s)
+}
+
+/** 株式分割の開示（結果・延期・中止の報告は除く） */
+export function isSplitTitle(t) {
+  const s = String(t || '')
+  return /株式分割/.test(s) && !/(結果|延期|中止)/.test(s)
+}
+
+/**
+ * TDnet の1日分の開示から、翌朝に買う企業の行動を選ぶ（15:00以降・決算と別の日・対象の銘柄）。
+ * kind: buyback（自社株買い）・divup（増配）は翌日の寄りで買い引けで売る。split（株式分割）は翌日の寄りで買い5営業日後の引けで売る
+ * （research/swing/README.md：寄指で買える日の10年の成績。増配 1日目 全体比+0.48%、株式分割 5日 +0.85%・20日 +1.41%）
+ */
+export function pickEvents(rows, universe = null) {
+  const set = universe ? new Set(universe) : null
+  const kessan = new Set(rows.filter(r => /決算短信|決算発表|四半期決算/.test(r.title)).map(r => r.code))
+  const out = new Map()
+  for (const r of rows) {
+    if (r.time < '15:00' || kessan.has(r.code) || (set && !set.has(r.code))) continue
+    const kind = isBuybackTitle(r.title) ? 'buyback' : isDividendUpTitle(r.title) ? 'divup' : isSplitTitle(r.title) ? 'split' : null
+    if (!kind) continue
+    const prev = out.get(r.code)
+    if (prev && (prev.kind === 'buyback' || kind === 'split')) continue
+    out.set(r.code, { code: r.code, name: r.name, time: r.time, title: r.title, kind })
+  }
+  return [...out.values()]
+}
+
 /** 自社株買いの良い条件の数（0〜3）。repeat＝1年以内にも自社株買いの決定があった、dev25＝25日線からの位置（%）、time＝発表の時刻 */
 export function buybackScore({ time, dev25, repeat }) {
   const why = []
@@ -2432,6 +2464,13 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [] }
       if (!done) close(pos, bars[bars.length - 1].c * (1 - slip), '翌日の引け')
       continue
     }
+    if (pos.track === 'split') {
+      pos.held = (pos.held || 0) + 1
+      pos.last = bars[bars.length - 1].c
+      if (pos.held >= (pos.holdDays || 5)) close(pos, pos.last, `${pos.holdDays || 5}日目の引け`)
+      else keep.push(pos)
+      continue
+    }
     // スイング
     const x = ohlcOf(bars)
     pos.held = (pos.held || 0) + 1
@@ -2480,8 +2519,16 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [] }
     if (!(o > 0) || o > limit || bars.every(x => x.h === x.l)) continue
     const qty = Math.floor(Math.min(equity0 * p.maxPosPct / 100, st.cash) / o / 100) * 100
     if (qty < 100) continue
-    const pos = open('bb', b.code, b.name || s.name || '', o, qty, { limit })
-    close(pos, bars[bars.length - 1].c, '大引け')
+    if (b.kind === 'split') {
+      // 株式分割：寄りで買い、5営業日後の引けで売る（その日を1日目と数える）
+      const pos = open('split', b.code, b.name || s.name || '', o, qty, { limit, holdDays: p.splitHold ?? 5 })
+      pos.held = 1
+      pos.last = bars[bars.length - 1].c
+      st.positions.push(pos)
+    } else {
+      const pos = open('bb', b.code, b.name || s.name || '', o, qty, { limit, kind: b.kind || 'buyback' })
+      close(pos, bars[bars.length - 1].c, '大引け')
+    }
     bbCount++
   }
   // 3. デイトレ（場中の買い場）
@@ -3091,7 +3138,7 @@ async function main() {
     const ui = args.indexOf('--universe')
     const uni = ui >= 0 ? JSON.parse(readFileSync(args[ui + 1], 'utf-8')).map(x => x.code) : null
     const td = await fetchTdnet(d)
-    const rows = pickBuybacks(td.rows, uni)
+    const rows = pickEvents(td.rows, uni)
     for (const r of rows) {
       try {
         const y = await fetchYahoo(`${r.code}.T`, '3mo')
@@ -3104,16 +3151,28 @@ async function main() {
       } catch (e) {
         r.error = e.message
       }
-      try {
-        r.repeat = await fetchBuybackRepeat(r.code, td.date)
-      } catch {
-        r.repeat = null
+      if (r.kind === 'buyback') {
+        try {
+          r.repeat = await fetchBuybackRepeat(r.code, td.date)
+        } catch {
+          r.repeat = null
+        }
+        Object.assign(r, buybackScore(r))
+        r.skip = r.score === 0
+        r.expect_pct = r.score >= 2 ? 0.7 : r.score === 1 ? 0.36 : -0.06
+        r.sell = '同じ日の引成'
+      } else if (r.kind === 'divup') {
+        r.skip = false
+        r.expect_pct = 0.48
+        r.sell = '同じ日の引成'
+      } else {
+        r.skip = false
+        r.expect_pct = 0.85
+        r.sell = '5営業日後の引成'
       }
-      Object.assign(r, buybackScore(r))
-      r.skip = r.score === 0
     }
-    rows.sort((a, b) => b.score - a.score)
-    console.log(JSON.stringify({ date: td.date, total_disclosures: td.total, error: td.error || null, rule: '翌営業日に寄指（limit 以下なら寄りで買う）→ 約定したら同じ日の引成で売る。決算と同じ日の発表・立会外の取得は除いてある。score（良い条件の数）が大きい順。score 0 は見送り（10年で平均 −0.06%）。寄指で買える日の平均は +0.43%、score 2以上は +0.70〜0.78%', rows }, null, 2))
+    rows.sort((a, b) => (b.skip ? -1 : b.expect_pct) - (a.skip ? -1 : a.expect_pct))
+    console.log(JSON.stringify({ date: td.date, total_disclosures: td.total, error: td.error || null, rule: '翌営業日に寄指（limit 以下なら寄りで買う）。kind: buyback＝自社株買い（同じ日の引成で売る。score 0 は見送り）、divup＝増配（同じ日の引成）、split＝株式分割（5営業日後の引成）。決算と同じ日の発表・立会外の取得は除く。expect_pct＝10年の検証での1回の平均（全体比の%）。大きい順', rows }, null, 2))
     return
   }
   if (args.includes('--scan-now')) {
@@ -3183,8 +3242,12 @@ async function main() {
       if (args.includes('--paper-buyback') && day.paper.prevDate) {
         try {
           const td = await fetchTdnet(day.paper.prevDate.replace(/-/g, ''))
-          buybacks = pickBuybacks(td.rows, list.map(x => x.code))
+          buybacks = pickEvents(td.rows, list.map(x => x.code))
           for (const b of buybacks) {
+            if (b.kind !== 'buyback') {
+              b.expect = b.kind === 'divup' ? 0.48 : 0.85
+              continue
+            }
             const ctx = day.paper.stocks[b.code]?.ctx
             b.dev25 = ctx?.prevClose > 0 && ctx?.ma25 > 0 ? round((ctx.prevClose / ctx.ma25 - 1) * 100, 1) : null
             try {
@@ -3193,8 +3256,9 @@ async function main() {
               b.repeat = null
             }
             Object.assign(b, buybackScore(b))
+            b.expect = b.score >= 2 ? 0.7 : b.score === 1 ? 0.36 : -0.06
           }
-          buybacks = buybacks.filter(b => b.score > 0).sort((a, b) => b.score - a.score)
+          buybacks = buybacks.filter(b => b.kind !== 'buyback' || b.score > 0).sort((a, b) => b.expect - a.expect)
         } catch {
           buybacks = []
         }

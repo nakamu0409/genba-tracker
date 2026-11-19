@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -1004,5 +1004,36 @@ describe('自社株買いの良い条件', () => {
     expect(buybackScore({ time: '15:00', dev25: -3, repeat: false }).score).toBe(3)
     expect(buybackScore({ time: '15:30', dev25: 4, repeat: true }).score).toBe(0)
     expect(buybackScore({ time: '16:00', dev25: null, repeat: null }).score).toBe(0)
+  })
+})
+
+describe('企業の行動の開示（自社株買い・増配・株式分割）', () => {
+  it('種類を分け、15時以降・決算と別の日だけを選ぶ', () => {
+    expect(isDividendUpTitle('配当予想の修正（増配）に関するお知らせ')).toBe(true)
+    expect(isDividendUpTitle('配当予想の修正（減配）に関するお知らせ')).toBe(false)
+    expect(isSplitTitle('株式分割及び定款の一部変更に関するお知らせ')).toBe(true)
+    const rows = [
+      { time: '15:00', code: '1111', name: 'A', title: '剰余金の配当（増配）に関するお知らせ' },
+      { time: '15:30', code: '2222', name: 'B', title: '株式分割に関するお知らせ' },
+      { time: '15:30', code: '3333', name: 'C', title: '自己株式取得に係る事項の決定に関するお知らせ' },
+      { time: '15:30', code: '3333', name: 'C', title: '配当予想の修正（増配）に関するお知らせ' },
+      { time: '14:00', code: '4444', name: 'D', title: '株式分割に関するお知らせ' }
+    ]
+    const ev = pickEvents(rows)
+    expect(ev.map(e => [e.code, e.kind])).toEqual([['1111', 'divup'], ['2222', 'split'], ['3333', 'buyback']])
+  })
+  it('練習口座：株式分割は寄りで買い、5営業日目の引けで売る', () => {
+    const day = (o, c) => [{ m: 540, o, h: Math.max(o, c), l: Math.min(o, c), c, v: 1 }]
+    let st = paperNew()
+    let r = paperStep(st, { date: '2026-11-20', stocks: { 2222: { name: 'B', bars: day(1005, 1010), ctx: { prevClose: 1000 } } }, buybacks: [{ code: '2222', kind: 'split' }] })
+    expect(r.state.positions[0]).toMatchObject({ track: 'split', entry: 1005, held: 1 })
+    st = r.state
+    for (const d of ['2026-11-21', '2026-11-24', '2026-11-25']) {
+      st = paperStep(st, { date: d, stocks: { 2222: { bars: day(1010, 1020) } } }).state
+    }
+    expect(st.positions).toHaveLength(1)
+    r = paperStep(st, { date: '2026-11-26', stocks: { 2222: { bars: day(1020, 1030) } } })
+    expect(r.trades[0]).toMatchObject({ track: 'split', exit: 1030 })
+    expect(r.state.positions).toHaveLength(0)
   })
 })
