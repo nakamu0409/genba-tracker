@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -1085,5 +1085,13 @@ describe('引け前の目印・企業の行動・PTSの記録', () => {
       { group: 'buyback_s2', final: false }
     ])
     expect(st.groups.buyback_s2).toMatchObject({ n: 2, filled: 1, sumOC: 1, sumExOC: 0.5, winOC: 1, sumCC: 7, sumGap: 4 })
+  })
+})
+
+describe('答えが出終わった記録をまとめる', () => {
+  it('同じ id は新しいほうで上書きし、日付順に並べる', () => {
+    const m = archiveMerge([{ id: 'a', date: '2026-10-02', v: 1 }, { id: 'b', date: '2026-10-01' }], [{ id: 'a', date: '2026-10-02', v: 2 }])
+    expect(m.map(r => r.id)).toEqual(['b', 'a'])
+    expect(m[1].v).toBe(2)
   })
 })

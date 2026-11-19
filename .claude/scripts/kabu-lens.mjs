@@ -38,7 +38,7 @@
 // 結果は kabu-lens/packets/latest/TSE_<コード>_D.json に保存する（コミットされない）。
 // 決算日はこのデータに含まれないので earnings は null。/catalysts の日付を使うこと。
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 
@@ -2324,6 +2324,16 @@ export function lowExit(next, entry, { tp = 5, sl = 8, exitM = 780 } = {}) {
   return { exit: next[next.length - 1].c, reason: '翌日の大引け' }
 }
 
+// ---- 答えが出終わった記録を1日1件にまとめる（記録帳のデータベースは全部で25,000件まで）----------------
+// 毎晩の定期実行が、その日に答えが出終わった記録を collection "archive" の doc「<collection>-<日付>」1件にまとめ、元の記録は消す。
+// 累計（settings の *_stats）は別に持っているので数字は変わらない。cands は --signals-report --also で archive の分も足して数える
+/** まとめた記録に足す（同じ id は新しいほうで上書き） */
+export function archiveMerge(oldRecs, newRecs) {
+  const m = new Map()
+  for (const r of [...(oldRecs || []), ...(newRecs || [])]) m.set(r.id, r)
+  return [...m.values()].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.id < b.id ? -1 : 1))
+}
+
 /**
  * 引け前の目印の本番の成績（1件ずつ）。items は fetchIntradayWide の items（day＝その日の5分足、next＝翌営業日の5分足）。
  * ・LOW_STRONG_CLOSE：14:30の足までで目印 → 14:50の足の始値で買い、翌日 +5%の指値・−8%の逆指値、どちらも無ければ翌日13:00の足の始値で売る
@@ -3201,9 +3211,40 @@ async function main() {
     console.log(JSON.stringify(await scanCandidates(JSON.parse(readFileSync(file, 'utf-8'))), null, 2))
     return
   }
+  if (args.includes('--archive-doc')) {
+    // --archive-doc <collection> <YYYY-MM-DD> 新しい記録.json [--existing 既にあるまとめ.json] > まとめ.json（{col, date, count, records}。archive に set する中身）
+    const i = args.indexOf('--archive-doc')
+    const col = args[i + 1]
+    const date = args[i + 2]
+    const read = (p) => {
+      try {
+        const x = JSON.parse(readFileSync(p, 'utf-8'))
+        return Array.isArray(x) ? x : x.records || []
+      } catch {
+        return []
+      }
+    }
+    const ei = args.indexOf('--existing')
+    const records = archiveMerge(ei >= 0 ? read(args[ei + 1]) : [], read(args[i + 3]))
+    if (records.some(r => !r.id)) {
+      console.error('id の無い記録があります（各記録に doc_id を id として入れてください）')
+      process.exit(1)
+    }
+    console.log(JSON.stringify({ col, date, count: records.length, records, updatedAt: new Date().toISOString() }))
+    return
+  }
   if (args.includes('--signals-report')) {
-    const file = args[args.indexOf('--signals-report') + 1]
-    console.log(JSON.stringify(signalsReport(JSON.parse(readFileSync(file, 'utf-8'))), null, 2))
+    // 本体：配列の JSON か、ArtifactData の out_dir（1件1ファイル。ファイル名が id）。--also：まとめた記録（archive の doc）のフォルダかファイル
+    const walk = d => (statSync(d).isDirectory() ? readdirSync(d).filter(n => !n.startsWith('.')).flatMap(n => walk(`${d}/${n}`)) : d.endsWith('.json') ? [d] : [])
+    const load = p => walk(p).flatMap((fp) => {
+      const x = JSON.parse(readFileSync(fp, 'utf-8'))
+      return Array.isArray(x) ? x : Array.isArray(x.records) ? x.records : [{ ...x, id: x.id || fp.split('/').pop().replace(/\.json$/, '') }]
+    })
+    const all = load(args[args.indexOf('--signals-report') + 1])
+    const ai = args.indexOf('--also')
+    if (ai >= 0) for (const p of args.slice(ai + 1).filter(a => !a.startsWith('--'))) all.push(...load(p))
+    const seen = new Set()
+    console.log(JSON.stringify(signalsReport(all.filter(r => !r.id || (seen.has(r.id) ? false : seen.add(r.id)))), null, 2))
     return
   }
   if (args.includes('--next-day-result')) {
