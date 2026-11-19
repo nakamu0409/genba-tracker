@@ -2049,9 +2049,14 @@ export function splitFiveMin(json) {
   const days = {}
   if (!r?.timestamp) return days
   const q = r.indicators.quote[0]
+  // 場中は、最後に「足になっていない最新の約定（時刻が5分の区切りでない・出来高0）」が1点付いてくる。
+  // これを1本の足として扱うと、その1回の約定で合図が出たり消えたりする（2026-11-19、一覧では買い場・個別では待つ、のずれ）。
+  // 検証（intradayReplay）は「出来上がった足」だけで判定しているので、それにそろえて、区切りでない点と、まだ出来上がっていない足を除く
+  const asOf = Number(r.meta?.regularMarketTime) || Infinity
   r.timestamp.forEach((ts, i) => {
     const o = q.open[i], h = q.high[i], l = q.low[i], c = q.close[i], v = q.volume[i] ?? 0
     if (o == null || c == null || h == null || l == null) return
+    if (ts % 300 !== 0 || ts + 300 > asOf) return
     const d = new Date((ts + 9 * 3600) * 1000)
     const date = d.toISOString().slice(0, 10)
     const m = d.getUTCHours() * 60 + d.getUTCMinutes()

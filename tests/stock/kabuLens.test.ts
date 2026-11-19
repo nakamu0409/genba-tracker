@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { parseKabutanFinance, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { parseKabutanFinance, splitFiveMin, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -886,5 +886,25 @@ describe('株探の業績（少し長期）', () => {
     expect(m.streak).toBe(2)
     expect(earningsMomentum(r.quarterly, '2026-05-13').op_yoy_pct).toBe(20)
     expect(earningsMomentum(r.quarterly, '2026-02-06')).toBeNull()
+  })
+})
+
+describe('5分足の取り込み', () => {
+  it('最新の約定の1点と、まだ出来上がっていない足は使わない（一覧と個別で判定がずれないように）', () => {
+    const base = Date.UTC(2026, 10, 19, 1, 50) / 1000 // 10:50 JST
+    const json = {
+      chart: {
+        result: [{
+          meta: { regularMarketTime: base + 607 }, // 11:00:07
+          timestamp: [base, base + 300, base + 600, base + 607],
+          indicators: { quote: [{ open: [1804.5, 1808.5, null, 1813], high: [1809, 1812, null, 1813], low: [1803, 1806, null, 1813], close: [1808, 1811, null, 1813], volume: [5800, 7200, null, 0] }] }
+        }]
+      }
+    }
+    const bars = splitFiveMin(json)['2026-11-19']
+    expect(bars.map(b => b.m)).toEqual([650, 655])
+    // 10:55 の足の途中（11:02）までしか来ていなければ、その足も除く
+    json.chart.result[0].meta.regularMarketTime = base + 420
+    expect(splitFiveMin(json)['2026-11-19'].map(b => b.m)).toEqual([650])
   })
 })
