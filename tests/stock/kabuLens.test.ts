@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -1035,5 +1035,54 @@ describe('企業の行動の開示（自社株買い・増配・株式分割）'
     r = paperStep(st, { date: '2026-11-26', stocks: { 2222: { bars: day(1020, 1030) } } })
     expect(r.trades[0]).toMatchObject({ track: 'split', exit: 1030 })
     expect(r.state.positions).toHaveLength(0)
+  })
+})
+
+describe('引け前の目印・企業の行動・PTSの記録', () => {
+  const b = (m: number, o: number, h: number, l: number, c: number) => ({ m, o, h, l, c, v: 1000 })
+  it('低位株の強い引け：寄りの上放れ・場中の利確・損切り・13時', () => {
+    expect(lowExit([b(540, 110, 112, 109, 111)], 100)).toEqual({ exit: 110, reason: '利確（寄り）' })
+    expect(lowExit([b(540, 101, 106, 100, 104)], 100)).toEqual({ exit: 105, reason: '利確' })
+    expect(lowExit([b(540, 99, 106, 91, 95)], 100)).toEqual({ exit: 92, reason: '損切り' })
+    expect(lowExit([b(540, 100, 101, 99, 100), b(780, 102, 103, 101, 102)], 100)).toEqual({ exit: 102, reason: '翌日13時' })
+  })
+  it('翌日の5分足が無ければ数えない', () => {
+    expect(marksOutcomes([{ code: '1111', date: '2026-11-19', day: [b(540, 1, 1, 1, 1)], next: [], ctx: {} }])).toEqual([])
+  })
+  it('目印の累計は同じ日を2回足さない', () => {
+    const m = [{ mark: 'RECLAIM_PM', pct: 1, rC: 0.5 }, { mark: 'RECLAIM_PM', pct: -2, rC: 0 }]
+    let st = mergeMarks(null, '2026-11-19', m)
+    st = mergeMarks(st, '2026-11-19', m)
+    expect(st.days).toEqual(['2026-11-19'])
+    expect(st.groups.RECLAIM_PM).toEqual({ n: 2, sum: -1, win: 1, sumC: 0.5 })
+  })
+  const bars = [
+    { date: '2026-11-19', o: 100, h: 101, l: 99, c: 100 },
+    { date: '2026-11-20', o: 101, h: 104, l: 100, c: 103 },
+    { date: '2026-11-21', o: 103, h: 105, l: 102, c: 104 },
+    { date: '2026-11-24', o: 104, h: 106, l: 103, c: 105 }
+  ]
+  const bench = bars.map(x => ({ ...x, o: 100, c: 100 }))
+  it('企業の行動：寄指で約定したか、寄り→引け、全体との差', () => {
+    const r = nextDayOutcome(bars, { date: '2026-11-19', ref: 100, limit: 102 }, bench)
+    expect(r).toMatchObject({ final: true, nextDate: '2026-11-20', gap_pct: 1, filled: true, oc_pct: 1.98, cc_pct: 3, ex_oc_pct: 1.98 })
+    expect(nextDayOutcome(bars, { date: '2026-11-19', ref: 100, limit: 100 }).filled).toBe(false)
+    expect(nextDayOutcome(bars, { date: '2026-11-24', ref: 105 })).toMatchObject({ final: false, pending: true })
+  })
+  it('株式分割：5営業日目がまだ無ければ final にしない', () => {
+    expect(nextDayOutcome(bars, { date: '2026-11-19', ref: 100, hold: 3 })).toMatchObject({ final: true, holdDate: '2026-11-24', hold_pct: 3.96 })
+    expect(nextDayOutcome(bars, { date: '2026-11-19', ref: 100, hold: 5 }).final).toBe(false)
+  })
+  it('PTS：PTSの値段からの寄りの差', () => {
+    expect(nextDayOutcome(bars, { date: '2026-11-19', ref: 100, ref2: 110 })).toMatchObject({ gap2_pct: -8.18, cc2_pct: -6.36 })
+  })
+  it('累計：約定しなかった分は寄り→引けに数えず、counted は足さない', () => {
+    const st = mergeNextDay(null, [
+      { group: 'buyback_s2', final: true, filled: true, oc_pct: 1, ex_oc_pct: 0.5, cc_pct: 2, gap_pct: 1 },
+      { group: 'buyback_s2', final: true, filled: false, oc_pct: 3, cc_pct: 5, gap_pct: 3 },
+      { group: 'buyback_s2', final: true, counted: true, filled: true, oc_pct: 9, cc_pct: 9, gap_pct: 0 },
+      { group: 'buyback_s2', final: false }
+    ])
+    expect(st.groups.buyback_s2).toMatchObject({ n: 2, filled: 1, sumOC: 1, sumExOC: 0.5, winOC: 1, sumCC: 7, sumGap: 4 })
   })
 })

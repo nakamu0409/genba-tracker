@@ -28,6 +28,7 @@
 //   node .claude/scripts/kabu-lens.mjs --scan-now universe-wide.json  # 今、場中の買い場・目印が出ている銘柄を全銘柄から探す（約1分）
 //   node .claude/scripts/kabu-lens.mjs --mite 7203[:今の値段] --state st.json --stats-dir dir  # デイトレ・スイング・少し長期の判定と成績・買う前チェックをまとめて
 //   node .claude/scripts/kabu-lens.mjs --intraday-replay 7203 2026-11-18  # ある日の場中の判定を30分ごとに再現
+//   node .claude/scripts/kabu-lens.mjs --next-day-result recs.json [--stats st.json]  # 企業の行動・夜のPTSの、翌営業日（と hold 営業日後）の値動き
 //   node .claude/scripts/kabu-lens.mjs --intraday-wide universe-wide.json [--stats st.json] [--five-out f.json]  # 前の営業日の場中の判定を全銘柄で再現して数える（毎晩の自動記録）。--five-out でその日の5分足も保存
 //     [--paper 練習口座.json --paper-cands 候補.json --paper-out 新しい練習口座.json]  # 練習口座（仮の資金で合図どおりに売買）を今日の分すすめる
 //   node .claude/scripts/kabu-lens.mjs --intraday-result recs.json [--stats st.json]  # 場中の判定の答え合わせ
@@ -2311,6 +2312,130 @@ export function mergeIntradayWide(prev, day) {
   return st
 }
 
+/** 低位株の強い引けの売り方（翌日の5分足で）：+tp%の指値・−sl%の逆指値、どちらも無ければ exitM の足の始値。寄りで越えていれば寄り、同じ足で両方なら損切り */
+export function lowExit(next, entry, { tp = 5, sl = 8, exitM = 780 } = {}) {
+  const up = entry * (1 + tp / 100)
+  const dn = entry * (1 - sl / 100)
+  for (const b of next) {
+    if (b.m >= exitM) return { exit: b.o, reason: '翌日13時' }
+    const hit = b.o >= up ? [b.o, '利確（寄り）'] : b.o <= dn ? [b.o, '損切り（寄り）'] : b.l <= dn ? [dn, '損切り'] : b.h >= up ? [up, '利確'] : null
+    if (hit) return { exit: hit[0], reason: hit[1] }
+  }
+  return { exit: next[next.length - 1].c, reason: '翌日の大引け' }
+}
+
+/**
+ * 引け前の目印の本番の成績（1件ずつ）。items は fetchIntradayWide の items（day＝その日の5分足、next＝翌営業日の5分足）。
+ * ・LOW_STRONG_CLOSE：14:30の足までで目印 → 14:50の足の始値で買い、翌日 +5%の指値・−8%の逆指値、どちらも無ければ翌日13:00の足の始値で売る
+ *   （寄りで指値・逆指値を越えていれば寄りの値段。同じ足で両方に届けば損切りとみる）
+ * ・RECLAIM_PM：13:00〜14:30の判定で初めて出た時刻の20分後の足の始値で買い、その日の大引け（rC）と翌日の大引け（pct）まで
+ */
+export function marksOutcomes(items, { lowAt = 870, lowEntryM = 890, tp = 5, sl = 8, exitM = 780, pmTimes = [780, 810, 840, 870], delay = 20 } = {}) {
+  const out = []
+  for (const it of items) {
+    const day = it.day
+    const next = it.next
+    if (!day?.length || !next?.length) continue
+    const close = day[day.length - 1].c
+    const nextClose = next[next.length - 1].c
+    const seenL = day.filter(b => b.m + 5 <= lowAt)
+    if (seenL.length >= 3) {
+      const v = intradayView(seenL, it.ctx || {})
+      const eb = day.find(b => b.m >= lowEntryM)
+      if (v?.marks?.includes('LOW_STRONG_CLOSE') && eb?.o > 0) {
+        const entry = eb.o
+        const { exit, reason } = lowExit(next, entry, { tp, sl, exitM })
+        out.push({ date: it.date, code: it.code, name: it.name || '', mark: 'LOW_STRONG_CLOSE', at: '14:50', entry: round(entry, 1), exit: round(exit, 1), reason, pct: round((exit / entry - 1) * 100, 2), rC: round((close / entry - 1) * 100, 2), from_prev_pct: v.from_prev_pct })
+      }
+    }
+    for (const t of pmTimes) {
+      const seen = day.filter(b => b.m + 5 <= t)
+      if (seen.length < 3) continue
+      const v = intradayView(seen, it.ctx || {})
+      if (!v?.marks?.includes('RECLAIM_PM')) continue
+      const e = day.find(b => b.m >= t + delay)
+      if (!(e?.o > 0)) break
+      out.push({ date: it.date, code: it.code, name: it.name || '', mark: 'RECLAIM_PM', at: `${Math.floor((t + delay) / 60)}:${String((t + delay) % 60).padStart(2, '0')}`, entry: round(e.o, 1), exit: round(nextClose, 1), reason: '翌日の大引け', pct: round((nextClose / e.o - 1) * 100, 2), rC: round((close / e.o - 1) * 100, 2), from_prev_pct: v.from_prev_pct })
+      break
+    }
+  }
+  return out
+}
+
+/** 目印の成績を1日分ずつ累計に足す（同じ日は2回足さない）。{days, groups: {目印: {n, sum, win, sumC}}} */
+export function mergeMarks(prev, date, marks) {
+  const st = prev?.days ? JSON.parse(JSON.stringify(prev)) : { days: [], groups: {} }
+  if (!date || st.days.includes(date)) return st
+  st.days.push(date)
+  st.days.sort()
+  for (const m of marks) {
+    const g = (st.groups[m.mark] ||= { n: 0, sum: 0, win: 0, sumC: 0 })
+    g.n++
+    g.sum = round(g.sum + m.pct, 3)
+    g.sumC = round(g.sumC + m.rC, 3)
+    if (m.pct > 0) g.win++
+  }
+  return st
+}
+
+/**
+ * ある日（rec.date）の後の、翌営業日の値動き。企業の行動（自社株買い・増配・株式分割）と夜のPTSの答え合わせに使う。
+ * rec: {date, ref: 基準の値段（その日の終値）, ref2?: もう1つの基準（PTSの値段など）, limit?: 寄指の値段, hold?: 何営業日目の大引けまで持つか（既定1）}
+ * bench: 1306 の日足（全体との差を出す）。返り値の final が false なら、まだ日がそろっていない
+ */
+export function nextDayOutcome(bars, rec, bench = []) {
+  const i = bars.findIndex(b => b.date > rec.date)
+  if (i < 0) return { final: false, pending: true }
+  const hold = Math.max(1, rec.hold || 1)
+  const b = bars[i]
+  const prev = bars[i - 1]
+  const ref = ok(rec.ref) ? rec.ref : prev?.c
+  const out = { final: false, nextDate: b.date, open: b.o, high: b.h, low: b.l, close: b.c }
+  out.gap_pct = round((b.o / ref - 1) * 100, 2)
+  out.filled = ok(rec.limit) ? b.o <= rec.limit : true
+  out.oc_pct = round((b.c / b.o - 1) * 100, 2)
+  out.cc_pct = round((b.c / ref - 1) * 100, 2)
+  if (ok(rec.ref2) && rec.ref2 > 0) {
+    out.gap2_pct = round((b.o / rec.ref2 - 1) * 100, 2)
+    out.cc2_pct = round((b.c / rec.ref2 - 1) * 100, 2)
+  }
+  const bi = bench.findIndex(x => x.date === b.date)
+  if (bi >= 0) out.ex_oc_pct = round(out.oc_pct - (bench[bi].c / bench[bi].o - 1) * 100, 2)
+  if (hold > 1) {
+    const h = bars[i + hold - 1]
+    if (!h) return out
+    out.holdDate = h.date
+    out.hold_pct = round((h.c / b.o - 1) * 100, 2)
+    const bj = bench.findIndex(x => x.date === h.date)
+    if (bi >= 0 && bj >= 0) out.ex_hold_pct = round(out.hold_pct - (bench[bj].c / bench[bi].o - 1) * 100, 2)
+  }
+  out.final = true
+  return out
+}
+
+/** nextDayOutcome の結果を group ごとの累計に足す（counted の記録は足さない）。寄指で約定しなかった分は filled に数えない */
+export function mergeNextDay(prev, recs) {
+  const st = prev?.groups ? JSON.parse(JSON.stringify(prev)) : { groups: {} }
+  for (const r of recs) {
+    if (!r.final || r.counted) continue
+    const g = (st.groups[r.group || 'ALL'] ||= { n: 0, filled: 0, sumOC: 0, sumExOC: 0, winOC: 0, sumCC: 0, sumGap: 0, nHold: 0, sumHold: 0, sumExHold: 0 })
+    g.n++
+    g.sumCC = round(g.sumCC + (r.cc_pct || 0), 3)
+    g.sumGap = round(g.sumGap + (r.gap_pct || 0), 3)
+    if (!r.filled) continue
+    g.filled++
+    g.sumOC = round(g.sumOC + (r.oc_pct || 0), 3)
+    g.sumExOC = round(g.sumExOC + (r.ex_oc_pct || 0), 3)
+    if (r.oc_pct > 0) g.winOC++
+    if (ok(r.hold_pct)) {
+      g.nHold++
+      g.sumHold = round(g.sumHold + r.hold_pct, 3)
+      g.sumExHold = round(g.sumExHold + (r.ex_hold_pct || 0), 3)
+    }
+  }
+  return st
+}
+
 /**
  * 毎晩の自動記録：universe の銘柄すべてについて、前の営業日の場中の判定を再現し、その日の大引け・翌営業日（＝今日）の大引けまでで答え合わせする。
  * 今日の夜に動かすと「前の営業日」が対象になる（翌日の終値がそろうため）。
@@ -2348,7 +2473,7 @@ export async function fetchIntradayWide(list, { date = null, parallel = 8, keepL
         const j = dates.indexOf(t)
         if (j < 0 || j + 1 >= dates.length) return
         const next = days[dates[j + 1]]
-        items.push({ code, date: t, day: days[t], nextClose: next[next.length - 1].c, ctx: intradayContext(d.bars.filter(b => b.date < t)) })
+        items.push({ code, name: name || d.name, date: t, day: days[t], next, nextClose: next[next.length - 1].c, ctx: intradayContext(d.bars.filter(b => b.date < t)) })
       } catch {
         errors++
       }
@@ -2359,7 +2484,7 @@ export async function fetchIntradayWide(list, { date = null, parallel = 8, keepL
   for (const it of items) cnt[it.date] = (cnt[it.date] || 0) + 1
   target = target || Object.entries(cnt).sort((a, b) => b[1] - a[1])[0]?.[0] || null
   const use = items.filter(it => it.date === target)
-  const res = { date: target, stocks: use.length, errors, ...intradayWideDay(use) }
+  const res = { date: target, stocks: use.length, errors, ...intradayWideDay(use), marks: marksOutcomes(use) }
   if (paper) {
     const pd = Object.entries(paperDays).sort((a, b) => Object.keys(b[1]).length - Object.keys(a[1]).length)[0]
     res.paper = pd ? { date: pd[0], prevDate: prevOf[pd[0]] || null, stocks: pd[1] } : null
@@ -3079,6 +3204,44 @@ async function main() {
     console.log(JSON.stringify(signalsReport(JSON.parse(readFileSync(file, 'utf-8'))), null, 2))
     return
   }
+  if (args.includes('--next-day-result')) {
+    // 企業の行動・夜のPTSの答え合わせ：recs.json＝[{id, code, date, ref, ref2?, limit?, hold?, group, final?, counted?}]、--stats 累計.json
+    const recs = JSON.parse(readFileSync(args[args.indexOf('--next-day-result') + 1], 'utf-8'))
+    let prev = null
+    const si = args.indexOf('--stats')
+    if (si >= 0) {
+      try {
+        prev = JSON.parse(readFileSync(args[si + 1], 'utf-8'))
+      } catch {
+        prev = null
+      }
+    }
+    let bench = []
+    try {
+      bench = (await fetchYahoo('1306.T', '6mo')).bars
+    } catch {
+      bench = []
+    }
+    const cache = {}
+    const records = []
+    for (const r of recs) {
+      if (r.final) {
+        records.push({ ...r, updated: false })
+        continue
+      }
+      try {
+        cache[r.code] ||= (await fetchYahoo(`${r.code}.T`, '6mo')).bars
+        const o = nextDayOutcome(cache[r.code], r, bench)
+        records.push({ ...r, ...o, updated: true })
+      } catch (e) {
+        records.push({ id: r.id, error: e.message })
+      }
+    }
+    const stats = mergeNextDay(prev, records.filter(r => r.updated))
+    for (const r of records) if (r.updated && r.final) r.counted = true
+    console.log(JSON.stringify({ records, stats }, null, 2))
+    return
+  }
   if (args.includes('--considered-result')) {
     const file = args[args.indexOf('--considered-result') + 1]
     const si = args.indexOf('--stats')
@@ -3295,7 +3458,20 @@ async function main() {
       five = { date: day.latest.date, stocks: Object.keys(day.latest.bars).length, file: args[fo + 1] }
     }
     delete day.latest
-    console.log(JSON.stringify({ day, stats: day.date && day.stocks > 0 ? mergeIntradayWide(prev, day) : prev, five, paper }, null, 2))
+    // 引け前の目印の成績：--marks-stats 累計.json（無くてもよい）→ marks_stats に今日の分を足したもの
+    const marks = day.marks || []
+    delete day.marks
+    let mprev = null
+    const mi = args.indexOf('--marks-stats')
+    if (mi >= 0) {
+      try {
+        mprev = JSON.parse(readFileSync(args[mi + 1], 'utf-8'))
+      } catch {
+        mprev = null
+      }
+    }
+    const marks_stats = day.date && day.stocks > 0 ? mergeMarks(mprev, day.date, marks) : mprev
+    console.log(JSON.stringify({ day, stats: day.date && day.stocks > 0 ? mergeIntradayWide(prev, day) : prev, five, paper, marks, marks_stats }, null, 2))
     return
   }
   if (args.includes('--intraday-replay')) {
