@@ -2011,7 +2011,9 @@ export function intradayView(bars, ctx = {}, opt = {}) {
   if (lowGroup && last.m + 5 >= 870 && ok(fromPrev) && fromPrev >= 20 && !stuck && price > vwap && dayHigh > dayLow && (price - dayLow) / (dayHigh - dayLow) >= 0.7) marks.push('LOW_STRONG_CLOSE')
   const swingLow = Math.min(...bars.slice(-6).map(b => b.l))
   const limit = kind === 'PULLBACK' ? tick(Math.max(vwap, e20[k])) : kind === 'BREAKOUT' ? tick(orHigh) : null
-  const stopIntraday = signal === 'TAKE' ? tick(Math.min(swingLow, vwap) - 0.3 * atr5) : null
+  // 場中の損切り：直近の安値か VWAP の少し下。ただし買値から1%より近くには置かない（2026-11-19。幅0.3%未満だと75%が損切りに当たり、
+  // 滑り0.1%を引くと上乗せが0になった。下限1%で、大引けまで持つのとほぼ同じ平均（+0.14%）のまま、一番悪い回を−15%→−3.8%に抑えられた）
+  const stopIntraday = signal === 'TAKE' ? tick(Math.min(Math.min(swingLow, vwap) - 0.3 * atr5, (limit ?? price) * 0.99)) : null
   return {
     time: `${String(Math.floor(last.m / 60)).padStart(2, '0')}:${String(last.m % 60).padStart(2, '0')}`,
     price,

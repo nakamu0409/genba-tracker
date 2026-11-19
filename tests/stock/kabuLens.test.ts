@@ -800,6 +800,7 @@ describe('場中の判定（5分足）', () => {
     expect(v.supports.length).toBeGreaterThan(0)
     expect(v.resistances[0].price).toBeGreaterThan(v.price)
     expect(v.stop_intraday).toBeLessThan(v.price)
+    expect(v.stop_intraday).toBeLessThanOrEqual(v.limit * 0.99 + 1) // 損切りは買値から1%以上離す
   })
   it('形は買い場でも、時間帯・値動きの荒さなどで外れたら WAIT（理由つき）', () => {
     const v = intradayView(up, ctx)
