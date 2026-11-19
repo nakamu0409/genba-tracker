@@ -16,7 +16,7 @@ argument-hint: <銘柄名かコード> [今の値段]（例: 4751 1359）／何�
 1銘柄の「いつ買うか」を、3つの期間でまとめて見る。判定はスクリプトに任せ、自分で条件を足したり緩めたりしない。断定的な推奨はしない。
 
 1. 銘柄名しか無いときは、記録帳に同梱の universe-wide.json か株探でコードを確かめる（分からなければ本人に聞く）。
-2. トレード記録帳（Artifact の list で題名「トレード記録帳」を探す）のデータベースを ArtifactData で読み、/kau と同じ形の状態ファイルをスクラッチパッドに作る（settings/main、trades の open。`frozen: true` は positions に入れない。date が今日の記録の数が buysToday）。
+2. トレード記録帳（Artifact の list で題名「トレード記録帳」を探す）のデータベースを ArtifactData で読み、/kau と同じ形の状態ファイルをスクラッチパッドに作る（settings/main、trades の open（code, name, entry, last, qty, stop, style）。`frozen: true` は positions に入れない。date が今日の記録の数が buysToday）。
 3. 同じデータベースから settings の intraday_wide_stats・cands_stats・backtest を get し、スクラッチパッドのフォルダに `<名前>.json` で書く（無いものは書かない）。
 4. `node .claude/scripts/kabu-lens.mjs --mite <コード>[:今の値段] --state <状態ファイル> --stats-dir <フォルダ>` を実行する（本人が楽天の画面の今の値段を言ったら必ず `:値段` を付ける。業績は株探から自動で取る）。
 5. 次の形で、短く伝える（数字は結果のまま。取れなかったものは「確認できず」）。

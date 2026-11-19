@@ -530,6 +530,29 @@ describe('買う前チェック', () => {
     expect(preTradeCheck({ ...base, earningsDate: '2026-11-16' }).blocks).toEqual([])
   })
 
+  it('デイトレの保有は銘柄数に数えない', () => {
+    const pos = [1, 2, 3].map(n => ({ code: '100' + n, entry: 100, last: 110, qty: 100, style: n === 3 ? 'day' : 'swing' }))
+    expect(preTradeCheck({ ...base, positions: pos }).blocks.some(b => b.includes('銘柄数の上限'))).toBe(false)
+  })
+
+  it('maxOpenRiskMult があれば、銘柄数ではなく損の合計で上限を決める', () => {
+    const s2 = { ...settings, maxOpenRiskMult: 3, cash: 1000000, maxPosPct: 100 } // 1回の損の上限 8,000円 → 合計 24,000円
+    // 損の小さい保有が4つ（合計 4,000円）なら、銘柄数が多くても買える
+    const small = [1, 2, 3, 4].map(n => ({ code: '100' + n, entry: 100, last: 110, qty: 100, stop: 100, style: 'swing' }))
+    const r1 = preTradeCheck({ ...base, settings: s2, positions: small })
+    expect(r1.blocks).toEqual([])
+    expect(r1.open_risk).toMatchObject({ open: 4000, budget: 24000, room: 20000 })
+    // 損切りの無い保有は上限いっぱい（8,000円）とみる。3つで 24,000円 → 残りなしで止める
+    const nostop = [1, 2, 3].map(n => ({ code: '200' + n, entry: 100, last: 100, qty: 100 }))
+    const r2 = preTradeCheck({ ...base, settings: s2, positions: nostop })
+    expect(r2.ok).toBe(false)
+    expect(r2.blocks.some(b => b.includes('損の合計の上限'))).toBe(true)
+    // 残りが少なければ株数が減る（残り 4,000円 ÷ 1株40円 = 100株）
+    const r3 = preTradeCheck({ ...base, settings: s2, positions: [{ code: '3001', entry: 1000, last: 1000, qty: 500, stop: 960 }] })
+    expect(r3.limited_by).toBe('損の合計の上限')
+    expect(r3.shares_100_unit).toBe(100)
+  })
+
   it('100株で上限を超えるときは、1株単位の株数を出す', () => {
     const r = preTradeCheck({ ...base, price: 5000, atr: 150 })
     expect(r.shares_100_unit).toBe(0)

@@ -2772,8 +2772,8 @@ export async function intradayResult(records, prevStats = null) {
  * 買う前チェック。決めたルールに照らして、買ってよい株数と、止める理由・注意を出す。
  * 止める理由（blocks）が1つでもあれば ok は false。
  * @param {object} a code, price（買う値段）, atr（1日の値幅の目安・円）, regime, overheat, today（YYYY-MM-DD）, earningsDate,
- *   settings {capital, cash, riskPct, maxPosPct, maxPositions, dayTradeMax},
- *   positions [{code, name, entry, last, qty}]（保有中）, buysToday（今日すでに買った回数）
+ *   settings {capital, cash, riskPct, maxPosPct, maxPositions, maxOpenRiskMult（あれば銘柄数の代わりに損の合計で上限）, dayTradeMax},
+ *   positions [{code, name, entry, last, qty, stop, style}]（保有中。style が day は持ち越さないので上限に数えない）, buysToday（今日すでに買った回数）
  */
 export function preTradeCheck(a) {
   const st = a.settings || {}
@@ -2789,8 +2789,6 @@ export function preTradeCheck(a) {
   if (ok(posLimit) && price > 0) caps.push(['1銘柄の上限', Math.floor(posLimit / price)])
   if (ok(st.cash) && price > 0) caps.push(['現金', Math.floor(st.cash / price)])
   caps.sort((x, y) => x[1] - y[1])
-  const maxShares = caps.length ? caps[0][1] : null
-  const lots = ok(maxShares) ? Math.floor(maxShares / 100) * 100 : null
 
   const held = (a.positions || []).find(x => x.code === a.code)
   if (held) {
@@ -2800,9 +2798,27 @@ export function preTradeCheck(a) {
     if (ok(posLimit) && ok(held.qty) && cur * held.qty >= posLimit) blocks.push(`1銘柄の上限：すでに ${Math.round(cur * held.qty).toLocaleString('ja-JP')}円 分を持っていて、上限 ${posLimit.toLocaleString('ja-JP')}円 に達している`)
   }
   if (ok(a.buysToday) && ok(st.dayTradeMax) && a.buysToday >= st.dayTradeMax) blocks.push(`1日の回数の上限：今日はすでに ${a.buysToday}回 買っている（上限 ${st.dayTradeMax}回）。今日は終わり`)
-  if (!held && ok(st.maxPositions) && (a.positions || []).length >= st.maxPositions) blocks.push(`銘柄数の上限：すでに ${(a.positions || []).length}銘柄 持っている（上限 ${st.maxPositions}）`)
-  if (ok(maxShares) && maxShares < 1) blocks.push(`買える株数が0：${caps[0][0]}が足りない`)
-  else if (lots === 0) warnings.push(`100株では${caps[0][0]}を超える。1株単位（かぶミニ）なら ${maxShares}株 まで`)
+  // 持ち越す保有の数・損の合計（デイトレ＝style が day の保有は、その日のうちに売るので数えない）
+  const carry = (a.positions || []).filter(x => x.style !== 'day')
+  if (ok(st.maxOpenRiskMult) && ok(lossLimit)) {
+    // 銘柄数ではなく「持っている株が全部損切りに当たったときの損の合計」で上限を決める（2026-11-19 本人と決定）
+    const openRisk = carry.reduce((sum, x) => {
+      const cur = ok(x.last) ? x.last : x.entry
+      if (!ok(x.stop) || !ok(cur) || !ok(x.qty)) return sum + lossLimit // 損切りが無い保有は、上限いっぱいの損とみる
+      return sum + Math.max(0, cur - x.stop) * x.qty
+    }, 0)
+    const budget = lossLimit * st.maxOpenRiskMult
+    const room = Math.max(0, budget - openRisk)
+    if (riskPerShare > 0) {
+      caps.push(['損の合計の上限', Math.floor(room / riskPerShare)])
+      caps.sort((x, y) => x[1] - y[1])
+    }
+    a.openRisk = { open: Math.round(openRisk), budget, room: Math.round(room) }
+  } else if (!held && ok(st.maxPositions) && carry.length >= st.maxPositions) blocks.push(`銘柄数の上限：すでに ${carry.length}銘柄 持っている（上限 ${st.maxPositions}。デイトレの保有は数えない）`)
+  const maxShares2 = caps.length ? caps[0][1] : null
+  const lots2 = ok(maxShares2) ? Math.floor(maxShares2 / 100) * 100 : null
+  if (ok(maxShares2) && maxShares2 < 1) blocks.push(caps[0][0] === '損の合計の上限' ? `損の合計の上限：持っている株が全部損切りに当たると約${a.openRisk.open.toLocaleString('ja-JP')}円の損で、上限 ${a.openRisk.budget.toLocaleString('ja-JP')}円（1回の損の上限×${st.maxOpenRiskMult}）に残りがない` : `買える株数が0：${caps[0][0]}が足りない`)
+  else if (lots2 === 0) warnings.push(`100株では${caps[0][0]}を超える。1株単位（かぶミニ）なら ${maxShares2}株 まで`)
 
   for (const c of a.correlations || []) {
     if (!ok(c.corr) || c.code === a.code) continue
@@ -2832,7 +2848,7 @@ export function preTradeCheck(a) {
     if (dl.series_5y >= 2) warnings.push(`MSワラントなどを5年で ${dl.series_5y}回 出している会社。資金が足りなくなるたびに株を増やす傾向`)
   } else if (dl === null) warnings.push('株が増える資金調達（MSワラント等）は確認できず')
 
-  const shares = lots || 0
+  const shares = lots2 || 0
   return {
     ok: blocks.length === 0,
     blocks,
@@ -2843,10 +2859,11 @@ export function preTradeCheck(a) {
     loss_limit_jpy: lossLimit,
     position_limit_jpy: posLimit,
     limited_by: caps.length ? caps[0][0] : null,
+    open_risk: a.openRisk || null,
     shares_100_unit: shares,
     cost_jpy: shares ? Math.round(shares * price) : 0,
     loss_if_stopped_jpy: shares && riskPerShare ? Math.round(shares * riskPerShare) : 0,
-    mini_shares_max: ok(maxShares) ? Math.max(0, maxShares) : null,
+    mini_shares_max: ok(maxShares2) ? Math.max(0, maxShares2) : null,
     target_3r: ok(riskPerShare) ? tick(price + 3 * riskPerShare) : null,
     daily_range_pct: atrPct,
     correlations: (a.correlations || []).filter(c => c.code !== a.code),
