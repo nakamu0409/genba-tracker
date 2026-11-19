@@ -1,5 +1,5 @@
 // 練習口座（paperStep）を、過去60日の5分足（five.json）でさかのぼって動かしてみる
-// 使い方: node --max-old-space-size=6000 kabu-lens/research/day/paper_backfill.mjs [--swing]
+// 使い方: node --max-old-space-size=6000 kabu-lens/research/day/paper_backfill.mjs [--swing] [--params '{"riskPct":5}'] [--name 名前]
 //   --swing を付けると、1時間足（hour.json）から作った日足で、その日の夜の買い候補（analyze → candidateRow の通過）も出してスイングも動かす
 import { readFileSync, writeFileSync } from 'node:fs'
 import { paperNew, paperStep, paperSummary, intradayContext, analyze, candidateRow } from '../../../.claude/scripts/kabu-lens.mjs'
@@ -30,7 +30,11 @@ if (swing) {
   }
 }
 
-let st = paperNew()
+const pi = process.argv.indexOf('--params')
+const params = pi >= 0 ? JSON.parse(process.argv[pi + 1]) : {}
+const ni = process.argv.indexOf('--name')
+const tag = ni >= 0 ? '_' + process.argv[ni + 1] : ''
+let st = paperNew(params)
 const all = []
 const cands = []
 for (let i = 26; i < allDates.length; i++) {
@@ -65,4 +69,4 @@ for (let i = 26; i < allDates.length; i++) {
 }
 const sum = paperSummary(st, all)
 console.log(JSON.stringify(sum, null, 2))
-writeFileSync(new URL(`./paper_backfill${swing ? '_swing' : ''}.json`, import.meta.url), JSON.stringify({ summary: sum, state: st, trades: all }))
+writeFileSync(new URL(`./paper_backfill${swing ? '_swing' : ''}${tag}.json`, import.meta.url), JSON.stringify({ summary: sum, state: st, trades: all }))
