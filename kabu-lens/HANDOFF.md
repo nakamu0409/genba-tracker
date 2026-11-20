@@ -290,6 +290,8 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
   - 56年の日経平均で、米国の下げ相場の間の日本株は、2010年代からはふつうと同じか良い。練習口座の「米国の下げ相場はスイング1件まで」は根拠が弱い。
   - **口座全体の成績のほとんどは企業の行動（自社株買い・増配・株式分割の翌日の寄指）から来る**（外すと年率 −12pt・20組すべて悪化）。注文票の先頭に置き、入れ忘れを防ぐことを一番大事にする。
   - 目標5R・60日は、口座全体で4つの期間すべてプラス（確かめ中。攻めの練習口座で試す案）。資金の分け方（1回1%・合計×3）は今のままが一番良い。
+  - **まとめの案B**（`PKG=1 node study_combined.mjs`）：企業の行動50%・20日で上げていた順（`evOrder: 'mom'`）・TOPIX が200日線より下はスイング半分（`ma200Half`）・スイング5R・60日。10年の年率 +19%→+33%、一番下げはほぼ同じ（−20%）。練習口座の設定はすべて用意済み（evPosPct・evOrder・ma200Half・swingTargetR・swingMaxDays）。
+  - 練習口座の low（強い引け）は約2年でほぼ0、chase（急騰の追いかけ）は1回 −1%（`research/day/README.md`）。外す候補。
   - 長い指数のデータ（Yahoo の chart API・period1=0）はリポジトリに入れず、スクラッチに置いて `study_index_dip_long.mjs`・`study_usbear_long.mjs` に渡す。
 
 
