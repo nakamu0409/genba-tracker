@@ -2763,7 +2763,8 @@ export const PAPER_DEFAULTS = {
   swingGapPct: 2, swingMaxDays: 40, surgeMax: 2, surgeTpR: 3, surgeHold: 10,
   chaseMax: 0, chaseTrigPct: 10, chaseFrom: 570, chaseTo: 690, chaseSlPct: 8,
   peadMax: 2, peadHold: 5, peadGapMax: 15, usBearSwingMax: null,
-  crashMax: 2, crashHold: 5, crashSlPct: 20, crashPosPct: 10
+  crashMax: 2, crashHold: 5, crashSlPct: 20, crashPosPct: 10,
+  tsurareMax: 2, tsurareHold: 10, tsurareGap: -5, tsurareMktGap: -2.5
 }
 
 export function paperNew(params = {}) {
@@ -2844,7 +2845,7 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], 
       if (!done) close(pos, bars[bars.length - 1].c * (1 - slip), '翌日の引け')
       continue
     }
-    if (pos.track === 'crash') {
+    if (pos.track === 'crash' || pos.track === 'tsurare') {
       // 急落の反発：非常用の損切り（買値の −crashSlPct%）だけ。届かなければ crashHold 日目の引けで売る
       const x = ohlcOf(bars)
       pos.held = (pos.held || 0) + 1
@@ -2954,6 +2955,34 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], 
       else {
         pos.last = x.c
         st.positions.push(pos)
+      }
+    }
+  }
+  // 2c''. つられ下げ（相場全体が寄りで大きく下げた日＝全銘柄の窓の真ん中が tsurareMktGap% 以下 に、窓 tsurareGap% 以下で始まった株を寄りで買い、tsurareHold 日目の引けで売る）
+  {
+    const gaps = Object.values(stocks).filter(s => s.bars?.length && s.ctx?.prevClose > 0).map(s => (s.bars[0].o / s.ctx.prevClose - 1) * 100).sort((a, b) => a - b)
+    const mktGap = gaps.length >= 100 ? gaps[Math.floor(gaps.length / 2)] : null
+    if (mktGap !== null && mktGap <= (p.tsurareMktGap ?? -2.5)) {
+      const cands2 = Object.entries(stocks).filter(([, s]) => s.bars?.length && s.ctx?.prevClose >= 300 && (s.turnover || 0) >= 1e8 && s.bars[0].m <= 545 && (s.bars[0].o / s.ctx.prevClose - 1) * 100 <= (p.tsurareGap ?? -5))
+        .sort((a, b) => (b[1].turnover || 0) - (a[1].turnover || 0))
+      let tn = 0
+      for (const [code, s] of cands2) {
+        if (tn >= (p.tsurareMax ?? 2)) break
+        if (st.positions.some(x => x.code === code)) continue
+        const x = ohlcOf(s.bars)
+        if (x.h === x.l) continue
+        const entry = x.o * (1 + slip)
+        const stop = entry * (1 - (p.crashSlPct ?? 20) / 100)
+        const qty = Math.floor(Math.min(equity0 * (p.crashPosPct ?? 10) / 100, st.cash) / entry / 100) * 100
+        if (qty < 100) continue
+        tn++
+        const pos = open('tsurare', code, s.name || '', entry, qty, { stop: r1(stop), holdDays: p.tsurareHold ?? 10, gapPct: round((s.bars[0].o / s.ctx.prevClose - 1) * 100, 1), mktGap: round(mktGap, 2) })
+        pos.held = 1
+        if (x.l <= pos.stop) close(pos, pos.stop * (1 - slip), '損切り（当日）')
+        else {
+          pos.last = x.c
+          st.positions.push(pos)
+        }
       }
     }
   }

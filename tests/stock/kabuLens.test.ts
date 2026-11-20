@@ -1066,6 +1066,15 @@ describe('企業の行動の開示（自社株買い・増配・株式分割）'
     const r2 = paperStep(s2, { date: '2026-11-24', stocks: { 1111: { bars: day(900, 850, 790) } } })
     expect(r2.trades[0]).toMatchObject({ track: 'crash', exit: 800 })
   })
+  it('練習口座：つられ下げは、全体の窓の真ん中が −2.5% 以下の日だけ、窓 −5% 以下の株を寄りで買う', () => {
+    const day = (o: number, c: number) => [{ m: 540, o, h: Math.max(o, c), l: Math.min(o, c), c, v: 1 }]
+    const many = (g: number) => Object.fromEntries(Array.from({ length: 120 }, (_, i) => [String(5000 + i), { bars: day(1000 * (1 + g / 100), 1000), ctx: { prevClose: 1000 }, turnover: 1e7 }]))
+    const target = { 1111: { name: 'A', bars: day(930, 950), ctx: { prevClose: 1000 }, turnover: 5e8 } }
+    const r = paperStep(paperNew({ slipPct: 0 }), { date: '2026-11-24', stocks: { ...many(-3), ...target } })
+    expect(r.state.positions.map(x => [x.track, x.code, x.holdDays])).toEqual([['tsurare', '1111', 10]])
+    const r2 = paperStep(paperNew({ slipPct: 0 }), { date: '2026-11-24', stocks: { ...many(-1), ...target } })
+    expect(r2.state.positions).toHaveLength(0)
+  })
   it('練習口座：米国の下げ相場では usBearSwingMax までしか新しいスイングを買わない', () => {
     const day = (o, c) => [{ m: 540, o, h: Math.max(o, c), l: Math.min(o, c), c, v: 1 }]
     const cands = ['1111', '2222'].map((code, i) => ({ code, date: '2026-11-19', pass: true, close: 1000, stop: 950, target: 1150, score: 90 - i }))
