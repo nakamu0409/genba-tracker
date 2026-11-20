@@ -2656,6 +2656,20 @@ export function mergeNextDay(prev, recs) {
  * 急落の反発の合図（2026-11-20 の検証：5日で −15% 以下・10日ぶりに初めて・株価300円以上 → 翌日の寄りで買い5日目の引けで売る）。
  * daily は前の日までの日足。返り値 {r5, first, hit}。hit が true なら合図
  */
+/**
+ * 終値が200日の単純平均より下か（練習口座の ma200Half 用）。前の正しい日から±30%を超える日（Yahoo の桁の誤り）は除く。200日に足りなければ null
+ */
+export function below200(daily) {
+  const c = []
+  for (const b of daily || []) {
+    const p = c[c.length - 1]
+    if (!(b.c > 0) || (p && (b.c / p > 1.3 || b.c / p < 0.7))) continue
+    c.push(b.c)
+  }
+  if (c.length < 200) return null
+  return c[c.length - 1] < c.slice(-200).reduce((a, x) => a + x, 0) / 200
+}
+
 export function crashSignal(daily) {
   const n = daily?.length ? daily.length - 1 : -1
   if (n < 16) return null
@@ -2678,7 +2692,7 @@ export async function fetchIntradayWide(list, { date = null, parallel = 8, keepL
       try {
         const [five, d] = await Promise.all([
           fetchJson(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(code)}.T?range=5d&interval=5m`),
-          fetchYahoo(`${code}.T`, '6mo')
+          fetchYahoo(`${code}.T`, code === '1306' ? '2y' : '6mo') // 1306 は練習口座の ma200Half（200日線）に使うので2年分
         ])
         const days = splitFiveMin(five)
         const dates = Object.keys(days).sort()
@@ -2687,7 +2701,7 @@ export async function fetchIntradayWide(list, { date = null, parallel = 8, keepL
           const ld = dates[dates.length - 1]
           const past = d.bars.filter(b => b.date < ld)
           const turnover = past.slice(-20).reduce((s, b) => s + b.c * b.v, 0) / 20
-          ;(paperDays[ld] ||= {})[code] = { name: name || d.name, bars: days[ld], ctx: intradayContext(past), turnover, surge: surgePullback(past), crash: crashSignal(past), r20: past.length >= 21 ? round((past[past.length - 1].c / past[past.length - 21].c - 1) * 100, 2) : null, below200: past.length >= 200 ? past[past.length - 1].c < past.slice(-200).reduce((a, b) => a + b.c, 0) / 200 : null, prevR1: past.length >= 2 ? round((past[past.length - 1].c / past[past.length - 2].c - 1) * 100, 2) : null }
+          ;(paperDays[ld] ||= {})[code] = { name: name || d.name, bars: days[ld], ctx: intradayContext(past), turnover, surge: surgePullback(past), crash: crashSignal(past), r20: past.length >= 21 ? round((past[past.length - 1].c / past[past.length - 21].c - 1) * 100, 2) : null, below200: below200(past), prevR1: past.length >= 2 ? round((past[past.length - 1].c / past[past.length - 2].c - 1) * 100, 2) : null }
           if (dates.length > 1) prevOf[ld] = dates[dates.length - 2]
         }
         if (keepLatest && dates.length) {
