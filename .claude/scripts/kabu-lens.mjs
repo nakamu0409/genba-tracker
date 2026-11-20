@@ -1548,6 +1548,70 @@ export function fetchTanshin(url) {
   return { url, ...parseTanshin(r.stdout) }
 }
 
+// 世界の状況（前の夜の米国・半導体・VIX・ドル円・米金利）。10年の検証（research/swing/study_world.mjs）の結果を、朝の目安の言葉にする
+export const WORLD_SYMBOLS = { spx: '^GSPC', sox: '^SOX', vix: '^VIX', jpy: 'JPY=X', tnx: '^TNX', nkf: 'NIY=F' }
+
+/** Yahoo の日足を取る（米国はニューヨークの日付、ドル円はロンドンの日付） */
+export async function fetchWorld() {
+  const out = {}
+  for (const [k, sym] of Object.entries(WORLD_SYMBOLS)) {
+    try {
+      const j = JSON.parse(await fetchText(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=3mo&interval=1d`))
+      const r = j.chart.result[0]
+      const q = r.indicators.quote[0]
+      const off = k === 'jpy' ? 0 : -5 * 3600
+      out[k] = r.timestamp.map((t, i) => ({ date: new Date((t + off) * 1000).toISOString().slice(0, 10), c: q.close[i] })).filter(x => x.c !== null && x.c !== undefined)
+    } catch {
+      out[k] = []
+    }
+    await sleep(200)
+  }
+  return out
+}
+
+/**
+ * 日本の日付 jpDate の朝に分かっている海外の動き（jpDate より前の日付の最後の足）と、検証にもとづく目安。
+ * wd: fetchWorld の結果。返り値: {asOf, spx, sox, vix, vix5, jpy, tnx, spx20, usBear, notes: [文]}
+ */
+export function worldBrief(wd, jpDate) {
+  const d = jpDate || new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10)
+  const at = (s) => {
+    let i = -1
+    for (let k = 0; k < (s || []).length; k++) if (s[k].date < d) i = k
+    return i
+  }
+  const chg = (k, n = 1) => {
+    const s = wd[k] || []
+    const i = at(s)
+    return i >= n ? round((s[i].c / s[i - n].c - 1) * 100, 2) : null
+  }
+  const vi = at(wd.vix)
+  const ti = at(wd.tnx)
+  const si = at(wd.spx)
+  const out = {
+    date: d,
+    asOf: si >= 0 ? wd.spx[si].date : null,
+    spx: chg('spx'), sox: chg('sox'), jpy: chg('jpy'), spx20: chg('spx', 20), vix5: chg('vix', 5),
+    vix: vi >= 0 ? round(wd.vix[vi].c, 1) : null,
+    tnx: ti >= 1 ? round(wd.tnx[ti].c - wd.tnx[ti - 1].c, 3) : null,
+    nkf: chg('nkf')
+  }
+  out.usBear = out.spx20 !== null && out.spx20 <= -5
+  const notes = []
+  if (out.spx !== null && out.spx <= -2) notes.push('前の夜の S&P500 が大きく下げた：TOPIX は寄りで平均 −1.6% ほど安く始まりやすいが、そのあと引けにかけて戻りやすい（+0.3%）。寄りで投げない')
+  else if (out.spx !== null && out.spx <= -1) notes.push('前の夜の S&P500 が下げた：寄りは平均 −0.9% ほど安く始まりやすい')
+  else if (out.spx !== null && out.spx >= 1) notes.push('前の夜の S&P500 が上げた：寄りは平均 +0.8% ほど高く始まりやすく、そのあと下がりやすい。寄りで追わない')
+  if (out.sox !== null && out.sox <= -3) notes.push('前の夜の半導体（SOX）が −3% 以下：寄りは安く始まりやすいが、そのあと戻りやすい')
+  else if (out.sox !== null && out.sox >= 3) notes.push('前の夜の半導体（SOX）が +3% 以上：寄りは高く始まりやすいが、そのあと下がりやすい')
+  if (out.vix5 !== null && out.vix5 >= 30) notes.push('VIX が5日で +30% 以上：寄りは安く始まりやすい（平均 −0.9%）。そのあとは少し戻りやすい')
+  if (out.jpy !== null && out.jpy <= -1) notes.push('急な円高（ドル円 −1% 以下）：寄りは安く始まりやすい（平均 −0.6%）')
+  else if (out.jpy !== null && out.jpy >= 1) notes.push('急な円安（ドル円 +1% 以上）：寄りは高く始まりやすい（平均 +0.7%）')
+  if (out.usBear) notes.push(`米国が下げ相場（S&P500 が20日で ${out.spx20}%）：この間のスイングの候補は10年で平均 −0.12R（ふだん +0.10R）。新しいスイングは減らす`)
+  if (out.vix !== null && out.vix >= 30) notes.push('VIX が30以上：この間に出たスイングの候補は10年で平均 +0.38R（恐怖が強いときの押し目は成績が良かった）。急騰の押し目は −0.10R で不利')
+  out.notes = notes
+  return out
+}
+
 /** 松井証券のランキング（デイトレ適性など）の表を読む */
 export function parseMatsuiRanking(html) {
   const tables = String(html).match(/<table class="m-table"[\s\S]*?<\/table>/g) || []
@@ -2680,7 +2744,8 @@ export const PAPER_DEFAULTS = {
   capital: 1000000, riskPct: 1, maxPosPct: 30, swingMax: 3, dayMax: 2, lowMax: 1, bbMax: 5, bbGapPct: 2, slipPct: 0.1,
   dayFrom: 630, dayTo: 780, delay: 20, fillWindow: 30, lowAt: 870, lowEntryM: 890, lowTpPct: 5, lowSlPct: 8, lowExitM: 780,
   swingGapPct: 2, swingMaxDays: 40, surgeMax: 2, surgeTpR: 3, surgeHold: 10,
-  chaseMax: 0, chaseTrigPct: 10, chaseFrom: 570, chaseTo: 690, chaseSlPct: 8
+  chaseMax: 0, chaseTrigPct: 10, chaseFrom: 570, chaseTo: 690, chaseSlPct: 8,
+  peadMax: 2, peadHold: 5, peadGapMax: 15, usBearSwingMax: null
 }
 
 export function paperNew(params = {}) {
@@ -2696,7 +2761,7 @@ const ohlcOf = bars => ({ o: bars[0].o, h: Math.max(...bars.map(b => b.h)), l: M
  *   buybacks: 前の営業日の15:00以降に発表された自社株買い [{code, name}]（pickBuybacks）}
  * 返り値: {state, trades: その日に決着した売買, opened: その日に買った売買}
  */
-export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [] }) {
+export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], usBear = false }) {
   const st = JSON.parse(JSON.stringify(prev))
   const p = st.params
   if (st.days.includes(date)) return { state: st, trades: [], opened: [], skipped: true }
@@ -2761,7 +2826,7 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [] }
       if (!done) close(pos, bars[bars.length - 1].c * (1 - slip), '翌日の引け')
       continue
     }
-    if (pos.track === 'split') {
+    if (pos.track === 'split' || pos.track === 'pead') {
       pos.held = (pos.held || 0) + 1
       pos.last = bars[bars.length - 1].c
       if (pos.held >= (pos.holdDays || 5)) close(pos, pos.last, `${pos.holdDays || 5}日目の引け`)
@@ -2785,8 +2850,10 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [] }
   // 2. スイングの買い（前の営業日の夜の候補）
   const prevDate = cands.filter(c => c.date < date).map(c => c.date).sort().pop()
   const todays = cands.filter(c => c.date === prevDate && c.pass !== false).sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+  // 米国の下げ相場（S&P500 が20日で−5%以下）の間は、usBearSwingMax があれば新しいスイングをその数までにする（2026-11-20 本人と決定。まず練習口座で試す）
+  const swingMax = usBear && p.usBearSwingMax !== null && p.usBearSwingMax !== undefined ? p.usBearSwingMax : p.swingMax
   for (const c of todays) {
-    if (st.positions.filter(x => x.track === 'swing').length >= p.swingMax) break
+    if (st.positions.filter(x => x.track === 'swing').length >= swingMax) break
     if (st.positions.some(x => x.code === c.code)) continue
     const bars = stocks[c.code]?.bars
     if (!bars?.length || !(c.close > 0) || !(c.stop > 0)) continue
@@ -2804,21 +2871,24 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [] }
     }
   }
   // 2b. 自社株買いの翌日（寄指＝前日の終値×1.02 以下で寄りに買い、大引けで売る）
+  // 2b'. 決算後のドリフト（kind: 'pead'。前の営業日に予想を+20%以上上方修正した株を寄りで買い、peadHold 日目の引けで売る。窓が peadGapMax% を超えたら買わない）
   let bbCount = 0
+  let peadCount = 0
   for (const b of buybacks) {
-    if (bbCount >= (p.bbMax ?? 2)) break
+    const isPead = b.kind === 'pead'
+    if (isPead ? peadCount >= (p.peadMax ?? 2) : bbCount >= (p.bbMax ?? 2)) continue
     if (st.positions.some(x => x.code === b.code)) continue
     const s = stocks[b.code]
     const bars = s?.bars
     if (!bars?.length || bars[0].m > 545 || !(s.ctx?.prevClose > 0)) continue
-    const limit = tickFloor(s.ctx.prevClose * (1 + (p.bbGapPct ?? 2) / 100))
+    const limit = tickFloor(s.ctx.prevClose * (1 + (isPead ? (p.peadGapMax ?? 15) : (p.bbGapPct ?? 2)) / 100))
     const o = bars[0].o
     if (!(o > 0) || o > limit || bars.every(x => x.h === x.l)) continue
     const qty = Math.floor(Math.min(equity0 * p.maxPosPct / 100, st.cash) / o / 100) * 100
     if (qty < 100) continue
-    if (b.kind === 'split') {
-      // 株式分割：寄りで買い、5営業日後の引けで売る（その日を1日目と数える）
-      const pos = open('split', b.code, b.name || s.name || '', o, qty, { limit, holdDays: p.splitHold ?? 5 })
+    if (b.kind === 'split' || isPead) {
+      // 株式分割・決算後のドリフト：寄りで買い、5営業日後の引けで売る（その日を1日目と数える）
+      const pos = open(b.kind, b.code, b.name || s.name || '', o, qty, { limit, holdDays: isPead ? (p.peadHold ?? 5) : (p.splitHold ?? 5) })
       pos.held = 1
       pos.last = bars[bars.length - 1].c
       st.positions.push(pos)
@@ -2826,7 +2896,8 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [] }
       const pos = open('bb', b.code, b.name || s.name || '', o, qty, { limit, kind: b.kind || 'buyback' })
       close(pos, bars[bars.length - 1].c, '大引け')
     }
-    bbCount++
+    if (isPead) peadCount++
+    else bbCount++
   }
   // 2c. 急騰した株の押し目（前の営業日に反発を確認 → 寄りで買う。損切りは押しの安値の1%下、目標 surgeTpR、surgeHold 日目の引けまで）
   const surges = Object.entries(stocks).filter(([, s]) => s.surge && s.bars?.length).sort((a, b) => (b[1].turnover || 0) - (a[1].turnover || 0))
@@ -3433,6 +3504,12 @@ async function main() {
     console.log(JSON.stringify(await fetchTdnet(date, { codes }), null, 2))
     return
   }
+  if (args.includes('--world')) {
+    // --world [YYYY-MM-DD]：その日の朝に分かっている海外の動きと目安（省略で今日）
+    const d = args[args.indexOf('--world') + 1]
+    console.log(JSON.stringify(worldBrief(await fetchWorld(), /^\d{4}-\d{2}-\d{2}$/.test(d || '') ? d : undefined), null, 2))
+    return
+  }
   if (args.includes('--tanshin')) {
     // --tanshin <YYYYMMDD> [コード...]：その日の決算短信（訂正を除く）を全部読んで要点を出す。--tanshin <PDFのURL...> なら、その PDF だけ
     const rest = args.slice(args.indexOf('--tanshin') + 1).filter(a => !a.startsWith('--'))
@@ -3726,11 +3803,31 @@ async function main() {
             b.expect = b.score >= 2 ? 0.7 : b.score === 1 ? 0.36 : -0.06
           }
           buybacks = buybacks.filter(b => b.kind !== 'buyback' || b.score > 0).sort((a, b) => b.expect - a.expect)
+          // 決算後のドリフト：前の営業日に予想を+20%以上上方修正した株（株探の決算速報）
+          try {
+            const kz = await fetchKessan(day.paper.prevDate.replace(/-/g, ''))
+            const inList = new Set(list.map(x => x.code))
+            for (const r of kz.rows) {
+              if (r.kind !== 'REVISE_UP' || !(r.revise_pct >= 20) || !inList.has(r.code) || buybacks.some(b => b.code === r.code)) continue
+              buybacks.push({ code: r.code, name: String(r.title).split(/[、，,]/)[0], kind: 'pead', revise_pct: r.revise_pct, title: r.title, expect: 1.3 })
+            }
+          } catch {
+            // 決算速報が取れなくても、ほかは進める
+          }
         } catch {
           buybacks = []
         }
       }
-      const r = paperStep(ps, { date: day.paper.date, stocks: day.paper.stocks, cands: Array.isArray(cands) ? cands : [], buybacks })
+      // 米国の下げ相場か（その日の朝に分かっていた S&P500 の20日の変化）
+      let usBear = false
+      try {
+        const wd = await fetchWorld()
+        const wb = worldBrief(wd, day.paper.date)
+        usBear = wb.usBear === true
+      } catch {
+        usBear = false
+      }
+      const r = paperStep(ps, { date: day.paper.date, stocks: day.paper.stocks, cands: Array.isArray(cands) ? cands : [], buybacks, usBear })
       paper = { date: day.paper.date, buybacks, skipped: !!r.skipped, trades: r.trades, opened: r.opened, summary: paperSummary(r.state, r.trades), equity: r.state.history[r.state.history.length - 1] || null }
       const po = args.indexOf('--paper-out')
       if (po >= 0) writeFileSync(args[po + 1], JSON.stringify(r.state))
@@ -3748,7 +3845,7 @@ async function main() {
           const pp = args.indexOf('--paper2-params')
           s2 = paperNew(pp >= 0 ? JSON.parse(args[pp + 1]) : {})
         }
-        const r2 = paperStep(s2, { date: day.paper.date, stocks: day.paper.stocks, cands: Array.isArray(cands) ? cands : [], buybacks })
+        const r2 = paperStep(s2, { date: day.paper.date, stocks: day.paper.stocks, cands: Array.isArray(cands) ? cands : [], buybacks, usBear })
         const o2 = args.indexOf('--paper2-out')
         if (o2 >= 0) writeFileSync(args[o2 + 1], JSON.stringify(r2.state))
         paper.second = { skipped: !!r2.skipped, trades: r2.trades.map(t => ({ ...t, id: 'aggr-' + t.id, account: 'aggr' })), opened: r2.opened, summary: paperSummary(r2.state, r2.trades), equity: r2.state.history[r2.state.history.length - 1] || null, state_file: o2 >= 0 ? args[o2 + 1] : null }

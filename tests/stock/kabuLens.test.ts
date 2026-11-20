@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { worldBrief, parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -1035,6 +1035,31 @@ describe('企業の行動の開示（自社株買い・増配・株式分割）'
     r = paperStep(st, { date: '2026-11-26', stocks: { 2222: { bars: day(1020, 1030) } } })
     expect(r.trades[0]).toMatchObject({ track: 'split', exit: 1030 })
     expect(r.state.positions).toHaveLength(0)
+  })
+  it('練習口座：決算後のドリフトは窓が大きくても15%までなら寄りで買い、5日目の引けで売る。上限は peadMax', () => {
+    const day = (o, c) => [{ m: 540, o, h: Math.max(o, c), l: Math.min(o, c), c, v: 1 }]
+    const st = paperNew({ peadMax: 1 })
+    const r = paperStep(st, { date: '2026-11-20', stocks: { 1111: { bars: day(1080, 1100), ctx: { prevClose: 1000 } }, 2222: { bars: day(1200, 1210), ctx: { prevClose: 1000 } }, 3333: { bars: day(1050, 1060), ctx: { prevClose: 1000 } } }, buybacks: [{ code: '2222', kind: 'pead' }, { code: '1111', kind: 'pead' }, { code: '3333', kind: 'pead' }] })
+    // 2222 は窓 +20% で見送り、1111 を買い、3333 は上限で見送り
+    expect(r.state.positions.map(x => [x.track, x.code, x.entry])).toEqual([['pead', '1111', 1080]])
+  })
+  it('練習口座：米国の下げ相場では usBearSwingMax までしか新しいスイングを買わない', () => {
+    const day = (o, c) => [{ m: 540, o, h: Math.max(o, c), l: Math.min(o, c), c, v: 1 }]
+    const cands = ['1111', '2222'].map((code, i) => ({ code, date: '2026-11-19', pass: true, close: 1000, stop: 950, target: 1150, score: 90 - i }))
+    const stocks = { 1111: { bars: day(1000, 1005) }, 2222: { bars: day(1000, 1005) } }
+    const a = paperStep(paperNew({ usBearSwingMax: 1 }), { date: '2026-11-20', stocks, cands, usBear: true })
+    const b = paperStep(paperNew({ usBearSwingMax: 1 }), { date: '2026-11-20', stocks, cands, usBear: false })
+    expect(a.state.positions.filter(x => x.track === 'swing')).toHaveLength(1)
+    expect(b.state.positions.filter(x => x.track === 'swing')).toHaveLength(2)
+  })
+  it('世界の目安：前の夜の S&P500 −2% 以下と、米国の下げ相場を見分ける', () => {
+    const ser = (vals: number[]) => vals.map((c, i) => ({ date: '2026-10-' + String(i + 1).padStart(2, '0'), c }))
+    const spx = ser([...Array(20).fill(100), 96, 93])
+    const w = worldBrief({ spx, sox: [], vix: [], jpy: [], tnx: [] }, '2026-10-23')
+    expect(w.spx).toBeCloseTo(-3.13, 1)
+    expect(w.usBear).toBe(true)
+    expect(w.notes[0]).toMatch(/寄りで投げない/)
+    expect(worldBrief({ spx, sox: [], vix: [], jpy: [], tnx: [] }, '2026-10-20').usBear).toBe(false)
   })
 })
 
