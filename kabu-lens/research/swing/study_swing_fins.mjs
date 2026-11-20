@@ -20,6 +20,7 @@ for (const s of D.swing) {
   if (!l || s.date < '2024-09-01') continue
   // 一番新しい「決算短信」（予想だけの開示は数字が欠けるので、値ごとに最後に分かっているものを使う）
   let feps = null, bps = null, eqar = null, fdiv = null, fop = null
+  let yoy = null, prog = null
   for (const r of l) {
     if (r.DiscDate >= s.date) break
     if (num(r.FEPS) !== null) feps = num(r.FEPS)
@@ -30,6 +31,13 @@ for (const s of D.swing) {
     if (num(r.NxFDivAnn) !== null && /^FY/.test(r.CurPerType)) fdiv = num(r.NxFDivAnn)
     if (num(r.FOP) !== null) fop = num(r.FOP)
     if (num(r.NxFOP) !== null && /^FY/.test(r.CurPerType)) fop = num(r.NxFOP)
+    if (/FinancialStatements/.test(r.DocType) && num(r.OP) !== null) {
+      const py = l.find(x => x.CurPerType === r.CurPerType && /FinancialStatements/.test(x.DocType) && x.CurFYSt && r.CurFYSt && Math.abs(new Date(r.CurFYSt) - new Date(x.CurFYSt) - 365 * 864e5) < 40 * 864e5)
+      const pop = py ? num(py.OP) : null
+      yoy = pop !== null && pop > 0 ? (num(r.OP) / pop - 1) * 100 : null
+      const std = { '1Q': 25, '2Q': 50, '3Q': 75 }[r.CurPerType]
+      prog = std && num(r.FOP) > 0 ? num(r.OP) / num(r.FOP) * 100 - std : null
+    }
   }
   const B = stocks[s.code].bars
   const t = simulate(B, s.i, s.stop, { rMult: 3, maxDays: 40, gapMax: 2 })
@@ -39,7 +47,7 @@ for (const s of D.swing) {
     date: s.date, r: t.r,
     per: feps !== null && feps > 0 ? c / feps : feps !== null ? -1 : null,
     pbr: bps !== null && bps > 0 ? c / bps : null,
-    eqar, yld: fdiv !== null ? fdiv / c * 100 : null, fop, low: c < 1500
+    eqar, yld: fdiv !== null ? fdiv / c * 100 : null, fop, low: c < 1500, yoy, prog
   })
 }
 const half = r => (r.date < SPLIT ? 0 : 1)
@@ -71,3 +79,7 @@ for (const [pn, pf] of [['1,500円未満', r => r.low], ['1,500円以上', r => 
   line(pn + '・PBR1〜2倍', rows.filter(r => pf(r) && r.pbr !== null && r.pbr >= 1 && r.pbr < 2))
   line(pn + '・PBR2倍以上', rows.filter(r => pf(r) && r.pbr !== null && r.pbr >= 2))
 }
+console.log('■ 直近の決算の営業利益の前年比')
+for (const [n, a, b] of [['−20%未満', -1e9, -20], ['−20〜0%', -20, 0], ['0〜+20%', 0, 20], ['+20〜+50%', 20, 50], ['+50%以上', 50, 1e9]]) line(n, rows.filter(r => r.yoy !== null && r.yoy >= a && r.yoy < b))
+console.log('■ 通期予想に対する進み具合（ふつうとの差）')
+for (const [n, a, b] of [['−10pt未満', -1e9, -10], ['−10〜0', -10, 0], ['0〜+10', 0, 10], ['+10pt以上', 10, 1e9]]) line(n, rows.filter(r => r.prog !== null && r.prog >= a && r.prog < b))
