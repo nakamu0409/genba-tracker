@@ -46,8 +46,27 @@ for (const s of D.swing) {
   atr /= 14
   const o = B[e].o
   const lim = L => (o <= L ? run(B, e, o, s.stop, 40, 3, true) : B[e].l <= L ? run(B, e, L, s.stop) : 'miss')
+  // 合図の日の引けで買う（引成）：次の日から決まりどおり。次の日の寄りが損切りより下なら寄りで売る
+  const closeBuy = (() => {
+    const entry = c * (1 + SLIP)
+    if (!(entry > s.stop)) return null
+    const risk = entry - s.stop
+    const target = entry + 3 * risk
+    for (let k = e; k < B.length && k < e + 40; k++) {
+      const x = B[k]
+      let ex = null
+      if (x.o <= s.stop) ex = x.o * (1 - SLIP)
+      else if (x.l <= s.stop) ex = s.stop * (1 - SLIP)
+      else if (x.o >= target) ex = x.o
+      else if (x.h >= target) ex = target
+      else if (k === e + 39) ex = x.c * (1 - SLIP)
+      if (ex !== null) return (ex - entry) / risk
+    }
+    return null
+  })()
   rows.push({
     date: s.date,
+    Z: closeBuy,
     gap: (o / c - 1) * 100,
     A: o <= c * 1.02 ? run(B, e, o, s.stop, 40, 3, true) : 'miss',
     B: lim(c),
@@ -58,7 +77,7 @@ for (const s of D.swing) {
 }
 const per = r => (r.date < A_ ? 0 : r.date < BB ? 1 : 2)
 console.log(`候補 ${rows.length}件。各期間：買えた平均R／候補1件あたりR（買えなかったら0）／買えた割合`)
-const NAMES = { A: '寄り（+2%以内・今）', B: '指値＝前の日の終値', C: '指値＝終値−1%', D: '指値＝終値−2%', E: '指値＝終値−0.5ATR' }
+const NAMES = { Z: '合図の日の引け（引成）', A: '寄り（+2%以内・今）', B: '指値＝前の日の終値', C: '指値＝終値−1%', D: '指値＝終値−2%', E: '指値＝終値−0.5ATR' }
 for (const [k, n] of Object.entries(NAMES)) {
   const cells = [0, 1, 2].map(p => {
     const z = rows.filter(r => per(r) === p && r[k] !== null)
