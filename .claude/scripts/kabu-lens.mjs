@@ -2775,7 +2775,7 @@ export const PAPER_DEFAULTS = {
   dayFrom: 630, dayTo: 780, delay: 20, fillWindow: 30, lowAt: 870, lowEntryM: 890, lowTpPct: 5, lowSlPct: 8, lowExitM: 780,
   swingGapPct: 2, swingMaxDays: 40, surgeMax: 2, surgeTpR: 3, surgeHold: 10,
   chaseMax: 0, chaseTrigPct: 10, chaseFrom: 570, chaseTo: 690, chaseSlPct: 8,
-  peadMax: 2, peadHold: 5, peadGapMax: 15, usBearSwingMax: null,
+  peadMax: 2, peadHold: 5, peadGapMax: 15, peadGapMin: 0, usBearSwingMax: null,
   crashMax: 2, crashHold: 5, crashSlPct: 20, crashPosPct: 10,
   tsurareMax: 2, tsurareHold: 5, tsurareGap: -5, tsurareMktGap: -2.5,
   swingTargetR: null,
@@ -2921,7 +2921,7 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], 
     }
   }
   // 2b. 自社株買いの翌日（寄指＝前日の終値×1.02 以下で寄りに買い、大引けで売る）
-  // 2b'. 決算後のドリフト（kind: 'pead'。前の営業日に予想を+20%以上上方修正した株を寄りで買い、peadHold 日目の引けで売る。窓が peadGapMax% を超えたら買わない）
+  // 2b'. 決算後のドリフト（kind: 'pead'。前の営業日に予想を+20%以上上方修正した株を寄りで買い、peadHold 日目の引けで売る。窓が peadGapMax% を超えたら買わない。寄りが前の日の終値より peadGapMin% 以上低ければ買わない＝下げて始まった上方修正は2年とも負け）
   let bbCount = 0
   let peadCount = 0
   for (const b of buybacks) {
@@ -2934,6 +2934,7 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], 
     const limit = tickFloor(s.ctx.prevClose * (1 + (isPead ? (p.peadGapMax ?? 15) : (p.bbGapPct ?? 2)) / 100))
     const o = bars[0].o
     if (!(o > 0) || o > limit || bars.every(x => x.h === x.l)) continue
+    if (isPead && p.peadGapMin !== null && o < s.ctx.prevClose * (1 + (p.peadGapMin ?? 0) / 100)) continue
     const qty = Math.floor(Math.min(equity0 * p.maxPosPct / 100, st.cash) / o / 100) * 100
     if (qty < 100) continue
     if (b.kind === 'split' || isPead) {

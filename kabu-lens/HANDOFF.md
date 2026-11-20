@@ -229,7 +229,7 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 - しまい場所：記録帳の `research_store/2026-11-20b`（前の分＋J-Quants・世界の指標17・決算短信1か月）。
 - **スイングの候補から避ける形を外す（11/20 本人と決定・本番）**：`analyze` の `avoidChase`（既定で true）。7日続けて上げた（UP_7DAYS）・25日の単純平均から+25%以上（FAR_ABOVE_MA25）・その日に+15%以上で高値引け（LIMIT_UP_LIKE）は buy_candidate.pass を false にして why_not に理由を入れる。窓開け（GAP）にも当てる。10年の口座全体の検証（`study_combined.mjs`）で、3つの期間すべて年率が上がった唯一の変更。
 - **11/20 本人と決めたつなぎ方（3つとも OK）**：
-  - 練習口座に「決算後のドリフト」（track `pead`）：前の営業日に予想を+20%以上上方修正した株（株探の決算速報・universe-wide の銘柄）を寄りで買い、5日目の引けで売る。窓が+15%を超えたら買わない。`peadMax` 2。23:07 の `--paper-buyback` のときに自動で取る。
+  - 練習口座に「決算後のドリフト」（track `pead`）：前の営業日に予想を+20%以上上方修正した株（株探の決算速報・universe-wide の銘柄）を寄りで買い、5日目の引けで売る。窓が+15%を超えたら買わない。寄りが前の日の終値より低ければ買わない（`peadGapMin: 0`。11/21 の `study_pead_detail.mjs` で、下げて始まった上方修正は2年とも負け）。`peadMax` 2。23:07 の `--paper-buyback` のときに自動で取る。
   - `--world`（`fetchWorld`・`worldBrief`）：前の夜の S&P500・SOX・VIX・ドル円・米金利と、10年の検証にもとづく目安の文（notes）。朝の株ウォッチの③と夜の点検の 5d で使う。
   - 米国の下げ相場（S&P500 が20日で−5%以下・`usBear`）：練習口座の基本の口座だけ `usBearSwingMax: 1`（新しいスイングを1件まで）にして、攻めの口座（制限なし）と比べる。本番の注文票は件数を変えず、1行の注意だけ。
   - 下方修正の株は、夜の点検で買い候補にしない（`settings/main.extra` にも1行）。

@@ -1036,6 +1036,12 @@ describe('企業の行動の開示（自社株買い・増配・株式分割）'
     expect(r.trades[0]).toMatchObject({ track: 'split', exit: 1030 })
     expect(r.state.positions).toHaveLength(0)
   })
+  it('練習口座：決算後のドリフトは、寄りが前の日の終値より低ければ買わない', () => {
+    const day = (o: number, c: number) => [{ m: 540, o, h: Math.max(o, c) + 5, l: Math.min(o, c) - 5, c, v: 1000 }]
+    const st = paperNew({})
+    const r = paperStep(st, { date: '2026-11-20', stocks: { 1111: { bars: day(990, 1000), ctx: { prevClose: 1000 } }, 2222: { bars: day(1000, 1010), ctx: { prevClose: 1000 } } }, buybacks: [{ code: '1111', kind: 'pead' }, { code: '2222', kind: 'pead' }] })
+    expect(r.state.positions.map(x => [x.track, x.code])).toEqual([['pead', '2222']])
+  })
   it('練習口座：決算後のドリフトは窓が大きくても15%までなら寄りで買い、5日目の引けで売る。上限は peadMax', () => {
     const day = (o, c) => [{ m: 540, o, h: Math.max(o, c), l: Math.min(o, c), c, v: 1 }]
     const st = paperNew({ peadMax: 1 })
