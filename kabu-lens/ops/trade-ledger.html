@@ -289,6 +289,19 @@ section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
 .streak-dots i { width: 14px; height: 14px; border-radius: 4px; background: var(--accent); }
 .streak-dots i.ng { background: transparent; border: 1.5px solid var(--warn); }
 .extra-li { display: block !important; }
+/* 検証の一覧 */
+.pat-filter { display: flex; gap: 6px; flex-wrap: wrap; }
+.pat-list { display: grid; gap: 6px; }
+.pat-g { font-size: .78rem; font-weight: 700; color: var(--muted); margin: 8px 0 0; letter-spacing: .04em; }
+.pat { background: var(--surface); border: 1px solid var(--line); border-left-width: 4px; border-radius: 10px; padding: 8px 12px; display: grid; gap: 4px; min-width: 0; }
+.pat.good { border-left-color: var(--accent); } .pat.bad { border-left-color: var(--warn); } .pat.none { border-left-color: var(--line); } .pat.wait { border-left-color: var(--muted); border-left-style: dashed; }
+.pat-name { font-size: .84rem; font-weight: 700; overflow-wrap: anywhere; }
+.pat-nums { display: flex; gap: 4px 12px; flex-wrap: wrap; font-size: .76rem; align-items: baseline; }
+.pat-nums span.k { color: var(--muted); font-size: .66rem; margin-right: 2px; }
+.pat-status { font-size: .68rem; padding: 0 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
+.pat.good .pat-status { color: var(--accent); border-color: currentColor; }
+.pat-note { font-size: .7rem; color: var(--muted); }
+
 .extra-rules { margin: 6px 0 0; padding-left: 1.3em; display: grid; gap: 4px; font-size: .82rem; color: var(--ink); }
 
 
@@ -552,6 +565,19 @@ section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
   </div>
   <div class="tab-panel" role="tabpanel" id="panel-signals" aria-labelledby="tab-signals" hidden>
     <p class="tab-intro">仕組みが出した合図の答え合わせ。本番の数字が過去の検証と同じ向きなら「検証どおり」。件数が少ないうちは判定しない</p>
+      <section aria-labelledby="h-pat">
+    <div class="sec-head"><h2 id="h-pat">検証の一覧</h2><span class="count" id="pat-count"></span></div>
+    <p class="sub" id="pat-note"></p>
+    <div class="pat-filter" role="group" aria-label="絞り込み">
+      <button type="button" class="chip-btn pat-chip" data-g="all" aria-pressed="true">すべて</button>
+      <button type="button" class="chip-btn pat-chip" data-g="使える" aria-pressed="false">使える</button>
+      <button type="button" class="chip-btn pat-chip" data-g="避ける" aria-pressed="false">避ける</button>
+      <button type="button" class="chip-btn pat-chip" data-g="上乗せなし" aria-pressed="false">上乗せなし</button>
+      <button type="button" class="chip-btn pat-chip" data-g="確かめ中" aria-pressed="false">確かめ中</button>
+    </div>
+    <div class="pat-list" id="pat-list"></div>
+    <div class="panel" id="pat-empty"><div class="empty">まだありません。</div></div>
+  </section>
     <div class="score" id="scoreboard"></div>
   <section aria-labelledby="h-cand">
     <div class="sec-head"><h2 id="h-cand">候補の成績（約1,150銘柄）</h2><span class="count" id="cand-count"></span></div>
@@ -794,7 +820,41 @@ section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
     box.appendChild(dots);
     box.hidden = false;
   }
-  window.ledgerExtra = { renderNextDay: renderNextDay, renderMarks: renderMarks, renderAccuracy: renderAccuracy, renderMonthly: renderMonthly, score: score, streak: streak };
+
+  // 検証の一覧（settings/patterns）
+  var PAT = null, patG = "all";
+  function renderPatterns() {
+    var list = $("pat-list"); if (!list) return; list.textContent = "";
+    var rows = PAT && PAT.rows ? PAT.rows : [];
+    $("pat-empty").hidden = rows.length > 0;
+    $("pat-count").textContent = rows.length ? rows.length + "件・" + (PAT.updatedAt || "") : "";
+    $("pat-note").textContent = PAT && PAT.note ? PAT.note : "";
+    var fm = function (v, u) { return typeof v === "number" ? (v > 0 ? "+" : v < 0 ? "−" : "±") + Math.abs(v).toFixed(u === "R" ? 3 : 2) + (u === "R" ? "R" : "%") : "—"; };
+    var last = null;
+    rows.forEach(function (r) {
+      if (patG !== "all" && r.group !== patG) return;
+      if (r.group !== last) { list.appendChild(el("div", "pat-g", r.group)); last = r.group; }
+      var c = el("article", "pat " + (r.verdict || "none"));
+      c.appendChild(el("div", "pat-name", r.name));
+      var nums = el("div", "pat-nums");
+      [["持つ", r.hold], ["選ぶ", fm(r.p1, r.unit)], ["確かめる", fm(r.p2, r.unit)], ["直近1年", fm(r.p3, r.unit)]].forEach(function (x) {
+        var v = x[1] || "—";
+        var sp = el("span"); sp.appendChild(el("span", "k", x[0])); sp.appendChild(el("b", "num" + (v.charAt(0) === "+" ? " up" : v.charAt(0) === "−" ? " down" : ""), v)); nums.appendChild(sp);
+      });
+      nums.appendChild(el("span", "pat-status", r.status || ""));
+      c.appendChild(nums);
+      if (r.note) c.appendChild(el("div", "pat-note", r.note));
+      list.appendChild(c);
+    });
+  }
+  Array.prototype.forEach.call(document.querySelectorAll(".pat-chip"), function (b) {
+    b.addEventListener("click", function () {
+      patG = b.dataset.g;
+      Array.prototype.forEach.call(document.querySelectorAll(".pat-chip"), function (x) { x.setAttribute("aria-pressed", x === b ? "true" : "false"); });
+      renderPatterns();
+    });
+  });
+  window.ledgerExtra = { renderNextDay: renderNextDay, renderMarks: renderMarks, renderAccuracy: renderAccuracy, renderMonthly: renderMonthly, score: score, streak: streak, patterns: function (d) { PAT = d; renderPatterns(); } };
 })();
 </script>
 
@@ -1752,6 +1812,7 @@ section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
       ["cands_stats", "backtest", "intraday_wide_stats", "marks_stats", "nextday_stats", "movers_stats", "kessan_stats"].forEach(function (k) {
         db.doc("settings/" + k).onSnapshot(function (snap) { X.score(k, snap.exists ? snap.data() : null); }, function () {});
       });
+      db.doc("settings/patterns").onSnapshot(function (snap) { X.patterns(snap.exists ? snap.data() : null); }, function () {});
       db.collection("weekly").limit(100).onSnapshot(function (snap) { X.streak(snap.docs.map(function (doc) { var o = Object.assign({}, doc.data()); o.id = doc.id; return o; })); }, function () {});
       db.doc("settings/nextday_stats").onSnapshot(function (snap) { X.renderNextDay(snap.exists ? snap.data() : null); }, function () {});
       db.doc("settings/marks_stats").onSnapshot(function (snap) { X.renderMarks(snap.exists ? snap.data() : null); }, function () {});
