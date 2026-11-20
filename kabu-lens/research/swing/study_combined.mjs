@@ -63,6 +63,9 @@ for (const n of [75, 100, 200]) {
   }
 }
 const belowMA = (d, n = 200) => { const k = bi.get(d); return k !== undefined && MAS[n].has(d) && bench[k].c < MAS[n].get(d) }
+const EVBY = {}
+for (const e of D.events) if (e.kind !== 'split') (EVBY[e.code] ||= []).push(e.i)
+const recentEv = s => (EVBY[s.code] || []).some(i => i <= s.i && i >= s.i - 20)
 const streakOf = s => STREAK.get(s.code + ':' + s.i) || 1
 // 避ける形を外す前の候補（本番の analyze は 11/20 から外しているので、比べるために外さない候補も作る）
 const SW_OFF = process.env.PAIRED ? byDate(loadAll({ avoidChase: false }).swing) : SW
@@ -263,6 +266,7 @@ function run(P) {
         }
       }[P.order || 'score']
       list.sort((a, b) => keyOf(a) - keyOf(b))
+      if (P.evFirst) list.sort((a, b) => recentEv(b) - recentEv(a))
       if (P.streakFirst) list.sort((a, b) => streakOf(b) - streakOf(a))
       if (P.streakMin) list = list.filter(s => streakOf(s) >= P.streakMin)
       if (P.avoid) list = list.filter(s => !avoid(stocks[s.code], s.i))
@@ -399,7 +403,9 @@ if (process.env.EVDD) {
 if (process.env.PAIRED) {
   // 同じでたらめな順番（同じ SEED）で、変更あり・なしを比べる。差の分布で、偶然ではないかを見る
   const CRV = { tracks: { ...BASE.tracks, crash: true } }
-  const variants = process.env.PAIRED === 'evlook' ? [
+  const variants = process.env.PAIRED === 'evfirst' ? [
+    ['スイング：20日以内に自社株買い・増配の株を先に', { avoid: true, evFirst: true }, { avoid: true }]
+  ] : process.env.PAIRED === 'evlook' ? [
     ['企業の行動50%・5日で上げていた順', { avoid: true, evPosPct: 50, evOrder: 'mom', evLook: 5 }, { avoid: true, evPosPct: 50 }],
     ['企業の行動50%・60日で上げていた順', { avoid: true, evPosPct: 50, evOrder: 'mom', evLook: 60 }, { avoid: true, evPosPct: 50 }],
     ['企業の行動50%・20日で下げていた順（逆）', { avoid: true, evPosPct: 50, evOrder: 'rev' }, { avoid: true, evPosPct: 50 }]
