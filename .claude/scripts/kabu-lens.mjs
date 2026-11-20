@@ -2687,7 +2687,7 @@ export async function fetchIntradayWide(list, { date = null, parallel = 8, keepL
           const ld = dates[dates.length - 1]
           const past = d.bars.filter(b => b.date < ld)
           const turnover = past.slice(-20).reduce((s, b) => s + b.c * b.v, 0) / 20
-          ;(paperDays[ld] ||= {})[code] = { name: name || d.name, bars: days[ld], ctx: intradayContext(past), turnover, surge: surgePullback(past), crash: crashSignal(past), below200: past.length >= 200 ? past[past.length - 1].c < past.slice(-200).reduce((a, b) => a + b.c, 0) / 200 : null, prevR1: past.length >= 2 ? round((past[past.length - 1].c / past[past.length - 2].c - 1) * 100, 2) : null }
+          ;(paperDays[ld] ||= {})[code] = { name: name || d.name, bars: days[ld], ctx: intradayContext(past), turnover, surge: surgePullback(past), crash: crashSignal(past), r20: past.length >= 21 ? round((past[past.length - 1].c / past[past.length - 21].c - 1) * 100, 2) : null, below200: past.length >= 200 ? past[past.length - 1].c < past.slice(-200).reduce((a, b) => a + b.c, 0) / 200 : null, prevR1: past.length >= 2 ? round((past[past.length - 1].c / past[past.length - 2].c - 1) * 100, 2) : null }
           if (dates.length > 1) prevOf[ld] = dates[dates.length - 2]
         }
         if (keepLatest && dates.length) {
@@ -2775,7 +2775,7 @@ export const PAPER_DEFAULTS = {
   dayFrom: 630, dayTo: 780, delay: 20, fillWindow: 30, lowAt: 870, lowEntryM: 890, lowTpPct: 5, lowSlPct: 8, lowExitM: 780,
   swingGapPct: 2, swingMaxDays: 40, surgeMax: 2, surgeTpR: 3, surgeHold: 10,
   chaseMax: 0, chaseTrigPct: 10, chaseFrom: 570, chaseTo: 690, chaseSlPct: 8,
-  evPosPct: null, evStopPct: null, ma200Half: false, peadMax: 2, peadHold: 5, peadGapMax: 15, peadGapMin: 0, usBearSwingMax: null,
+  evPosPct: null, evStopPct: null, ma200Half: false, evOrder: null, peadMax: 2, peadHold: 5, peadGapMax: 15, peadGapMin: 0, usBearSwingMax: null,
   crashMax: 2, crashHold: 5, crashSlPct: 20, crashPosPct: 5, crashOpenMax: 2, crashMktOnly: true, swingMaxPrice: null,
   tsurareMax: 2, tsurareHold: 5, tsurarePosPct: 10, tsurareGap: -5, tsurareMktGap: -2.5,
   swingTargetR: null,
@@ -2927,7 +2927,9 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], 
   // 2b'. 決算後のドリフト（kind: 'pead'。前の営業日に予想を+20%以上上方修正した株を寄りで買い、peadHold 日目の引けで売る。窓が peadGapMax% を超えたら買わない。寄りが前の日の終値より peadGapMin% 以上低ければ買わない＝下げて始まった上方修正は2年とも負け）
   let bbCount = 0
   let peadCount = 0
-  for (const b of buybacks) {
+  // evOrder 'mom'：企業の行動は、発表までの20日の騰落の大きい順に買う（2026-11-21 の口座全体の検証で、4つの期間すべて年率が上がった）
+  const evList = p.evOrder === 'mom' ? buybacks.slice().sort((a, b) => (b.kind === 'pead') - (a.kind === 'pead') || (stocks[b.code]?.r20 ?? -1e9) - (stocks[a.code]?.r20 ?? -1e9)) : buybacks
+  for (const b of evList) {
     const isPead = b.kind === 'pead'
     if (isPead ? peadCount >= (p.peadMax ?? 2) : bbCount >= (p.bbMax ?? 2)) continue
     if (st.positions.some(x => x.code === b.code)) continue

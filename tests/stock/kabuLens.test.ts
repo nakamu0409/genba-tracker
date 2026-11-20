@@ -1039,6 +1039,15 @@ describe('企業の行動の開示（自社株買い・増配・株式分割）'
     expect(r.trades[0]).toMatchObject({ track: 'split', exit: 1030 })
     expect(r.state.positions).toHaveLength(0)
   })
+  it('練習口座：evOrder が mom なら、企業の行動は20日の騰落の大きい順に買う', () => {
+    const day = (o: number, c: number) => [{ m: 540, o, h: Math.max(o, c) + 5, l: Math.min(o, c) - 5, c, v: 1000 }]
+    const stocks = { 1111: { bars: day(1000, 1010), ctx: { prevClose: 1000 }, r20: -5 }, 2222: { bars: day(1000, 1010), ctx: { prevClose: 1000 }, r20: 12 } }
+    const bb = [{ code: '1111', kind: 'split' }, { code: '2222', kind: 'buyback' }]
+    const a = paperStep(paperNew({ slipPct: 0, bbMax: 1 }), { date: '2026-11-20', stocks, buybacks: bb })
+    const b = paperStep(paperNew({ slipPct: 0, bbMax: 1, evOrder: 'mom' }), { date: '2026-11-20', stocks, buybacks: bb })
+    expect(a.state.positions.map(x => x.code).concat(a.trades.map(x => x.code))).toEqual(['1111'])
+    expect(b.state.positions.map(x => x.code).concat(b.trades.map(x => x.code))).toEqual(['2222'])
+  })
   it('練習口座：ma200Half なら、1306 が200日線より下の日はスイングの株数を半分にする', () => {
     const day = (o: number, c: number) => [{ m: 540, o, h: Math.max(o, c), l: Math.min(o, c), c, v: 1 }]
     const cands = [{ code: '1111', date: '2026-11-19', close: 1000, stop: 900, pass: true, score: 90 }]
