@@ -63,6 +63,22 @@ for (const n of [75, 100, 200]) {
   }
 }
 const belowMA = (d, n = 200) => { const k = bi.get(d); return k !== undefined && MAS[n].has(d) && bench[k].c < MAS[n].get(d) }
+// PBR（J-Quants の決算のまとめ。合図の日より前に開示された BPS）
+const BPS = (() => {
+  if (!process.env.PBR) return null
+  const f = JSON.parse(readFileSync(new URL('../jq_fins.json', import.meta.url), 'utf-8'))
+  const m = {}
+  for (const l of Object.values(f)) for (const r of l) if (r.BPS !== '' && r.BPS !== null && Number.isFinite(+r.BPS)) (m[r.Code.slice(0, 4)] ||= []).push([r.DiscDate, +r.BPS])
+  for (const l of Object.values(m)) l.sort((a, b) => a[0].localeCompare(b[0]))
+  return m
+})()
+const pbrOf = s => {
+  const l = BPS?.[s.code]
+  if (!l) return null
+  let b = null
+  for (const [d, v] of l) { if (d >= s.date) break; b = v }
+  return b > 0 ? stocks[s.code].bars[s.i].c / b : null
+}
 const EVBY = {}
 for (const e of D.events) if (e.kind !== 'split') (EVBY[e.code] ||= []).push(e.i)
 const recentEv = s => (EVBY[s.code] || []).some(i => i <= s.i && i >= s.i - 20)
@@ -266,6 +282,8 @@ function run(P) {
         }
       }[P.order || 'score']
       list.sort((a, b) => keyOf(a) - keyOf(b))
+      if (P.maxPBR) list = list.filter(s => { const v = pbrOf(s); return v !== null && v < P.maxPBR })
+      if (P.pbrFirst) list.sort((a, b) => (pbrOf(a) ?? 99) - (pbrOf(b) ?? 99))
       if (P.evFirst) list.sort((a, b) => recentEv(b) - recentEv(a))
       if (P.streakFirst) list.sort((a, b) => streakOf(b) - streakOf(a))
       if (P.streakMin) list = list.filter(s => streakOf(s) >= P.streakMin)
@@ -397,6 +415,18 @@ if (process.env.EVDD) {
     }
     const md = a => a.sort((x, y) => x - y)[10]
     console.log(`■ 1銘柄 ${pct}%${stp ? '・損切り−' + stp + '%' : ''}：` + PER.map(([pn], j) => `${pn} 年率 ${fmt(md(out[j].c), 1)}%・一番下げ ${fmt(md(out[j].d), 1)}%・マイナスの月 ${md(out[j].n).toFixed(0)}%`).join(' ｜ '))
+  }
+  process.exit(0)
+}
+if (process.env.PBR) {
+  const PP = [['2024-09〜2025-08', { start: '2024-09-02', end: '2025-08-28' }], ['2025-08〜', { start: '2025-08-28' }]]
+  for (const [nm, on] of [['PBR 2倍以上の候補を外す', { avoid: true, maxPBR: 2 }], ['PBR の低い順に買う', { avoid: true, pbrFirst: true }]]) {
+    const diffs = PP.map(() => [])
+    for (let k = 1; k <= 20; k++) {
+      SEED = k
+      PP.forEach(([, po], j) => diffs[j].push(stats({ ...BASE, ...on, ...po, order: 'random' }).cagr - stats({ ...BASE, avoid: true, ...po, order: 'random' }).cagr))
+    }
+    console.log(`■ ${nm}：` + PP.map(([pn], j) => { const a = diffs[j].sort((x, y) => x - y); return `${pn} 差の真ん中 ${fmt(a[10], 1)}pt（${a.filter(x => x > 0).length}/20）` }).join(' ｜ '))
   }
   process.exit(0)
 }
