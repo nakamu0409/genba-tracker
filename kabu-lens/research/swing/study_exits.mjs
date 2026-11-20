@@ -1,149 +1,141 @@
-// スイングの買い候補（通過）の「売り方」を比べる。利益率（1回あたりのR、R÷保有日数）を上げる売り方を探す
+// 損切り・利確・持つ日数の見直し（2026-11-20 本人の希望。先に一覧を決めてから回す）
 // 使い方: node --max-old-space-size=7000 kabu-lens/research/swing/study_exits.mjs
-// ・日足は 1時間足（research/day/hour.json、約1,150銘柄・2024-02〜）から作る。比べる相手（TOPIX）は入れていない（相対強さの条件は効かない）
-// ・候補は analyze の signal_history の pass。翌日の始値で買う（終値の+2%を超えて高く寄ったら買わない）。損切りは候補の stop
-// ・候補ごとに独立に数える（重なりあり）。逆指値は 0.1%不利に約定とみる
-import { readFileSync } from 'node:fs'
-import { analyze, atr } from '../../../.claude/scripts/kabu-lens.mjs'
+// 1) スイングの候補（今の決まり：翌日の寄りで買う（終値+2%以内）、損切り＝合図の日の終値 − 2×ATR、目標 3R、40営業日）
+//    損切りの幅（1・1.5・2・3×ATR）× 目標（2R・3R・5R・なし）× 損切りの引き上げ（なし／+1R で買値へ／高値から3×ATR下で追う）
+//    比べる物差し：1回の平均R（1回の損＝損切り幅を1とした損益。資金の何%を賭けるかが同じなら、平均R が大きいほど儲かる）と、持った日数・10日あたりのR
+// 2) 急落の反発・つられ下げ：損切り（なし・−8%・−12%・−20%）× 持つ日数 × 利確（なし・+10%）。TOPIX との差（%）
+// 期間：選ぶ（〜2021-11-18）・確かめる（〜2025-11-13）・最後の確認。手数料・値段のずれは 0.1%×往復（SLIP）で入れてある
+import { loadAll, mean, fmt, SPLIT_DATE } from './lib_signals.mjs'
 
-const hour = JSON.parse(readFileSync(new URL('../day/hour.json', import.meta.url), 'utf-8'))
+const A = SPLIT_DATE
+const BB = '2025-11-14'
 const SLIP = 0.001
-const ev = []
-for (const [code, days] of Object.entries(hour)) {
-  if (!days) continue
-  const ds = Object.keys(days).sort()
-  const bars = ds.map(d => { const b = days[d]; return { date: d, o: b[0][1], h: Math.max(...b.map(x => x[2])), l: Math.min(...b.map(x => x[3])), c: b[b.length - 1][4], v: b.reduce((s, x) => s + x[5], 0) } })
-  if (bars.length < 260) continue
-  let p
-  try { p = analyze(bars, [], {}, { history: true }) } catch { continue }
-  const a14 = atr(bars, 14)
-  for (const sg of p.signal_history.filter(x => x.pass)) {
-    const e = sg.i + 1
-    if (e >= bars.length - 1) continue
-    const entry = bars[e].o
-    if (entry > bars[sg.i].c * 1.02 || !(entry > sg.stop)) continue
-    ev.push({ code, date: bars[sg.i].date, kind: sg.kind, e, entry, stop: sg.stop, bars, a14 })
-  }
-}
-console.error('候補', ev.length)
-
-// 売り方：state を持ち、足ごとに「売る値段」か null を返す
-function run(x, rule) {
-  const { bars, e, entry } = x
-  const risk = entry - x.stop
-  let stop = x.stop
-  let hiC = entry
-  let hiH = entry
-  for (let k = e; k < bars.length; k++) {
-    const b = bars[k]
-    const n = k - e + 1
-    if (b.o <= stop) return { r: (b.o * (1 - SLIP) - entry) / risk, n }
-    if (b.l <= stop) return { r: (stop * (1 - SLIP) - entry) / risk, n }
-    const t = rule.target ? entry + rule.target * risk : Infinity
-    if (b.h >= t) return { r: (Math.max(t, b.o) - entry) / risk, n }
-    if (n >= rule.maxBars) return { r: (b.c * (1 - SLIP) - entry) / risk, n }
-    if (rule.timeStop && n >= rule.timeStop[0] && (b.c - entry) / risk < rule.timeStop[1]) return { r: (b.c * (1 - SLIP) - entry) / risk, n }
-    hiC = Math.max(hiC, b.c)
-    hiH = Math.max(hiH, b.h)
-    // 翌日からの損切りを、今日の終わりの値で引き上げる（下げない）
-    if (rule.be && hiH >= entry + rule.be * risk) stop = Math.max(stop, entry)
-    if (rule.lock) for (const [at, to] of rule.lock) if (hiH >= entry + at * risk) stop = Math.max(stop, entry + to * risk)
-    if (rule.trailAtr && x.a14[k] && hiH >= entry + (rule.trailFrom ?? 0) * risk) stop = Math.max(stop, hiC - rule.trailAtr * x.a14[k])
-  }
-  const last = bars[bars.length - 1]
-  return { r: (last.c - entry) / risk, n: bars.length - e, open: true }
-}
-const RULES = {
-  '今：目標3R・40日': { target: 3, maxBars: 40 },
-  '目標2R・40日': { target: 2, maxBars: 40 },
-  '目標4R・40日': { target: 4, maxBars: 40 },
-  '目標3R・+1Rで損切りを買値へ': { target: 3, maxBars: 40, be: 1 },
-  '目標3R・20日': { target: 3, maxBars: 20 },
-  '目標3R・10日で+0.5R未満なら手じまい': { target: 3, maxBars: 40, timeStop: [10, 0.5] },
-  '目標なし・終値の高値−ATR×3で追う・60日': { maxBars: 60, trailAtr: 3 },
-  '目標なし・+1Rから終値の高値−ATR×2で追う・60日': { maxBars: 60, trailAtr: 2, trailFrom: 1 },
-  '目標なし・+1Rで買値、+2Rで+1R、以後ATR×3で追う・60日': { maxBars: 60, lock: [[1, 0], [2, 1]], trailAtr: 3, trailFrom: 2 },
-  '目標5R・+1Rで買値・+2Rで+1R・60日': { target: 5, maxBars: 60, lock: [[1, 0], [2, 1]] }
-}
-const dates = [...new Set(ev.map(x => x.date))].sort()
-const mid = dates[Math.floor(dates.length / 2)]
-const f = (v, d = 2) => (v >= 0 ? '+' : '') + v.toFixed(d)
-console.log(`候補（通過）${ev.length}回・${new Set(ev.map(x => x.code)).size}銘柄、${dates[0]}〜${dates[dates.length - 1]}（前半/後半の境 ${mid}）`)
-console.log('売り方'.padEnd(44), '平均R（前半/後半）       勝率  勝ちの平均R 負けの平均R  PF   平均日数  1日あたりR')
-for (const [name, rule] of Object.entries(RULES)) {
-  const rs = ev.map(x => ({ d: x.date, ...run(x, rule) })).filter(z => !z.open)
-  const m = zs => zs.reduce((s, z) => s + z.r, 0) / zs.length
-  const A = rs.filter(z => z.d < mid), B = rs.filter(z => z.d >= mid)
-  const W = rs.filter(z => z.r > 0), L = rs.filter(z => z.r <= 0)
-  const pf = W.reduce((s, z) => s + z.r, 0) / Math.max(1e-9, -L.reduce((s, z) => s + z.r, 0))
-  const days = rs.reduce((s, z) => s + z.n, 0) / rs.length
-  console.log(name.padEnd(44), `${f(m(rs), 3)}（${f(m(A))}/${f(m(B))}）`.padEnd(22), `${Math.round(W.length / rs.length * 100)}%`.padStart(4), f(m(W)).padStart(9), f(m(L)).padStart(10), pf.toFixed(2).padStart(6), days.toFixed(1).padStart(8), f(m(rs) / days, 4).padStart(10))
-}
-
-// ---- 追加：追いかけ方の幅・期間を変える、形ごと、年ごと、比べる相手（どの日に買っても） ----
-const show = (name, list, rule) => {
-  const rs = list.map(x => ({ d: x.date, ...run(x, rule) })).filter(z => !z.open)
-  if (!rs.length) return console.log(name, 'n=0')
-  const m = zs => zs.length ? zs.reduce((s, z) => s + z.r, 0) / zs.length : NaN
-  const W = rs.filter(z => z.r > 0), L = rs.filter(z => z.r <= 0)
-  const pf = W.reduce((s, z) => s + z.r, 0) / Math.max(1e-9, -L.reduce((s, z) => s + z.r, 0))
-  const days = rs.reduce((s, z) => s + z.n, 0) / rs.length
-  const yr = ['2024', '2025', '2026'].map(y => { const ys = rs.filter(z => z.d.startsWith(y)); return `${y.slice(2)}年${f(m(ys))}(${ys.length})` }).join(' ')
-  console.log(name.padEnd(40), `n=${String(rs.length).padStart(5)} 平均R${f(m(rs), 3)} 勝${Math.round(W.length / rs.length * 100)}% PF${pf.toFixed(2)} 日数${days.toFixed(1)} 1日R${f(m(rs) / days, 4)} | ${yr}`)
-}
-console.log('\n-- 追いかける幅と期間')
-for (const k of [2.5, 3, 3.5, 4]) for (const mb of [40, 60, 90]) show(`ATR×${k}・${mb}日`, ev, { maxBars: mb, trailAtr: k })
-console.log('\n-- 形ごと：今 と ATR×3・60日')
-for (const kind of [...new Set(ev.map(x => x.kind))]) {
-  const l = ev.filter(x => x.kind === kind)
-  show(`${kind} 今`, l, kind === 'GAP' ? { maxBars: 10 } : { target: 3, maxBars: 40 })
-  show(`${kind} ATR×3・60日`, l, { maxBars: 60, trailAtr: 3 })
-}
-// 比べる相手：同じ銘柄で5日ごとに、終値−ATR×2 を損切りにして翌日の始値で買った場合
-const base = []
-const seen = new Set(ev.map(x => x.code))
-for (const code of seen) {
-  const any = ev.find(x => x.code === code)
-  const { bars, a14 } = any
-  for (let i = 210; i < bars.length - 1; i += 5) {
-    if (!a14[i]) continue
-    const entry = bars[i + 1].o
-    const stop = bars[i].c - 2 * a14[i]
-    if (!(entry > stop)) continue
-    base.push({ code, date: bars[i].date, e: i + 1, entry, stop, bars, a14 })
-  }
-}
-console.log('\n-- 比べる相手（どの日に買っても・5日ごと）')
-show('どの日でも 今の売り方', base, { target: 3, maxBars: 40 })
-show('どの日でも ATR×3・60日', base, { maxBars: 60, trailAtr: 3 })
-
-// ---- 追加2：相場全体の地合い（25日線の上にいる銘柄の割合）で分けると、スイングは良くなるか ----
-const breadth = new Map()
-for (const [code, days] of Object.entries(hour)) {
-  if (!days) continue
-  const ds = Object.keys(days).sort()
-  const c = ds.map(d => days[d][days[d].length - 1][4])
+const D = loadAll()
+const { stocks, bench } = D
+const bi = new Map(bench.map((b, i) => [b.date, i]))
+const atrOf = {}
+for (const st of Object.values(stocks)) {
+  const B = st.bars
+  const a = new Float64Array(B.length)
   let s = 0
-  for (let i = 0; i < c.length; i++) {
-    s += c[i]
-    if (i >= 25) s -= c[i - 25]
-    if (i >= 24) {
-      const b = breadth.get(ds[i]) || [0, 0]
-      b[0] += c[i] > s / 25 ? 1 : 0
-      b[1]++
-      breadth.set(ds[i], b)
+  for (let i = 0; i < B.length; i++) {
+    const tr = i ? Math.max(B[i].h, B[i - 1].c) - Math.min(B[i].l, B[i - 1].c) : B[i].h - B[i].l
+    s += tr
+    if (i >= 14) s -= i - 14 ? Math.max(B[i - 14].h, B[i - 15].c) - Math.min(B[i - 14].l, B[i - 15].c) : B[0].h - B[0].l
+    a[i] = s / Math.min(14, i + 1)
+  }
+  atrOf[st.code] = a
+}
+// 一般の売り方：e の寄りで買い、stop・target・trail で売る
+function run(B, atr, i, { k, rMult, trail, maxDays = 40, gapMax = 2 }) {
+  const e = i + 1
+  if (e >= B.length || B[e].h === B[e].l) return null
+  if (gapMax !== null && B[e].o > B[i].c * (1 + gapMax / 100)) return null
+  const entry = B[e].o * (1 + SLIP)
+  let stop = B[i].c - k * atr[i]
+  if (!(entry > stop)) return null
+  const risk = entry - stop
+  const target = rMult ? entry + rMult * risk : Infinity
+  let hiC = entry
+  for (let j = e; j < B.length && j < e + maxDays; j++) {
+    const x = B[j]
+    let ex = null
+    if (j > e && x.o <= stop) ex = x.o * (1 - SLIP)
+    else if (x.l <= stop) ex = stop * (1 - SLIP)
+    else if (j > e && x.o >= target) ex = x.o
+    else if (x.h >= target) ex = target
+    else if (j === e + maxDays - 1) ex = x.c * (1 - SLIP)
+    if (ex !== null) return { r: (ex - entry) / risk, days: j - e + 1, date: B[i].date }
+    // 引けで損切りを見直す（次の日から効く）
+    hiC = Math.max(hiC, x.c)
+    if (trail === 'be' && x.c >= entry + risk) stop = Math.max(stop, entry)
+    if (trail === 'atr3') stop = Math.max(stop, hiC - 3 * atr[j])
+  }
+  return null
+}
+function line(name, rows) {
+  const s = p => rows.filter(p)
+  const r1 = s(r => r.date < A)
+  const r2 = s(r => r.date >= A && r.date < BB)
+  const r3 = s(r => r.date >= BB)
+  const m = z => mean(z.map(r => r.r))
+  const per10 = z => mean(z.map(r => r.r)) / mean(z.map(r => r.days)) * 10
+  return { name, n: rows.length, m1: m(r1), m2: m(r2), m3: m(r3), days: mean(rows.map(r => r.days)), p10: per10(rows), win: rows.filter(r => r.r > 0).length / rows.length }
+}
+console.log(`スイングの候補 ${D.swing.length}件で試す（今の決まり：2×ATR・3R・引き上げなし）\n`)
+const res = []
+for (const k of [1, 1.5, 2, 3]) {
+  for (const rMult of [2, 3, 5, 0]) {
+    for (const trail of ['none', 'be', 'atr3']) {
+      const rows = []
+      for (const s of D.swing) {
+        const st = stocks[s.code]
+        const t = run(st.bars, atrOf[s.code], s.i, { k, rMult, trail })
+        if (t) rows.push(t)
+      }
+      res.push(line(`損切り ${k}×ATR・目標 ${rMult ? rMult + 'R' : 'なし'}・引き上げ ${trail === 'none' ? 'なし' : trail === 'be' ? '+1Rで買値へ' : '高値−3ATR'}`, rows))
     }
   }
 }
-const br = d => { const b = breadth.get(d); return b ? b[0] / b[1] * 100 : null }
-console.log('\n-- 地合い（25日線の上の銘柄の割合）ごと')
-for (const [lo, hi] of [[0, 30], [30, 45], [45, 60], [60, 75], [75, 101]]) {
-  const l = ev.filter(x => { const v = br(x.date); return v !== null && v >= lo && v < hi })
-  show(`地合い ${lo}〜${hi}% 今`, l, { target: 3, maxBars: 40 })
-  show(`地合い ${lo}〜${hi}% ATR×3・60日`, l, { maxBars: 60, trailAtr: 3 })
-  const bl = base.filter(x => { const v = br(x.date); return v !== null && v >= lo && v < hi })
-  show(`  どの日でも ${lo}〜${hi}% 今`, bl, { target: 3, maxBars: 40 })
-}
+res.sort((a, b) => b.m2 - a.m2)
+const cur = res.find(r => r.name === '損切り 2×ATR・目標 3R・引き上げ なし')
+const show = r => console.log(`  ${r.name.padEnd(40)} 平均R 選ぶ${fmt(r.m1, 3)}  確かめる${fmt(r.m2, 3)}  最後${fmt(r.m3, 3)}  持つ${r.days.toFixed(1)}日  10日あたり${fmt(r.p10, 3)}R  勝率${(r.win * 100).toFixed(0)}%`)
+console.log('■ 今の決まり')
+show(cur)
+console.log('\n■ 確かめる期間の平均R が良い順（上位12）')
+res.slice(0, 12).forEach(show)
+console.log('\n■ 選ぶ期間でも確かめる期間でも今の決まりより良く、最後の確認でも今より良いもの')
+res.filter(r => r.m1 > cur.m1 && r.m2 > cur.m2 && r.m3 > cur.m3).forEach(show)
 
-console.log('\n-- 年ごと（主な売り方）')
-for (const [name, rule] of Object.entries(RULES)) show(name, ev, rule)
+// 2) 急落の反発・つられ下げ
+const bOpenTo = (d0, d1) => (bi.has(d0) && bi.has(d1) ? (bench[bi.get(d1)].c / bench[bi.get(d0)].o - 1) * 100 : null)
+const bGap = d => {
+  const i = bi.get(d)
+  return i > 0 ? (bench[i].o / bench[i - 1].c - 1) * 100 : null
+}
+function hold(B, e, { sl, days, tp }) {
+  const entry = B[e].o * (1 + SLIP)
+  const stop = sl ? entry * (1 - sl / 100) : 0
+  const tgt = tp ? entry * (1 + tp / 100) : Infinity
+  for (let j = e; j < B.length && j < e + days; j++) {
+    const x = B[j]
+    let ex = null
+    if (sl && j > e && x.o <= stop) ex = x.o
+    else if (sl && x.l <= stop) ex = stop
+    else if (tp && j > e && x.o >= tgt) ex = x.o
+    else if (tp && x.h >= tgt) ex = tgt
+    else if (j === e + days - 1) ex = x.c
+    if (ex !== null) {
+      const bm = bOpenTo(B[e].date, B[j].date)
+      return bm === null ? null : (ex * (1 - SLIP) / entry - 1) * 100 - bm
+    }
+  }
+  return null
+}
+const cr = []
+const ts = []
+for (const st of Object.values(stocks)) {
+  const B = st.bars
+  let last = -99
+  for (let i = 260; i < B.length - 21; i++) {
+    if (st.turn[i] < 1e8) continue
+    if (B[i].c / B[i - 5].c <= 0.85 && B[i].c >= 300) {
+      if (i - last > 10 && B[i + 1].h !== B[i + 1].l) cr.push({ B, e: i + 1, date: B[i].date })
+      last = i
+    }
+    const g = bGap(B[i].date)
+    if (B[i - 1].c >= 300 && B[i].o / B[i - 1].c <= 0.95 && g !== null && g <= -2.5) ts.push({ B, e: i, date: B[i].date })
+  }
+}
+function table(title, list, combos) {
+  console.log(`\n■ ${title}（TOPIX との差・%。往復 0.2% 相当を引いてある）`)
+  for (const c of combos) {
+    const rows = list.map(x => ({ date: x.date, v: hold(x.B, x.e, c) })).filter(x => x.v !== null)
+    const m = p => mean(rows.filter(p).map(x => x.v))
+    console.log(`  損切り ${c.sl ? '−' + c.sl + '%' : 'なし'}・${c.days}日・利確 ${c.tp ? '+' + c.tp + '%' : 'なし'}`.padEnd(30) + `  選ぶ${fmt(m(r => r.date < A))}  確かめる${fmt(m(r => r.date >= A && r.date < BB))}  最後${fmt(m(r => r.date >= BB))}  （${rows.length}件）`)
+  }
+}
+const combos = []
+for (const sl of [0, 8, 12, 20]) for (const days of [5, 10]) for (const tp of [0, 10]) combos.push({ sl, days, tp })
+table('急落の反発（10日ぶりの最初の合図・翌日の寄りで買う）', cr, combos)
+table('つられ下げ（TOPIX の窓 −2.5% 以下の日に、窓 −5% 以下の株をその日の寄りで買う）', ts, combos)

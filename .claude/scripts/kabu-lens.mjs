@@ -2764,7 +2764,8 @@ export const PAPER_DEFAULTS = {
   chaseMax: 0, chaseTrigPct: 10, chaseFrom: 570, chaseTo: 690, chaseSlPct: 8,
   peadMax: 2, peadHold: 5, peadGapMax: 15, usBearSwingMax: null,
   crashMax: 2, crashHold: 5, crashSlPct: 20, crashPosPct: 10,
-  tsurareMax: 2, tsurareHold: 10, tsurareGap: -5, tsurareMktGap: -2.5
+  tsurareMax: 2, tsurareHold: 5, tsurareGap: -5, tsurareMktGap: -2.5,
+  swingTargetR: null
 }
 
 export function paperNew(params = {}) {
@@ -2894,7 +2895,10 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], 
     const entry = x.o * (1 + slip)
     const qty = sizeOf(entry, c.stop, st.cash)
     if (qty < 100) continue
-    const pos = open('swing', c.code, c.name || stocks[c.code]?.name || '', entry, qty, { stop: c.stop, target: c.target ?? null, kind: c.kind || null, score: c.score ?? null })
+    // swingTargetR があれば、目標を「買値 + 損切り幅 × swingTargetR」に置き直す（0 なら目標なし。2026-11-20 の見直しで、3R より遠いほうが良かった）
+    const tR = p.swingTargetR
+    const target = tR === null || tR === undefined ? c.target ?? null : tR > 0 ? entry + tR * (entry - c.stop) : null
+    const pos = open('swing', c.code, c.name || stocks[c.code]?.name || '', entry, qty, { stop: c.stop, target, kind: c.kind || null, score: c.score ?? null })
     if (x.l <= pos.stop) close(pos, pos.stop * (1 - slip), '損切り（当日）')
     else if (pos.target && x.h >= pos.target) close(pos, pos.target, '目標（当日）')
     else {
@@ -2978,7 +2982,7 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], 
         const qty = Math.floor(Math.min(equity0 * (p.crashPosPct ?? 10) / 100, st.cash) / entry / 100) * 100
         if (qty < 100) continue
         tn++
-        const pos = open('tsurare', code, s.name || '', entry, qty, { stop: r1(stop), holdDays: p.tsurareHold ?? 10, gapPct: round((s.bars[0].o / s.ctx.prevClose - 1) * 100, 1), mktGap: round(mktGap, 2) })
+        const pos = open('tsurare', code, s.name || '', entry, qty, { stop: r1(stop), holdDays: p.tsurareHold ?? 5, gapPct: round((s.bars[0].o / s.ctx.prevClose - 1) * 100, 1), mktGap: round(mktGap, 2) })
         pos.held = 1
         if (x.l <= pos.stop) close(pos, pos.stop * (1 - slip), '損切り（当日）')
         else {

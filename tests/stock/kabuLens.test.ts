@@ -1071,7 +1071,7 @@ describe('企業の行動の開示（自社株買い・増配・株式分割）'
     const many = (g: number) => Object.fromEntries(Array.from({ length: 120 }, (_, i) => [String(5000 + i), { bars: day(1000 * (1 + g / 100), 1000), ctx: { prevClose: 1000 }, turnover: 1e7 }]))
     const target = { 1111: { name: 'A', bars: day(930, 950), ctx: { prevClose: 1000 }, turnover: 5e8 } }
     const r = paperStep(paperNew({ slipPct: 0 }), { date: '2026-11-24', stocks: { ...many(-3), ...target } })
-    expect(r.state.positions.map(x => [x.track, x.code, x.holdDays])).toEqual([['tsurare', '1111', 10]])
+    expect(r.state.positions.map(x => [x.track, x.code, x.holdDays])).toEqual([['tsurare', '1111', 5]])
     const r2 = paperStep(paperNew({ slipPct: 0 }), { date: '2026-11-24', stocks: { ...many(-1), ...target } })
     expect(r2.state.positions).toHaveLength(0)
   })
@@ -1083,6 +1083,14 @@ describe('企業の行動の開示（自社株買い・増配・株式分割）'
     const b = paperStep(paperNew({ usBearSwingMax: 1 }), { date: '2026-11-20', stocks, cands, usBear: false })
     expect(a.state.positions.filter(x => x.track === 'swing')).toHaveLength(1)
     expect(b.state.positions.filter(x => x.track === 'swing')).toHaveLength(2)
+  })
+  it('練習口座：swingTargetR で目標を置き直す（0 なら目標なし）', () => {
+    const day = (o: number, c: number) => [{ m: 540, o, h: Math.max(o, c), l: Math.min(o, c), c, v: 1 }]
+    const cands = [{ code: '1111', date: '2026-11-19', pass: true, close: 1000, stop: 950, target: 1150, score: 90 }]
+    const stocks = { 1111: { bars: day(1000, 1005) } }
+    expect(paperStep(paperNew({ slipPct: 0 }), { date: '2026-11-20', stocks, cands }).state.positions[0].target).toBe(1150)
+    expect(paperStep(paperNew({ slipPct: 0, swingTargetR: 5 }), { date: '2026-11-20', stocks, cands }).state.positions[0].target).toBe(1250)
+    expect(paperStep(paperNew({ slipPct: 0, swingTargetR: 0 }), { date: '2026-11-20', stocks, cands }).state.positions[0].target).toBeNull()
   })
   it('世界の目安：前の夜の S&P500 −2% 以下と、米国の下げ相場を見分ける', () => {
     const ser = (vals: number[]) => vals.map((c, i) => ({ date: '2026-10-' + String(i + 1).padStart(2, '0'), c }))
