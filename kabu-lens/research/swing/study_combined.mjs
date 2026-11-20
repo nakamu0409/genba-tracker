@@ -391,7 +391,8 @@ if (process.env.PKG) {
     ['案C：案B の企業の行動を70%', { avoid: true, evPosPct: 70, evOrder: 'mom', ma200Cut: true, swingR: 5, swingDays: 60 }],
     ['案B＋1日2回まで', { avoid: true, evPosPct: 50, evOrder: 'mom', ma200Cut: true, swingR: 5, swingDays: 60, dayMax: 2 }]
   ]
-  for (const [nm, cfg] of PK) {
+  for (const [nm, cfg0] of PK) {
+    const cfg = process.env.PKG === '3m' ? { ...cfg0, capital: 3e6 } : cfg0
     const out = PER.map(() => ({ c: [], d: [] }))
     for (let k = 1; k <= 20; k++) {
       SEED = k
