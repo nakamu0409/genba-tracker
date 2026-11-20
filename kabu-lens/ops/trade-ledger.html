@@ -154,14 +154,8 @@ legend { font-size: .82rem; font-weight: 700; color: var(--accent); padding: 0 4
 .mite-card h4 { font-size: .8rem; margin: 8px 0 0; color: var(--accent); }
 .mite-kau { margin-top: 8px; font-size: .78rem; background: var(--accent-soft); border-radius: 8px; padding: 6px 8px; }
 .mite-res { margin-top: 6px; font-size: .78rem; color: var(--muted); }
-.paper-head { display: flex; flex-wrap: wrap; gap: 4px 16px; align-items: baseline; margin-bottom: 6px; }
-.paper-head b { font-size: 1.25rem; }
-.paper-head .muted, .paper-pos .muted { color: var(--muted); font-size: .9rem; }
 .paper-pos { list-style: none; margin: 0 0 8px; padding: 0; }
 .paper-pos li { padding: 6px 0; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
-.paper-chart { width: 100%; height: 60px; display: block; margin: 4px 0 8px; }
-.paper-chart polyline { fill: none; stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
-.paper-chart line { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; stroke-dasharray: 3 3; }
 .fold { all: unset; cursor: pointer; display: inline-flex; align-items: baseline; gap: 6px; border-radius: 6px; }
 .fold:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .fold::before { content: ""; width: .5em; height: .5em; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(-45deg); transition: transform .15s; position: relative; top: -.1em; }
@@ -186,6 +180,74 @@ details.how summary { font-size: .78rem; color: var(--muted); font-weight: 500; 
 details.how p { color: var(--muted); font-size: .82rem; line-height: 1.7; }
 .warn-text { color: var(--warn); font-weight: 700; }
 section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
+/* 練習口座：2つの口座の競争 */
+.pp { display: grid; gap: 18px; min-width: 0; }
+.pp-duel { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.pp-card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: grid; gap: 6px; min-width: 0; position: relative; }
+.pp-card.aggr { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
+.pp-card.lead::after { content: "リード"; position: absolute; top: -9px; right: 10px; background: var(--accent); color: var(--surface); font-size: .66rem; font-weight: 700; letter-spacing: .08em; padding: 1px 8px; border-radius: 999px; }
+.pp-card.aggr.lead::after { background: var(--warn); }
+.pp-top { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.pp-name { font-weight: 700; font-size: .95rem; }
+.pp-card.aggr .pp-name { color: var(--warn); }
+.pp-rule { font-size: .68rem; color: var(--muted); }
+.pp-eq { font-size: 1.3rem; font-weight: 600; line-height: 1.2; overflow-wrap: anywhere; }
+.pp-delta { font-size: .8rem; }
+.pp-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 8px; margin: 2px 0 0; }
+.pp-stats div { min-width: 0; }
+.pp-stats dt { font-size: .64rem; color: var(--muted); letter-spacing: .04em; }
+.pp-stats dd { margin: 0; font-size: .82rem; }
+.pp-xp { display: grid; gap: 3px; font-size: .68rem; color: var(--muted); border-top: 1px dashed var(--line); padding-top: 6px; }
+.pp-bar { height: 7px; background: var(--bg); border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.pp-bar i { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+.pp-card.aggr .pp-bar i { background: var(--warn); }
+.pp-bar.thin { height: 4px; border: none; }
+.pp-block { display: grid; gap: 8px; min-width: 0; }
+.pp-h { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.pp-h h3 { margin: 0; font-size: .9rem; }
+.pp-sub { font-size: .72rem; color: var(--muted); }
+.pp-key { font-size: .72rem; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
+.pp-key i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-left: 6px; }
+.k-base { background: var(--accent); } .k-aggr { background: var(--warn); }
+.pp-race { width: 100%; height: auto; display: block; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.race-grid { stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 3; }
+.race-zero { stroke: var(--muted); stroke-width: 1; }
+.race-lab { fill: var(--muted); font-size: 8px; font-family: var(--font-num); }
+.race-line { fill: none; stroke-width: 2; stroke-linejoin: round; }
+.race-line.r-base, .race-dot.r-base { stroke: var(--accent); } .race-dot.r-base { fill: var(--accent); }
+.race-line.r-aggr, .race-dot.r-aggr { stroke: var(--warn); } .race-dot.r-aggr { fill: var(--warn); }
+.race-dot { stroke-width: 2; }
+.pp-pos { display: grid; gap: 8px; }
+.pp-p { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; gap: 6px; min-width: 0; }
+.pp-p-h { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.pp-chip { font-size: .66rem; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 0 8px; }
+.pp-chg { margin-left: auto; font-weight: 600; }
+.pp-gauge { position: relative; height: 10px; border-radius: 999px; background: linear-gradient(90deg, color-mix(in srgb, var(--down) 30%, var(--bg)), var(--bg) 45%, color-mix(in srgb, var(--up) 30%, var(--bg))); border: 1px solid var(--line); margin: 4px 0 0; }
+.pp-gauge i { position: absolute; top: 50%; transform: translate(-50%, -50%); border-radius: 999px; }
+.g-entry { width: 2px; height: 14px; background: var(--muted); border-radius: 1px !important; }
+.g-now { width: 12px; height: 12px; background: var(--ink); border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--ink); }
+.g-now.up { background: var(--up); box-shadow: 0 0 0 1px var(--up); } .g-now.down { background: var(--down); box-shadow: 0 0 0 1px var(--down); }
+.pp-g-lab { display: flex; justify-content: space-between; gap: 6px; font-size: .68rem; color: var(--muted); flex-wrap: wrap; }
+.pp-acc { font-size: .74rem; color: var(--muted); }
+.pp-roster { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 8px; }
+.pp-r { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; gap: 5px; min-width: 0; }
+.pp-r.idle { background: transparent; border-style: dashed; }
+.pp-r-name { font-weight: 700; font-size: .84rem; }
+.pp-r.idle .pp-r-name { color: var(--muted); font-weight: 500; }
+.pp-r-idle { font-size: .74rem; color: var(--muted); grid-column: 1 / -1; padding: 2px 2px; }
+.pp-r-line { display: flex; gap: 10px; flex-wrap: wrap; font-size: .78rem; align-items: baseline; }
+.pp-r-acc { font-size: .68rem; color: var(--muted); min-width: 2.2em; }
+.pp-log { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.pp-l { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
+.pp-l-mark { width: 26px; height: 26px; border-radius: 999px; display: grid; place-items: center; font-size: .74rem; font-weight: 700; border: 1.5px solid var(--muted); color: var(--muted); }
+.pp-l.win .pp-l-mark { border-color: var(--up); color: var(--up); } .pp-l.lose .pp-l-mark { border-color: var(--down); color: var(--down); }
+.pp-l-mid { display: grid; min-width: 0; }
+.pp-l-mid b { font-size: .86rem; overflow-wrap: anywhere; }
+.pp-l-sub { font-size: .68rem; color: var(--muted); overflow-wrap: anywhere; }
+.pp-l-pnl { text-align: right; white-space: pre; font-size: .78rem; line-height: 1.35; }
+.pp-none { color: var(--muted); font-size: .82rem; padding: 6px 2px; }
+@media (max-width: 360px) { .pp-duel { grid-template-columns: minmax(0, 1fr); } }
+
 </style>
 
 <div class="wrap">
@@ -414,18 +476,29 @@ section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
   <div class="tab-panel" role="tabpanel" id="panel-paper" aria-labelledby="tab-paper" hidden>
     <p class="tab-intro">仮の資金で合図どおりに売買した記録</p>
   <section aria-labelledby="h-paper">
-    <div class="sec-head"><h2 id="h-paper">練習口座（シミュレーション）</h2><span class="count" id="paper-count"></span></div>
-    <details class="more how"><summary>この表の見方</summary><p>仮の資金100万円で、合図どおりに買って売ったらどうなったかを毎晩数えます（本人の売買とは別）。デイトレ＝場中の買い場に指値（30分で約定しなければ取り消し）、損切りの目安に逆指値、届かなければ大引け。1日2回まで。スイング＝前の夜の買い候補を寄りで（終値の+2%以内なら）、損切り・目標・最長40営業日、3銘柄まで。低位株＝強い引けの目印で14:50に買い、翌日 +5%／−8%／13時。自社株買い＝前の日の15時以降に発表（決算と別の日）された株のうち良い条件（久しぶり・15時台前半・25日線の下）が1つ以上のものと、増配を、寄りが前日の終値の+2%以内なら寄りで買い、大引けで売る。株式分割は同じく寄りで買い、5営業日目の大引けで売る（合わせて1日2回まで）。1回の損は資金の1%まで、1銘柄は30%まで、100株単位。成行は0.1%不利に約定、手数料0。</p></details>
-    <div class="panel" id="paper-panel" hidden>
-      <div id="paper-head" class="paper-head"></div>
-      <div id="paper-aggr" class="paper-head" hidden></div>
-      <svg id="paper-chart" class="paper-chart" viewBox="0 0 300 60" preserveAspectRatio="none" role="img" aria-label="資産の動き"></svg>
-      <div class="sig-scroll"><table class="sig-table" aria-label="やり方ごとの成績"><thead><tr><th>やり方</th><th class="num">回数</th><th class="num">勝率</th><th class="num">損益</th><th class="num">1回の平均</th></tr></thead><tbody id="paper-tracks"></tbody></table></div>
-      <div class="sub" style="margin:8px 0 4px" id="paper-pos-h"></div>
-      <ul class="paper-pos" id="paper-pos"></ul>
-      <details class="more"><summary>最近の売買（新しい順）</summary>
-        <div class="sig-scroll"><table class="sig-table" aria-label="最近の売買"><thead><tr><th>日付</th><th>銘柄</th><th>やり方</th><th class="num">買</th><th class="num">売</th><th class="num">損益</th><th>理由</th></tr></thead><tbody id="paper-trades"></tbody></table></div>
-      </details>
+    <div class="sec-head"><h2 id="h-paper">練習口座</h2><span class="count" id="paper-count"></span></div>
+    <details class="more how"><summary>売買の決まり</summary><p>仮の資金100万円で、合図どおりに買って売ったらどうなったかを毎晩数えます（本人の売買とは別）。デイトレ＝場中の買い場に指値（30分で約定しなければ取り消し）、損切りの目安に逆指値、届かなければ大引け。1日2回まで。スイング＝前の夜の買い候補を寄りで（終値の+2%以内なら）、損切り・目標・最長40営業日、3銘柄まで。低位株＝強い引けの目印で14:50に買い、翌日 +5%／−8%／13時。自社株買い＝前の日の15時以降に発表（決算と別の日）された株のうち良い条件（久しぶり・15時台前半・25日線の下）が1つ以上のものと、増配を、寄りが前日の終値の+2%以内なら寄りで買い、大引けで売る。株式分割は同じく寄りで買い、5営業日目の大引けで売る（合わせて1日2回まで）。1回の損は資金の1%まで、1銘柄は30%まで、100株単位。成行は0.1%不利に約定、手数料0。</p><p>攻めの口座は、1回の損を資金の5%まで・1銘柄50%まで・スイングは10銘柄まで・低位株は3回まで・急騰の追いかけあり。2026/11/20 に200万円を足して300万円で始めたとみなしています。</p></details>
+    <div id="paper-panel" class="pp" hidden>
+      <div class="pp-duel">
+        <article class="pp-card" id="pp-base" aria-label="基本の口座"></article>
+        <article class="pp-card aggr" id="pp-aggr" aria-label="攻めの口座"></article>
+      </div>
+      <div class="pp-block">
+        <div class="pp-h"><h3>資産の競争</h3><span class="pp-key"><i class="k-base"></i>基本 <i class="k-aggr"></i>攻め</span></div>
+        <svg id="pp-race" class="pp-race" viewBox="0 0 320 120" role="img" aria-label="2つの口座の増減%の推移"></svg>
+      </div>
+      <div class="pp-block">
+        <div class="pp-h"><h3>保有中</h3><span class="pp-sub" id="pp-pos-n"></span></div>
+        <div class="pp-pos" id="pp-pos"></div>
+      </div>
+      <div class="pp-block">
+        <div class="pp-h"><h3>やり方ごとの戦績</h3><span class="pp-sub">30回で判定できる</span></div>
+        <div class="pp-roster" id="pp-roster"></div>
+      </div>
+      <div class="pp-block">
+        <div class="pp-h"><h3>最近の決着</h3><span class="pp-sub" id="pp-log-n"></span></div>
+        <ol class="pp-log" id="pp-log"></ol>
+      </div>
     </div>
     <p class="sub" id="paper-bf" hidden></p>
     <div class="panel" id="paper-empty"><div class="empty">今夜（23時すぎ）から始まります。毎晩、その日の分がここに足されます。</div></div>
@@ -1195,75 +1268,118 @@ section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
   var paperState = null, paperTrades = [], paperBf = null, paperAggr = null;
   var TRACK = { day: "デイトレ", swing: "スイング", low: "低位株の強い引け", bb: "自社株買い・増配の翌日", split: "株式分割（5日）", surge: "急騰後の押し目（反発確認）", chase: "低位株の急騰の追いかけ（攻めだけ）" };
   function renderPaper() {
-    var yen = function (v) { return (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(Math.round(v)).toLocaleString("ja-JP") + "円"; };
-    var pc = function (v) { return (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(2) + "%"; };
+    var yenS = function (v) { return (v > 0 ? "+" : v < 0 ? "−" : "±") + Math.abs(Math.round(v)).toLocaleString("ja-JP") + "円"; };
+    var pc = function (v, d) { return (v > 0 ? "+" : v < 0 ? "−" : "±") + Math.abs(v).toFixed(d === undefined ? 2 : d) + "%"; };
+    var tone = function (v) { return v > 0 ? "up" : v < 0 ? "down" : ""; };
     var bf = $("paper-bf");
     if (paperBf && paperBf.summary) {
       var s0 = paperBf.summary;
-      bf.textContent = "参考（試運転）：過去" + s0.days + "日（" + String(s0.start).slice(5).replace("-", "/") + "〜）を同じやり方でさかのぼると、100万円 → " + Math.round(s0.equity).toLocaleString("ja-JP") + "円（" + pc(s0.return_pct) + "、一番下げたとき " + pc(s0.max_drawdown_pct) + "）。" + (paperBf.note || "");
+      bf.textContent = "参考（試運転）：過去" + s0.days + "日（" + String(s0.start).slice(5).replace("-", "/") + "〜）を基本の決まりでさかのぼると、100万円 → " + Math.round(s0.equity).toLocaleString("ja-JP") + "円（" + pc(s0.return_pct) + "、一番下げたとき " + pc(s0.max_drawdown_pct) + "）。" + (paperBf.note || "");
       bf.hidden = false;
     }
-    var ag = $("paper-aggr"); ag.textContent = "";
-    if (paperAggr && paperAggr.history && paperAggr.history.length) {
-      var acap = paperAggr.params && paperAggr.params.capital || 1000000, ah = paperAggr.history, al = ah[ah.length - 1];
-      var apk = acap, add = 0; ah.forEach(function (x) { apk = Math.max(apk, x.equity); add = Math.min(add, (x.equity / apk - 1) * 100); });
-      var at = paperTrades.filter(function (t) { return t.account === "aggr"; });
-      ag.appendChild(el("span", "muted", "攻めの口座（1回の損 資金の" + (paperAggr.params.riskPct) + "%・候補を全部）"));
-      ag.appendChild(el("b", al.equity >= acap ? "up" : "down", Math.round(al.equity).toLocaleString("ja-JP") + "円"));
-      ag.appendChild(el("span", al.equity >= acap ? "up" : "down", pc((al.equity / acap - 1) * 100)));
-      ag.appendChild(el("span", "muted", "一番下げたとき " + pc(add) + "・決着 " + at.length + "回"));
-      ag.hidden = false;
-    } else ag.hidden = true;
-    var st = paperState;
-    if (!st || !st.history || !st.history.length) { $("paper-panel").hidden = true; $("paper-empty").hidden = false; return; }
+    var accts = [];
+    if (paperState && paperState.history && paperState.history.length) accts.push({ key: "base", name: "基本", st: paperState, trades: paperTrades.filter(function (t) { return t.account !== "aggr"; }) });
+    if (paperAggr && paperAggr.history && paperAggr.history.length) accts.push({ key: "aggr", name: "攻め", st: paperAggr, trades: paperTrades.filter(function (t) { return t.account === "aggr"; }) });
+    if (!accts.length) { $("paper-panel").hidden = true; $("paper-empty").hidden = false; return; }
     $("paper-empty").hidden = true; $("paper-panel").hidden = false;
-    var cap = st.params && st.params.capital || 1000000;
-    var h = st.history, last = h[h.length - 1];
-    var head = $("paper-head"); head.textContent = "";
-    var big = el("b", last.equity >= cap ? "up" : "down", Math.round(last.equity).toLocaleString("ja-JP") + "円");
-    head.appendChild(big);
-    head.appendChild(el("span", last.equity >= cap ? "up" : "down", yen(last.equity - cap) + "（" + pc((last.equity / cap - 1) * 100) + "）"));
-    head.appendChild(el("span", "muted", String(st.start).slice(5).replace("-", "/") + "から" + h.length + "日・現金 " + Math.round(st.cash).toLocaleString("ja-JP") + "円"));
-    $("paper-count").textContent = String(last.date).slice(5).replace("-", "/") + " まで";
-    var svg = $("paper-chart"); svg.textContent = "";
-    var vals = [cap].concat(h.map(function (x) { return x.equity; }));
-    var mn = Math.min.apply(null, vals), mx = Math.max.apply(null, vals); if (mx === mn) { mx += 1; mn -= 1; }
-    var y = function (v) { return 56 - (v - mn) / (mx - mn) * 52; };
-    var ns = "http://www.w3.org/2000/svg";
-    var base = document.createElementNS(ns, "line"); base.setAttribute("x1", 0); base.setAttribute("x2", 300); base.setAttribute("y1", y(cap)); base.setAttribute("y2", y(cap)); svg.appendChild(base);
-    var pl = document.createElementNS(ns, "polyline");
-    pl.setAttribute("points", vals.map(function (v, i) { return (vals.length > 1 ? i / (vals.length - 1) * 300 : 0) + "," + y(v); }).join(" "));
-    svg.appendChild(pl);
-    var by = {};
-    var mine = paperTrades.filter(function (t) { return t.account !== "aggr"; });
-    mine.forEach(function (t) { var g = by[t.track] || (by[t.track] = { n: 0, w: 0, pnl: 0, pct: 0 }); g.n++; if (t.pnl > 0) g.w++; g.pnl += t.pnl; g.pct += t.pnlPct; });
-    var tb = $("paper-tracks"); tb.textContent = "";
-    ["bb", "split", "surge", "chase", "day", "swing", "low"].forEach(function (k) {
-      var g = by[k]; var tr = document.createElement("tr");
-      [[TRACK[k]], [g ? g.n : 0, 1], [g ? Math.round(g.w / g.n * 100) + "%" : "—", 1], [g ? yen(g.pnl) : "—", 1, g && g.pnl], [g ? pc(g.pct / g.n) : "—", 1, g && g.pct]].forEach(function (c) {
-        var td = el("td", (c[1] ? "num" : "") + (c[2] > 0 ? " up" : c[2] < 0 ? " down" : ""), String(c[0])); tr.appendChild(td);
-      });
-      tb.appendChild(tr);
+    accts.forEach(function (a) {
+      var st = a.st, cap = st.params && st.params.capital || 1000000, h = st.history, last = h[h.length - 1];
+      var pk = cap, dd = 0; h.forEach(function (x) { pk = Math.max(pk, x.equity); dd = Math.min(dd, (x.equity / pk - 1) * 100); });
+      var tr = a.trades.slice().sort(function (x, y) { return String(x.exitDate).localeCompare(String(y.exitDate)) || String(x.id).localeCompare(String(y.id)); });
+      var w = tr.filter(function (t) { return t.pnl > 0; }).length, l = tr.filter(function (t) { return t.pnl < 0; }).length;
+      var streak = 0, sk = 0; for (var i = tr.length - 1; i >= 0; i--) { var sg = tr[i].pnl > 0 ? 1 : tr[i].pnl < 0 ? -1 : 0; if (!sg) continue; if (!sk) sk = sg; if (sg !== sk) break; streak++; }
+      a.cap = cap; a.ret = (last.equity / cap - 1) * 100;
+      var card = $("pp-" + a.key); card.textContent = "";
+      var top = el("div", "pp-top");
+      top.appendChild(el("span", "pp-name", a.name));
+      top.appendChild(el("span", "pp-rule", "1回の損 " + st.params.riskPct + "%・1銘柄 " + st.params.maxPosPct + "%まで"));
+      card.appendChild(top);
+      card.appendChild(el("div", "pp-eq num " + tone(a.ret), Math.round(last.equity).toLocaleString("ja-JP") + "円"));
+      card.appendChild(el("div", "pp-delta num " + tone(a.ret), yenS(last.equity - cap) + "（" + pc(a.ret) + "）"));
+      var dl = el("dl", "pp-stats");
+      [["日数", h.length + "日"], ["戦績", w + "勝" + l + "敗"], ["連続", streak ? streak + (sk > 0 ? "連勝" : "連敗") : "—"], ["一番下げた", pc(dd, 1)]].forEach(function (x) { var d = el("div"); d.appendChild(el("dt", "", x[0])); d.appendChild(el("dd", "num", x[1])); dl.appendChild(d); });
+      card.appendChild(dl);
+      var n = tr.length, goal = 30, lv = Math.floor(n / goal);
+      var xp = el("div", "pp-xp"); xp.appendChild(el("span", "", lv ? "判定できる回数を" + lv + "回分ためた" : "判定まで あと" + (goal - n) + "回"));
+      var bar = el("div", "pp-bar"); var fill = el("i"); fill.style.width = Math.min(100, (n % goal) / goal * 100 + (lv && n % goal === 0 ? 100 : 0)) + "%"; bar.appendChild(fill);
+      xp.appendChild(bar); xp.appendChild(el("span", "num", "決着 " + n + "回"));
+      card.appendChild(xp);
+      card.classList.toggle("lead", accts.length > 1);
     });
-    var pos = st.positions || [];
-    $("paper-pos-h").textContent = pos.length ? "持っている株（" + pos.length + "）" : "持っている株：なし";
-    var pb = $("paper-pos"); pb.textContent = "";
-    pos.forEach(function (x) {
-      var li = el("li"); var pl2 = (x.last - x.entry) * x.qty;
-      li.appendChild(el("b", "", (x.name || x.code) + " "));
-      li.appendChild(el("span", "muted", (TRACK[x.track] || x.track) + "・" + x.qty + "株 "));
-      li.appendChild(el("span", "", "買 " + x.entry + " → 今 " + x.last + " "));
-      li.appendChild(el("span", pl2 > 0 ? "up" : pl2 < 0 ? "down" : "", yen(pl2)));
-      if (x.stop) li.appendChild(el("span", "muted", "　損切り " + x.stop + (x.target ? "・目標 " + x.target : "")));
-      pb.appendChild(li);
+    if (accts.length > 1) {
+      var lead = accts[0].ret >= accts[1].ret ? accts[0] : accts[1];
+      accts.forEach(function (a) { $("pp-" + a.key).classList.toggle("lead", a === lead && accts[0].ret !== accts[1].ret); });
+    }
+    if (!paperAggr || !paperAggr.history || !paperAggr.history.length) $("pp-aggr").hidden = true; else $("pp-aggr").hidden = false;
+    $("paper-count").textContent = String(accts[0].st.history[accts[0].st.history.length - 1].date).slice(5).replace("-", "/") + " まで";
+    // 資産の競争（始めからの増減%）
+    var svg = $("pp-race"); svg.textContent = ""; var ns = "http://www.w3.org/2000/svg";
+    var mk = function (tag, at, txt) { var e = document.createElementNS(ns, tag); Object.keys(at).forEach(function (k) { e.setAttribute(k, at[k]); }); if (txt !== undefined) e.textContent = txt; svg.appendChild(e); return e; };
+    var series = accts.map(function (a) { return { key: a.key, pts: [0].concat(a.st.history.map(function (x) { return (x.equity / a.cap - 1) * 100; })), dates: [a.st.start].concat(a.st.history.map(function (x) { return x.date; })) }; });
+    var all = [].concat.apply([0], series.map(function (s) { return s.pts; }));
+    var lo = Math.min.apply(null, all), hi = Math.max.apply(null, all), pad = Math.max(0.5, (hi - lo) * 0.15); lo -= pad; hi += pad;
+    var L = 34, R = 312, T = 10, B = 104, len = Math.max.apply(null, series.map(function (s) { return s.pts.length; }));
+    var X = function (i) { return len > 1 ? L + i / (len - 1) * (R - L) : (L + R) / 2; }, Y = function (v) { return T + (hi - v) / (hi - lo) * (B - T); };
+    [hi - pad, 0, lo + pad].forEach(function (v, i) { if (i !== 1 && Math.abs(v) < 0.05) return; mk("line", { x1: L, x2: R, y1: Y(v), y2: Y(v), class: i === 1 ? "race-zero" : "race-grid" }); mk("text", { x: L - 4, y: Y(v) + 3, class: "race-lab", "text-anchor": "end" }, pc(v, 1)); });
+    series.forEach(function (s) {
+      var pts = s.pts.map(function (v, i) { return X(i) + "," + Y(v); }).join(" ");
+      if (s.pts.length > 1) mk("polyline", { points: pts, class: "race-line r-" + s.key });
+      var li = s.pts.length - 1; mk("circle", { cx: X(li), cy: Y(s.pts[li]), r: 4, class: "race-dot r-" + s.key });
     });
-    var tt = $("paper-trades"); tt.textContent = "";
-    mine.slice().sort(function (a, b) { return String(b.exitDate).localeCompare(String(a.exitDate)) || String(b.id).localeCompare(String(a.id)); }).slice(0, 30).forEach(function (t) {
-      var tr = document.createElement("tr");
-      [[String(t.exitDate).slice(5).replace("-", "/")], [t.name || t.code], [TRACK[t.track] || t.track], [t.entry, 1], [t.exit, 1], [yen(t.pnl) + "（" + pc(t.pnlPct) + "）", 1, t.pnl], [t.reason || ""]].forEach(function (c) {
-        tr.appendChild(el("td", (c[1] ? "num" : "") + (c[2] > 0 ? " up" : c[2] < 0 ? " down" : ""), String(c[0])));
+    mk("text", { x: L, y: 118, class: "race-lab" }, "開始");
+    mk("text", { x: R, y: 118, class: "race-lab", "text-anchor": "end" }, String(series[0].dates[series[0].dates.length - 1]).slice(5).replace("-", "/"));
+    // 保有中：損切り〜目標のどこにいるか
+    var pos = {}; accts.forEach(function (a) { (a.st.positions || []).forEach(function (x) { var k = x.code + "|" + x.track; var p = pos[k] || (pos[k] = { x: x, acc: [] }); p.acc.push({ name: a.name, qty: x.qty, pnl: (x.last - x.entry) * x.qty }); }); });
+    var pb = $("pp-pos"); pb.textContent = ""; var keys = Object.keys(pos);
+    $("pp-pos-n").textContent = keys.length + "銘柄";
+    if (!keys.length) pb.appendChild(el("div", "pp-none", "いまは持っていない"));
+    keys.forEach(function (k) {
+      var x = pos[k].x, c = el("div", "pp-p");
+      var hd = el("div", "pp-p-h"); hd.appendChild(el("b", "", x.name || x.code)); hd.appendChild(el("span", "pp-chip", TRACK[x.track] || x.track));
+      var chg = (x.last / x.entry - 1) * 100; hd.appendChild(el("span", "num pp-chg " + tone(chg), pc(chg, 1))); c.appendChild(hd);
+      if (x.stop && x.target && x.target > x.stop) {
+        var g = el("div", "pp-gauge"); var f = function (v) { return Math.max(0, Math.min(100, (v - x.stop) / (x.target - x.stop) * 100)); };
+        var en = el("i", "g-entry"); en.style.left = f(x.entry) + "%"; g.appendChild(en);
+        var nw = el("i", "g-now " + tone(chg)); nw.style.left = f(x.last) + "%"; g.appendChild(nw);
+        c.appendChild(g);
+        var lb = el("div", "pp-g-lab num"); lb.appendChild(el("span", "", "損切り " + x.stop)); lb.appendChild(el("span", "", "買 " + x.entry + " → 今 " + x.last)); lb.appendChild(el("span", "", "目標 " + x.target)); c.appendChild(lb);
+      } else {
+        c.appendChild(el("div", "pp-g-lab num", "買 " + x.entry + " → 今 " + x.last + (x.stop ? "・損切り " + x.stop : "")));
+      }
+      c.appendChild(el("div", "pp-acc", pos[k].acc.map(function (a) { return a.name + " " + a.qty + "株 " + yenS(a.pnl); }).join("　")));
+      pb.appendChild(c);
+    });
+    // やり方ごとの戦績
+    var ro = $("pp-roster"); ro.textContent = ""; var idle = [];
+    ["day", "swing", "low", "bb", "split", "surge", "chase"].forEach(function (k) {
+      var c = el("div", "pp-r"); var any = false;
+      c.appendChild(el("div", "pp-r-name", TRACK[k]));
+      accts.forEach(function (a) {
+        var t = a.trades.filter(function (x) { return x.track === k; }); if (!t.length) return; any = true;
+        var w = t.filter(function (x) { return x.pnl > 0; }).length, sum = t.reduce(function (s, x) { return s + x.pnl; }, 0), avg = t.reduce(function (s, x) { return s + x.pnlPct; }, 0) / t.length;
+        var line = el("div", "pp-r-line"); line.appendChild(el("span", "pp-r-acc", a.name));
+        line.appendChild(el("span", "num", w + "勝" + (t.length - w) + "敗")); line.appendChild(el("span", "num " + tone(sum), yenS(sum))); line.appendChild(el("span", "num " + tone(avg), "1回 " + pc(avg, 1)));
+        c.appendChild(line);
+        var bar = el("div", "pp-bar thin"); var fi = el("i"); fi.style.width = Math.min(100, t.length / 30 * 100) + "%"; bar.appendChild(fi); c.appendChild(bar);
       });
-      tt.appendChild(tr);
+      if (!any) { idle.push(TRACK[k]); return; }
+      ro.appendChild(c);
+    });
+    if (idle.length) ro.appendChild(el("div", "pp-r-idle", "まだ出番なし：" + idle.join("・")));
+    // 最近の決着
+    var lg = $("pp-log"); lg.textContent = "";
+    var allT = []; accts.forEach(function (a) { a.trades.forEach(function (t) { allT.push({ t: t, acc: a.name }); }); });
+    allT.sort(function (x, y) { return String(y.t.exitDate).localeCompare(String(x.t.exitDate)) || String(y.t.id).localeCompare(String(x.t.id)); });
+    $("pp-log-n").textContent = allT.length + "回";
+    if (!allT.length) lg.appendChild(el("li", "pp-none", "まだ決着した売買はない"));
+    allT.slice(0, 30).forEach(function (o) {
+      var t = o.t, li = el("li", "pp-l " + (t.pnl > 0 ? "win" : t.pnl < 0 ? "lose" : ""));
+      li.appendChild(el("span", "pp-l-mark", t.pnl > 0 ? "勝" : t.pnl < 0 ? "負" : "分"));
+      var mid = el("div", "pp-l-mid"); mid.appendChild(el("b", "", t.name || t.code));
+      mid.appendChild(el("span", "pp-l-sub", String(t.exitDate).slice(5).replace("-", "/") + "・" + o.acc + "・" + (TRACK[t.track] || t.track) + (t.reason ? "・" + t.reason : "")));
+      li.appendChild(mid);
+      li.appendChild(el("span", "num pp-l-pnl " + tone(t.pnl), yenS(t.pnl) + "\n" + pc(t.pnlPct, 1)));
+      lg.appendChild(li);
     });
   }
   var miteDocs = [];
