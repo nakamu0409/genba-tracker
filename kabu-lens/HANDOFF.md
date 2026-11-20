@@ -207,6 +207,14 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 - しまい直すとき（データが増えたら月1くらい）：同じ手順で新しい日付の doc を作る。古い asset は新しい doc ができてから消してよい（容量の節約）。
 - しまっていないもの：`bars.json`・`day/paper_backfill*.json`・`day/events_down.json`（取り直せる・小さい）。
 
+### J-Quants（2026-11-20 から。本人が Free で登録）
+
+- V2。キーは環境の通信の設定（api.jquants.com の x-api-key）に保存してあり、通信のときに自動で付く。コードやリポジトリにキーを書かない。
+- Free で取れるのは 2024-08-28〜2026-08-28（2年分・最新の約12週は取れない）。1分5回まで。`equities/master`・`equities/bars/daily`・`fins/summary`（財務のまとめ。開示の日時・売上・利益・予想など）は使える。`markets/calendar` は期間外の日付だと 400。
+- `kabu-lens/research/collect_jquants.mjs` が日付ごとに `fins/summary?date=` と `equities/bars/daily?date=` を取り、`research/jq_fins.json`・`jq_daily.json`・`jq_master.json` にためる（git に入らない。途中から続けられる）。全部で3〜4時間。
+- 2024-08 と 2026-08 の銘柄一覧を比べると、期間中に消えた銘柄が303ある。これらを入れて検証し直すと、Yahoo の今ある銘柄だけの偏りが無くなる。
+- 使い道：決算の中身（進み具合・増益率・予想の修正）と翌日・5日後の値動き（2年分）、上場廃止を含めた急騰の押し目・企業の行動の検証のやり直し。
+
 ### ゼロから作り直す場合の順番
 
 1. `npx vitest run tests/stock` が通ることを確かめる（スクリプトは壊れていないか）。
