@@ -1133,3 +1133,20 @@ describe('急騰した株の押し目（反発を確認）', () => {
     expect(r.trades[0]).toMatchObject({ track: 'surge', exit: 1154, reason: '目標' })
   })
 })
+
+describe('低位株の急騰の追いかけ（練習口座・攻めだけ）', () => {
+  const bar = (m: number, o: number, h: number, l: number, c: number) => ({ m, o, h, l, c, v: 1000 })
+  const ctx = { prevClose: 100, atrDay: 6 }
+  it('基本の口座（chaseMax 0）では動かない', () => {
+    const r = paperStep(paperNew(), { date: '2026-11-20', stocks: { 1111: { bars: [bar(570, 100, 112, 100, 111), bar(575, 111, 115, 110, 114), bar(895, 114, 120, 113, 118)], ctx } } })
+    expect(r.trades.filter((t: { track: string }) => t.track === 'chase')).toHaveLength(0)
+  })
+  it('+10%で引けた足の次の足で買い、大引けで売る／−8%で損切り', () => {
+    const st = paperNew({ chaseMax: 1, riskPct: 5, maxPosPct: 50 })
+    let r = paperStep(st, { date: '2026-11-20', stocks: { 1111: { name: 'テスト', bars: [bar(570, 100, 112, 100, 111), bar(575, 111, 115, 110, 114), bar(895, 114, 120, 113, 118)], ctx } } })
+    const t = r.trades.find((x: { track: string }) => x.track === 'chase')
+    expect(t).toMatchObject({ entry: 111.1, exit: 117.9, reason: '大引け' })
+    r = paperStep(st, { date: '2026-11-21', stocks: { 1111: { bars: [bar(570, 100, 112, 100, 111), bar(575, 111, 112, 100, 101), bar(895, 101, 103, 99, 100)], ctx } } })
+    expect(r.trades.find((x: { track: string }) => x.track === 'chase')).toMatchObject({ reason: '損切り', exit: 102.1 })
+  })
+})

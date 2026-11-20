@@ -2559,7 +2559,8 @@ export function surgePullback(daily) {
 export const PAPER_DEFAULTS = {
   capital: 1000000, riskPct: 1, maxPosPct: 30, swingMax: 3, dayMax: 2, lowMax: 1, bbMax: 5, bbGapPct: 2, slipPct: 0.1,
   dayFrom: 630, dayTo: 780, delay: 20, fillWindow: 30, lowAt: 870, lowEntryM: 890, lowTpPct: 5, lowSlPct: 8, lowExitM: 780,
-  swingGapPct: 2, swingMaxDays: 40, surgeMax: 2, surgeTpR: 3, surgeHold: 10
+  swingGapPct: 2, swingMaxDays: 40, surgeMax: 2, surgeTpR: 3, surgeHold: 10,
+  chaseMax: 0, chaseTrigPct: 10, chaseFrom: 570, chaseTo: 690, chaseSlPct: 8
 }
 
 export function paperNew(params = {}) {
@@ -2728,6 +2729,46 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [] }
     else {
       pos.last = x.c
       st.positions.push(pos)
+    }
+  }
+  // 2d. 低位株・荒い株の急騰の追いかけ（試し。chaseMax が 0 なら動かない＝基本の口座では使わない）
+  //   9:30〜11:30 の5分足で、前日の終値から +chaseTrigPct% 以上で引けた最初の足を見て、次の足の始値で買う（張り付いていれば買えない）。
+  //   損切りは買値の −chaseSlPct%（場中に届けばその値段、寄りで下回ればその足の始値）。届かなければ大引けで売る（持ち越さない）
+  if ((p.chaseMax ?? 0) > 0) {
+    const ev = []
+    for (const [code, s] of Object.entries(stocks)) {
+      const bars = s.bars
+      const pc = s.ctx?.prevClose
+      if (!bars?.length || !(pc > 0) || st.positions.some(x => x.code === code)) continue
+      const atrPct = s.ctx.atrDay > 0 ? s.ctx.atrDay / pc * 100 : null
+      if (!(pc < 500 || (atrPct !== null && atrPct >= 4))) continue
+      const k = bars.findIndex(b => b.m >= (p.chaseFrom ?? 570) && b.m <= (p.chaseTo ?? 690) && b.c >= pc * (1 + (p.chaseTrigPct ?? 10) / 100))
+      if (k < 0 || k + 1 >= bars.length) continue
+      ev.push({ code, s, k, m: bars[k].m })
+    }
+    ev.sort((a, b) => a.m - b.m || (b.s.turnover || 0) - (a.s.turnover || 0))
+    let n = 0
+    for (const e of ev) {
+      if (n >= p.chaseMax) break
+      const bars = e.s.bars
+      const eb = bars[e.k + 1]
+      if (eb.h === eb.l) continue
+      const entry = eb.o * (1 + slip)
+      const stop = entry * (1 - (p.chaseSlPct ?? 8) / 100)
+      const qty = sizeOf(entry, stop, st.cash)
+      if (qty < 100) continue
+      n++
+      const pos = open('chase', e.code, e.s.name || '', entry, qty, { stop: r1(stop), fromPrevPct: round((bars[e.k].c / e.s.ctx.prevClose - 1) * 100, 1), seenAt: `${Math.floor((e.m + 5) / 60)}:${String((e.m + 5) % 60).padStart(2, '0')}` })
+      let done = false
+      for (const b of bars.slice(e.k + 1)) {
+        const hit = b.o <= stop && b !== eb ? [b.o, '損切り（足の始め）'] : b.l <= stop ? [stop, '損切り'] : null
+        if (hit) {
+          close(pos, hit[0] * (1 - slip), hit[1])
+          done = true
+          break
+        }
+      }
+      if (!done) close(pos, bars[bars.length - 1].c * (1 - slip), '大引け')
     }
   }
   // 3. デイトレ（場中の買い場）
