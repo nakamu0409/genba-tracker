@@ -25,7 +25,7 @@ for (const e of D.events) {
   m25 /= 25
   rows.push({
     date: e.date, time: e.time || '', dow: new Date(e.date).getDay(),
-    r20: (B[e.i].c / B[e.i - 20].c - 1) * 100, above: B[e.i].c > m25, r1: (B[e.i].c / B[e.i - 1].c - 1) * 100, px: B[e.i].c, turn: stocks[e.code].turn[e.i], gap: (B[k].o / B[e.i].c - 1) * 100,
+    r20: (B[e.i].c / B[e.i - 20].c - 1) * 100, above: B[e.i].c > m25, r1: (B[e.i].c / B[e.i - 1].c - 1) * 100, mgap: (() => { const a = bi.get(B[e.i].date), b2 = bi.get(B[k].date); return a !== undefined && b2 !== undefined ? (bench[b2].o / bench[a].c - 1) * 100 : null })(), mday: (() => { const b2 = bi.get(B[k].date); return b2 !== undefined ? (bench[b2].c / bench[b2].o - 1) * 100 : null })(), px: B[e.i].c, turn: stocks[e.code].turn[e.i], gap: (B[k].o / B[e.i].c - 1) * 100,
     r: (B[x].c / B[k].o - 1) * 100 - (bench[k1].c / bench[k0].o - 1) * 100 - 0.2
   })
 }
@@ -54,3 +54,7 @@ console.log('■ 売買代金（20日平均）')
 line('1〜5億', rows.filter(r => r.turn < 5e8))
 line('5〜20億', rows.filter(r => r.turn >= 5e8 && r.turn < 2e9))
 line('20億以上', rows.filter(r => r.turn >= 2e9))
+console.log('■ 買う日の TOPIX の窓（寄り ÷ 前の日の引け）')
+for (const [n, a, b] of [['−1%未満', -1e9, -1], ['−1〜0%', -1, 0], ['0〜+1%', 0, 1], ['+1%以上', 1, 1e9]]) line(n, rows.filter(r => r.mgap !== null && r.mgap >= a && r.mgap < b))
+console.log('■ 買う日の TOPIX の寄り→引け（結果として）')
+for (const [n, a, b] of [['−1%未満', -1e9, -1], ['−1〜+1%', -1, 1], ['+1%以上', 1, 1e9]]) line(n, rows.filter(r => r.mday !== null && r.mday >= a && r.mday < b))
