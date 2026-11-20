@@ -234,6 +234,7 @@ function run(P) {
       if (P.streakMin) list = list.filter(s => streakOf(s) >= P.streakMin)
       if (P.avoid) list = list.filter(s => !avoid(stocks[s.code], s.i))
       if (P.maxPrice) list = list.filter(s => stocks[s.code].bars[s.i].c < P.maxPrice)
+      if (P.lowFirst) list.sort((a, b) => (stocks[a.code].bars[a.i].c < P.lowFirst ? 0 : 1) - (stocks[b.code].bars[b.i].c < P.lowFirst ? 0 : 1))
       // 損切りを遠くする（2×ATR → 2×ATR×stopWiden。終値からの距離を広げる）
       if (P.stopWiden) list = list.map(s => ({ ...s, stop: s.close - (s.close - s.stop) * P.stopWiden }))
       const max = P.usBear && usBearOn(d) ? 1 : 99
@@ -306,7 +307,10 @@ const PER = [['10年', {}], ['前半', { end: '2021-11-19' }], ['後半', { star
 if (process.env.PAIRED) {
   // 同じでたらめな順番（同じ SEED）で、変更あり・なしを比べる。差の分布で、偶然ではないかを見る
   const CRV = { tracks: { ...BASE.tracks, crash: true } }
-  const variants = process.env.PAIRED === 'size' ? [
+  const variants = process.env.PAIRED === 'best' ? [
+    ['5R・60日 ＋ 1,500円未満だけ', { avoid: true, swingR: 5, swingDays: 60, maxPrice: 1500 }, { avoid: true }],
+    ['5R・60日 ＋ 1,500円未満を先に（外さない）', { avoid: true, swingR: 5, swingDays: 60, lowFirst: 1500 }, { avoid: true }]
+  ] : process.env.PAIRED === 'size' ? [
     ['1回0.5%・合計は同じ（×6）・1銘柄15%', { avoid: true, riskPct: 0.5, maxOpenRiskMult: 6, maxPosPct: 15 }, { avoid: true }],
     ['1回1%・合計を2倍（×6）', { avoid: true, maxOpenRiskMult: 6 }, { avoid: true }],
     ['1回1.5%・合計は同じ（×2）', { avoid: true, riskPct: 1.5, maxOpenRiskMult: 2 }, { avoid: true }]
