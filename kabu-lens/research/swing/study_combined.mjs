@@ -28,6 +28,23 @@ const byDate = arr => {
 const EV = byDate(D.events)
 const SU = byDate(D.surge)
 const SW = byDate(D.swing)
+// 同じ株に10営業日以内に続いて出た候補の何回目か（study_swing_repeat.mjs と同じ数え方）
+const STREAK = new Map()
+{
+  const bc = {}
+  for (const s of D.swing) (bc[s.code] ||= []).push(s)
+  for (const l of Object.values(bc)) {
+    l.sort((a, b) => a.i - b.i)
+    let k = 0
+    let pv = null
+    for (const s of l) {
+      k = pv && s.i - pv.i <= 10 ? k + 1 : 1
+      STREAK.set(s.code + ':' + s.i, k)
+      pv = s
+    }
+  }
+}
+const streakOf = s => STREAK.get(s.code + ':' + s.i) || 1
 // 避ける形を外す前の候補（本番の analyze は 11/20 から外しているので、比べるために外さない候補も作る）
 const SW_OFF = process.env.PAIRED ? byDate(loadAll({ avoidChase: false }).swing) : SW
 const evRank = e => (e.kind === 'split' ? 0 : e.kind === 'buyback' && e.score >= 2 ? 1 : e.kind === 'divup' ? 2 : e.kind === 'buyback' && e.score === 1 ? 3 : 9)
@@ -213,6 +230,8 @@ function run(P) {
         }
       }[P.order || 'score']
       list.sort((a, b) => keyOf(a) - keyOf(b))
+      if (P.streakFirst) list.sort((a, b) => streakOf(b) - streakOf(a))
+      if (P.streakMin) list = list.filter(s => streakOf(s) >= P.streakMin)
       if (P.avoid) list = list.filter(s => !avoid(stocks[s.code], s.i))
       if (P.maxPrice) list = list.filter(s => stocks[s.code].bars[s.i].c < P.maxPrice)
       const max = P.usBear && usBearOn(d) ? 1 : 99
@@ -285,7 +304,11 @@ const PER = [['10年', {}], ['前半', { end: '2021-11-19' }], ['後半', { star
 if (process.env.PAIRED) {
   // 同じでたらめな順番（同じ SEED）で、変更あり・なしを比べる。差の分布で、偶然ではないかを見る
   const CRV = { tracks: { ...BASE.tracks, crash: true } }
-  const variants = process.env.PAIRED === 'crash' ? [
+  const variants = process.env.PAIRED === 'repeat' ? [
+    ['続いた回数の多い候補を先に買う', { avoid: true, streakFirst: true }, { avoid: true }],
+    ['3回目以上の候補だけ買う', { avoid: true, streakMin: 3 }, { avoid: true }],
+    ['2回目以上の候補だけ買う', { avoid: true, streakMin: 2 }, { avoid: true }]
+  ] : process.env.PAIRED === 'crash' ? [
     ['急落の反発（今：1日2件・10%）', { avoid: true, ...CRV }, { avoid: true }],
     ['急落の反発（同時に2つまで・5%）', { avoid: true, crashOpenMax: 2, crashPct: 5, ...CRV }, { avoid: true }],
     ['急落の反発（1,500円以上だけ・同時に2つ・5%）', { avoid: true, crashBigOnly: true, crashOpenMax: 2, crashPct: 5, ...CRV }, { avoid: true }],
