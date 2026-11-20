@@ -150,6 +150,7 @@ function run(P) {
         const x = barOf(e.code)
         const lim = P.evLimit ? e.close * P.evLimit : e.limit
         if (!x || x.b.h === x.b.l || x.b.o > lim) continue
+        if (P.evMinGap !== undefined && e.kind !== 'split' && x.b.o < e.close * (1 + P.evMinGap / 100)) continue
         const o = x.b.o
         const qty = Math.floor(Math.min(P.evPosPct ? equityPrev * P.evPosPct / 100 : maxPos, cash) / o / 100) * 100
         if (qty < 100) continue
@@ -308,7 +309,9 @@ const PER = [['10年', {}], ['前半', { end: '2021-11-19' }], ['後半', { star
 if (process.env.PAIRED) {
   // 同じでたらめな順番（同じ SEED）で、変更あり・なしを比べる。差の分布で、偶然ではないかを見る
   const CRV = { tracks: { ...BASE.tracks, crash: true } }
-  const variants = process.env.PAIRED === 'events' ? [
+  const variants = process.env.PAIRED === 'events2' ? [
+    ['自社株買い・増配は、下げて始まったら買わない', { avoid: true, evMinGap: 0 }, { avoid: true }]
+  ] : process.env.PAIRED === 'events' ? [
     ['寄指の上限を終値×1.03に', { avoid: true, evLimit: 1.03 }, { avoid: true }],
     ['寄指の上限を終値×1.05に', { avoid: true, evLimit: 1.05 }, { avoid: true }],
     ['企業の行動は1銘柄50%まで', { avoid: true, evPosPct: 50 }, { avoid: true }],
