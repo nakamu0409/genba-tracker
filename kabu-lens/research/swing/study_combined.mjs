@@ -212,6 +212,7 @@ function run(P) {
       }[P.order || 'score']
       list.sort((a, b) => keyOf(a) - keyOf(b))
       if (P.avoid) list = list.filter(s => !avoid(stocks[s.code], s.i))
+      if (P.maxPrice) list = list.filter(s => stocks[s.code].bars[s.i].c < P.maxPrice)
       const max = P.usBear && usBearOn(d) ? 1 : 99
       addRisky('swing', list, max, P.swingR ?? 3, 40, 2)
     }
@@ -281,7 +282,7 @@ const steps = [
 const PER = [['10年', {}], ['前半', { end: '2021-11-19' }], ['後半', { start: '2021-11-19', end: '2025-11-14' }], ['最後の確認', { start: '2025-11-14' }]]
 if (process.env.PAIRED) {
   // 同じでたらめな順番（同じ SEED）で、変更あり・なしを比べる。差の分布で、偶然ではないかを見る
-  const variants = [['避ける形を外す', { avoid: true }, { noAvoid: true }], ['目標5R', { avoid: true, swingR: 5 }, { avoid: true }], ['米国の下げ相場はスイング1件まで', { avoid: true, usBear: true }, { avoid: true }], ['つられ下げ＋ETF', { avoid: true, tracks: { ...BASE.tracks, tsurare: true, etf: true } }, { avoid: true }]]
+  const variants = process.env.PAIRED === 'price' ? [['株価3,000円以上の候補を外す', { avoid: true, maxPrice: 3000 }, { avoid: true }], ['株価1,500円以上の候補を外す', { avoid: true, maxPrice: 1500 }, { avoid: true }]] : [['避ける形を外す', { avoid: true }, { noAvoid: true }], ['目標5R', { avoid: true, swingR: 5 }, { avoid: true }], ['米国の下げ相場はスイング1件まで', { avoid: true, usBear: true }, { avoid: true }], ['つられ下げ＋ETF', { avoid: true, tracks: { ...BASE.tracks, tsurare: true, etf: true } }, { avoid: true }]]
   for (const [nm, on, off] of variants) {
     const diffs = PER.map(() => [])
     for (let k = 1; k <= 20; k++) {
