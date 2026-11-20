@@ -237,6 +237,10 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
   - 決算の前に買わない決まりを緩めた。買わないのは「買う日が決算の反応の日」（前の日の15時以降か、その日の場中に決算が出る）のときだけ。`preTradeCheck` は決算が今日なら止め、1〜3営業日後なら注意だけ。夜の点検・朝の株ウォッチの指示文、`settings/main.extra` も同じに直した（根拠：`study_swing_earnings.mjs`）。
   - 練習口座の急落の反発：`crashMktOnly: true`（1306 の5日が −4%以下のときだけ）・`crashOpenMax: 2`・`crashPosPct: 5`。つられ下げは `tsurarePosPct: 10` のまま。両方の口座の params に書いた（params は PAPER_DEFAULTS と混ぜないので、新しい項目は DB の params にも書くこと）。
   - 練習口座の基本の口座（`settings/paper`）だけ `swingMaxPrice: 1500`（終値1,500円以上のスイングの候補は買わない）。攻めの口座は制限なし。
+- **11/21 朝 本人と決めたこと（練習口座で試す）**：
+  - 企業の行動の1銘柄の上限：基本の口座 `evPosPct: 50`、攻めの口座 `evPosPct: 70`（口座全体の検証で量を増やすと20組すべて良くなった。決算後のドリフトは maxPosPct のまま）。本番の上限はまだ変えていない。
+  - 攻めの口座のスイングを「5R・60日」（`swingMaxDays: 60`）。
+  - 基本の口座の「米国の下げ相場はスイング1件まで」を外した（`usBearSwingMax: null`）。夜の点検・朝の株ウォッチの usBear の1行は参考だけ（件数は変えない）。
 - 場中の買い場・目印の検証し直しは `research/day/README.md` の最後。買い場は時期に左右され、VWAP 奪回はほぼ0。「買い場 × 窓 +2%以上」が強いが57日だけ。
 
 ### ゼロから作り直す場合の順番

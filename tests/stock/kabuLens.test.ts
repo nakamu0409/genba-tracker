@@ -1039,6 +1039,14 @@ describe('企業の行動の開示（自社株買い・増配・株式分割）'
     expect(r.trades[0]).toMatchObject({ track: 'split', exit: 1030 })
     expect(r.state.positions).toHaveLength(0)
   })
+  it('練習口座：evPosPct があれば、企業の行動はその%まで買う（決算後のドリフトは maxPosPct のまま）', () => {
+    const day = (o: number, c: number) => [{ m: 540, o, h: Math.max(o, c) + 5, l: Math.min(o, c) - 5, c, v: 1000 }]
+    const st = paperNew({ slipPct: 0, maxPosPct: 30, evPosPct: 70 })
+    const r = paperStep(st, { date: '2026-11-20', stocks: { 1111: { bars: day(1000, 1010), ctx: { prevClose: 1000 } }, 2222: { bars: day(1000, 1010), ctx: { prevClose: 1000 } } }, buybacks: [{ code: '1111', kind: 'split' }, { code: '2222', kind: 'pead' }] })
+    const q = Object.fromEntries(r.state.positions.map(x => [x.code, x.qty]))
+    expect(q['1111']).toBe(700)
+    expect(q['2222']).toBe(300)
+  })
   it('練習口座：決算後のドリフトは、寄りが前の日の終値より低ければ買わない', () => {
     const day = (o: number, c: number) => [{ m: 540, o, h: Math.max(o, c) + 5, l: Math.min(o, c) - 5, c, v: 1000 }]
     const st = paperNew({})
