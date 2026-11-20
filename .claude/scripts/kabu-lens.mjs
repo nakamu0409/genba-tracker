@@ -2391,7 +2391,9 @@ const WIDE_GROUPS = {
   CHASE8: r => ok(r.fromPrev) && r.fromPrev >= 8,
   LOW_ALL: r => r.low,
   LOW_TAKE_RAW: r => r.low && !!r.raw,
-  LOW_STRONG_CLOSE: r => r.marks.includes('LOW_STRONG_CLOSE')
+  LOW_STRONG_CLOSE: r => r.marks.includes('LOW_STRONG_CLOSE'),
+  // 2026-11-20 の検証し直しで強かった組み合わせ（57日だけ。本番で確かめ中）：窓 +2%以上で始まった株の買い場
+  TAKE_GAPUP: r => r.signal === 'TAKE' && ok(r.gap) && r.gap >= 2
 }
 
 /**
@@ -2411,7 +2413,8 @@ export function intradayWideDay(items, { times = [570, 600, 630, 660, 780, 810, 
       const e = day.find(b => b.m >= t + delay)
       if (!e || !(e.o > 0)) continue
       const v = intradayView(seen, it.ctx || {})
-      rows.push({ t, signal: v.signal, kind: v.kind, raw: v.raw_take, low: v.low_group, regime: v.regime, marks: v.marks, fromPrev: v.from_prev_pct, rC: (close / e.o - 1) * 100, rN: (it.nextClose / e.o - 1) * 100 })
+      const gap = it.ctx?.prevClose > 0 ? (day[0].o / it.ctx.prevClose - 1) * 100 : null
+      rows.push({ t, signal: v.signal, kind: v.kind, raw: v.raw_take, low: v.low_group, regime: v.regime, marks: v.marks, fromPrev: v.from_prev_pct, rC: (close / e.o - 1) * 100, rN: (it.nextClose / e.o - 1) * 100, gap })
     }
   }
   const base = new Map()
