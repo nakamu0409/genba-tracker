@@ -306,7 +306,11 @@ const PER = [['10年', {}], ['前半', { end: '2021-11-19' }], ['後半', { star
 if (process.env.PAIRED) {
   // 同じでたらめな順番（同じ SEED）で、変更あり・なしを比べる。差の分布で、偶然ではないかを見る
   const CRV = { tracks: { ...BASE.tracks, crash: true } }
-  const variants = process.env.PAIRED === 'exits2' ? [
+  const variants = process.env.PAIRED === 'size' ? [
+    ['1回0.5%・合計は同じ（×6）・1銘柄15%', { avoid: true, riskPct: 0.5, maxOpenRiskMult: 6, maxPosPct: 15 }, { avoid: true }],
+    ['1回1%・合計を2倍（×6）', { avoid: true, maxOpenRiskMult: 6 }, { avoid: true }],
+    ['1回1.5%・合計は同じ（×2）', { avoid: true, riskPct: 1.5, maxOpenRiskMult: 2 }, { avoid: true }]
+  ] : process.env.PAIRED === 'exits2' ? [
     ['目標5R・60日', { avoid: true, swingR: 5, swingDays: 60 }, { avoid: true }],
     ['目標3R・60日', { avoid: true, swingDays: 60 }, { avoid: true }]
   ] : process.env.PAIRED === 'exits' ? [
