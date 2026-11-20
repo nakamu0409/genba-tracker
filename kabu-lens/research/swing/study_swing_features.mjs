@@ -74,3 +74,13 @@ for (const k of ['GAP', 'PULLBACK', 'BREAKOUT', 'MOMENTUM', 'STATE']) {
 }
 console.log('\n■ 3つの期間とも同じ向きに分けた特徴（いちばん高い5分の1 − いちばん低い5分の1 の差が ±0.03R を超える）')
 consistent.forEach(x => console.log('  ' + x))
+// 株価 × 売買代金（株価の差が売買代金の差のせいでないか）
+console.log('\n■ 株価（1,500円未満／以上）× 売買代金（選ぶ期間の真ん中で2つに分ける）')
+const tz = rows.filter(r => per(r) === 0).map(r => r.f.turn).sort((a, b) => a - b)
+const tMid = tz[Math.floor(tz.length / 2)]
+for (const [tn, tp] of [['売買代金 少', r => r.f.turn <= tMid], ['売買代金 多', r => r.f.turn > tMid]]) {
+  for (const [pn, pp] of [['1,500円未満', r => r.f.price < Math.log10(1500)], ['1,500円以上', r => r.f.price >= Math.log10(1500)]]) {
+    const z = rows.filter(r => tp(r) && pp(r))
+    console.log(`  ${tn}・${pn}  ${[0, 1, 2].map(p => { const a = z.filter(r => per(r) === p).map(r => r.r); return `${fmt(mean(a), 3)}(${a.length})` }).join('  ')}`)
+  }
+}
