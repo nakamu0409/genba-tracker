@@ -2687,7 +2687,7 @@ export async function fetchIntradayWide(list, { date = null, parallel = 8, keepL
           const ld = dates[dates.length - 1]
           const past = d.bars.filter(b => b.date < ld)
           const turnover = past.slice(-20).reduce((s, b) => s + b.c * b.v, 0) / 20
-          ;(paperDays[ld] ||= {})[code] = { name: name || d.name, bars: days[ld], ctx: intradayContext(past), turnover, surge: surgePullback(past), crash: crashSignal(past), prevR1: past.length >= 2 ? round((past[past.length - 1].c / past[past.length - 2].c - 1) * 100, 2) : null }
+          ;(paperDays[ld] ||= {})[code] = { name: name || d.name, bars: days[ld], ctx: intradayContext(past), turnover, surge: surgePullback(past), crash: crashSignal(past), below200: past.length >= 200 ? past[past.length - 1].c < past.slice(-200).reduce((a, b) => a + b.c, 0) / 200 : null, prevR1: past.length >= 2 ? round((past[past.length - 1].c / past[past.length - 2].c - 1) * 100, 2) : null }
           if (dates.length > 1) prevOf[ld] = dates[dates.length - 2]
         }
         if (keepLatest && dates.length) {
@@ -2775,7 +2775,7 @@ export const PAPER_DEFAULTS = {
   dayFrom: 630, dayTo: 780, delay: 20, fillWindow: 30, lowAt: 870, lowEntryM: 890, lowTpPct: 5, lowSlPct: 8, lowExitM: 780,
   swingGapPct: 2, swingMaxDays: 40, surgeMax: 2, surgeTpR: 3, surgeHold: 10,
   chaseMax: 0, chaseTrigPct: 10, chaseFrom: 570, chaseTo: 690, chaseSlPct: 8,
-  evPosPct: null, evStopPct: null, peadMax: 2, peadHold: 5, peadGapMax: 15, peadGapMin: 0, usBearSwingMax: null,
+  evPosPct: null, evStopPct: null, ma200Half: false, peadMax: 2, peadHold: 5, peadGapMax: 15, peadGapMin: 0, usBearSwingMax: null,
   crashMax: 2, crashHold: 5, crashSlPct: 20, crashPosPct: 5, crashOpenMax: 2, crashMktOnly: true, swingMaxPrice: null,
   tsurareMax: 2, tsurareHold: 5, tsurarePosPct: 10, tsurareGap: -5, tsurareMktGap: -2.5,
   swingTargetR: null,
@@ -2805,10 +2805,10 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], 
   const r1 = x => Math.round(x * 10) / 10
   const equityNow = () => st.cash + st.positions.reduce((s, x) => s + x.qty * x.last, 0)
   const equity0 = equityNow()
-  const sizeOf = (price, stop, cash) => {
+  const sizeOf = (price, stop, cash, k = 1) => {
     const rps = price - stop
     if (!(price > 0) || !(rps > 0)) return 0
-    const n = Math.min(equity0 * p.riskPct / 100 / rps, equity0 * p.maxPosPct / 100 / price, cash / price)
+    const n = Math.min(equity0 * p.riskPct * k / 100 / rps, equity0 * p.maxPosPct / 100 / price, cash / price)
     return Math.floor(n / 100) * 100
   }
   const close = (pos, price, reason) => {
@@ -2909,7 +2909,8 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], 
     const x = ohlcOf(bars)
     if (x.o > c.close * (1 + p.swingGapPct / 100) || x.o <= c.stop) continue
     const entry = x.o * (1 + slip)
-    const qty = sizeOf(entry, c.stop, st.cash)
+    // ma200Half：TOPIX 連動ETF（1306）が200日線より下の間は、スイングの1回の損の上限を半分にする（2026-11-21 の口座全体の検証で、年率も上がり一番下げたときも浅くなった）
+    const qty = sizeOf(entry, c.stop, st.cash, p.ma200Half && stocks['1306']?.below200 ? 0.5 : 1)
     if (qty < 100) continue
     // swingTargetR があれば、目標を「買値 + 損切り幅 × swingTargetR」に置き直す（0 なら目標なし。2026-11-20 の見直しで、3R より遠いほうが良かった）
     const tR = p.swingTargetR
