@@ -307,7 +307,11 @@ const PER = [['10年', {}], ['前半', { end: '2021-11-19' }], ['後半', { star
 if (process.env.PAIRED) {
   // 同じでたらめな順番（同じ SEED）で、変更あり・なしを比べる。差の分布で、偶然ではないかを見る
   const CRV = { tracks: { ...BASE.tracks, crash: true } }
-  const variants = process.env.PAIRED === 'best' ? [
+  const variants = process.env.PAIRED === 'tracks' ? [
+    ['急騰の押し目を外す', { avoid: true, tracks: { ...BASE.tracks, surge: false } }, { avoid: true }],
+    ['企業の行動を外す', { avoid: true, tracks: { ...BASE.tracks, events: false } }, { avoid: true }],
+    ['スイングだけにする', { avoid: true, tracks: { events: false, surge: false, swing: true } }, { avoid: true }]
+  ] : process.env.PAIRED === 'best' ? [
     ['5R・60日 ＋ 1,500円未満だけ', { avoid: true, swingR: 5, swingDays: 60, maxPrice: 1500 }, { avoid: true }],
     ['5R・60日 ＋ 1,500円未満を先に（外さない）', { avoid: true, swingR: 5, swingDays: 60, lowFirst: 1500 }, { avoid: true }]
   ] : process.env.PAIRED === 'size' ? [
