@@ -70,7 +70,8 @@ for (const st of Object.values(stocks)) {
     if (B[i].c / B[i - 5].c <= 0.85 && B[i].c >= 300) {
       if (i - last > 10) {
         if (!CR.has(B[i].date)) CR.set(B[i].date, [])
-        CR.get(B[i].date).push({ code: st.code, i, big: B[i].c >= 1500, turn: st.turn[i] })
+        const k5 = bi.get(B[i].date)
+        CR.get(B[i].date).push({ code: st.code, i, big: B[i].c >= 1500, turn: st.turn[i], mkt: k5 >= 5 && bench[k5].c / bench[k5 - 5].c - 1 <= -0.04 })
       }
       last = i
     }
@@ -151,6 +152,7 @@ function run(P) {
       let n = 0
       for (const c of (CR.get(pd) || []).slice().sort((a, b) => (b.big - a.big) || (b.turn - a.turn))) {
         if (n >= 2 || held.has(c.code)) continue
+        if ((P.crashBigOnly && !c.big) || (P.crashMktOnly && !c.mkt) || (P.crashIdioOnly && c.mkt)) continue
         if (P.crashOpenMax && pos.filter(p => p.track === 'crash').length >= P.crashOpenMax) break
         if (fixed('crash', c.code, P.crashPct ?? 10, 5, 20)) n++
       }
@@ -282,7 +284,14 @@ const steps = [
 const PER = [['10年', {}], ['前半', { end: '2021-11-19' }], ['後半', { start: '2021-11-19', end: '2025-11-14' }], ['最後の確認', { start: '2025-11-14' }]]
 if (process.env.PAIRED) {
   // 同じでたらめな順番（同じ SEED）で、変更あり・なしを比べる。差の分布で、偶然ではないかを見る
-  const variants = process.env.PAIRED === 'price' ? [['株価3,000円以上の候補を外す', { avoid: true, maxPrice: 3000 }, { avoid: true }], ['株価1,500円以上の候補を外す', { avoid: true, maxPrice: 1500 }, { avoid: true }]] : [['避ける形を外す', { avoid: true }, { noAvoid: true }], ['目標5R', { avoid: true, swingR: 5 }, { avoid: true }], ['米国の下げ相場はスイング1件まで', { avoid: true, usBear: true }, { avoid: true }], ['つられ下げ＋ETF', { avoid: true, tracks: { ...BASE.tracks, tsurare: true, etf: true } }, { avoid: true }]]
+  const CRV = { tracks: { ...BASE.tracks, crash: true } }
+  const variants = process.env.PAIRED === 'crash' ? [
+    ['急落の反発（今：1日2件・10%）', { avoid: true, ...CRV }, { avoid: true }],
+    ['急落の反発（同時に2つまで・5%）', { avoid: true, crashOpenMax: 2, crashPct: 5, ...CRV }, { avoid: true }],
+    ['急落の反発（1,500円以上だけ・同時に2つ・5%）', { avoid: true, crashBigOnly: true, crashOpenMax: 2, crashPct: 5, ...CRV }, { avoid: true }],
+    ['急落の反発（相場全体の急落のときだけ・同時に2つ・5%）', { avoid: true, crashMktOnly: true, crashOpenMax: 2, crashPct: 5, ...CRV }, { avoid: true }],
+    ['急落の反発（その株だけの急落のときだけ・同時に2つ・5%）', { avoid: true, crashIdioOnly: true, crashOpenMax: 2, crashPct: 5, ...CRV }, { avoid: true }]
+  ] : process.env.PAIRED === 'price' ? [['株価3,000円以上の候補を外す', { avoid: true, maxPrice: 3000 }, { avoid: true }], ['株価1,500円以上の候補を外す', { avoid: true, maxPrice: 1500 }, { avoid: true }]] : [['避ける形を外す', { avoid: true }, { noAvoid: true }], ['目標5R', { avoid: true, swingR: 5 }, { avoid: true }], ['米国の下げ相場はスイング1件まで', { avoid: true, usBear: true }, { avoid: true }], ['つられ下げ＋ETF', { avoid: true, tracks: { ...BASE.tracks, tsurare: true, etf: true } }, { avoid: true }]]
   for (const [nm, on, off] of variants) {
     const diffs = PER.map(() => [])
     for (let k = 1; k <= 20; k++) {
