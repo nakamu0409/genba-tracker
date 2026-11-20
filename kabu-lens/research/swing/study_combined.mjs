@@ -52,16 +52,17 @@ const STREAK = new Map()
     }
   }
 }
-const MA200 = new Map()
-{
+const MAS = {}
+for (const n of [75, 100, 200]) {
+  const m = (MAS[n] = new Map())
   let sm = 0
   for (let i = 0; i < bench.length; i++) {
     sm += bench[i].c
-    if (i >= 200) sm -= bench[i - 200].c
-    if (i >= 199) MA200.set(bench[i].date, sm / 200)
+    if (i >= n) sm -= bench[i - n].c
+    if (i >= n - 1) m.set(bench[i].date, sm / n)
   }
 }
-const below200 = d => { const k = bi.get(d); return k !== undefined && MA200.has(d) && bench[k].c < MA200.get(d) }
+const belowMA = (d, n = 200) => { const k = bi.get(d); return k !== undefined && MAS[n].has(d) && bench[k].c < MAS[n].get(d) }
 const streakOf = s => STREAK.get(s.code + ':' + s.i) || 1
 // 避ける形を外す前の候補（本番の analyze は 11/20 から外しているので、比べるために外さない候補も作る）
 const SW_OFF = process.env.PAIRED ? byDate(loadAll({ avoidChase: false }).swing) : SW
@@ -133,7 +134,7 @@ function run(P) {
   for (const d of dates.filter(x => (!P.start || x >= P.start) && (!P.end || x < P.end))) {
     const pd = prevOf.get(d)
     // ddCut：口座が最高値から ddCut% 以上下がっている間は、スイングなどの1回の損の上限を ddMult 倍にする
-    const inDD = (P.ddCut && equityPrev < peakEq * (1 - P.ddCut / 100)) || (P.ma200Cut && below200(pd))
+    const inDD = (P.ddCut && equityPrev < peakEq * (1 - P.ddCut / 100)) || (P.ma200Cut && belowMA(pd, P.maDays ?? 200))
     const riskOne = equityPrev * P.riskPct / 100 * (inDD ? (P.ddMult ?? 0.5) : 1)
     const maxPos = equityPrev * P.maxPosPct / 100
     const barOf = code => {
@@ -349,7 +350,11 @@ if (process.env.EVDD) {
 if (process.env.PAIRED) {
   // 同じでたらめな順番（同じ SEED）で、変更あり・なしを比べる。差の分布で、偶然ではないかを見る
   const CRV = { tracks: { ...BASE.tracks, crash: true } }
-  const variants = process.env.PAIRED === 'ma200' ? [
+  const variants = process.env.PAIRED === 'ma2' ? [
+    ['75日線より下の間は半分に', { avoid: true, ma200Cut: true, maDays: 75 }, { avoid: true }],
+    ['100日線より下の間は半分に', { avoid: true, ma200Cut: true, maDays: 100 }, { avoid: true }],
+    ['全部重ねる（企業の行動50%・5R・60日・200日線より下は半分）', { avoid: true, evPosPct: 50, swingR: 5, swingDays: 60, ma200Cut: true }, { avoid: true }]
+  ] : process.env.PAIRED === 'ma200' ? [
     ['TOPIX が200日線より下の間はスイングを半分に', { avoid: true, ma200Cut: true }, { avoid: true }],
     ['200日線より下の間は止める', { avoid: true, ma200Cut: true, ddMult: 0 }, { avoid: true }]
   ] : process.env.PAIRED === 'sector' ? [
