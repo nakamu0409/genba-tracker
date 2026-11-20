@@ -54,6 +54,7 @@ export const DEFAULTS = {
   runUpHeavy: 100,
   maType: 'SMA',
   maFastLen: 25,
+  avoidChase: true,
   maMidLen: 75,
   maSlowLen: 200,
   slopeLen: 10,
@@ -523,9 +524,21 @@ export function analyze(bars, bench = [], info = {}, options = {}) {
     // 買い候補の判定（通知が使う。A: 今日の足で買いの形が出た / B: スコアが基準以上で落ち着いた上昇・レンジ）
     const candA = candKind !== 'NONE' && blockReason === 'NONE'
     const candB = o.candAllowState && longScore >= o.scoreThreshold && (regime === 'TREND_UP' || regime === 'RANGE') && overheat < o.overheatBlock && ok(devF) && devF <= o.candMaxDevPct
-    const candWhyNot = regime === 'TREND_DOWN' ? 'TREND_DOWN' : regime === 'HIGH_VOLATILITY' ? 'HIGH_VOLATILITY' : htfBias === -1 ? 'WEEKLY_DOWN' : overheat >= o.overheatBlock ? 'OVERHEAT' : !(candA || candB) ? 'NO_SETUP' : 'NONE'
+    const candWhyNot0 = regime === 'TREND_DOWN' ? 'TREND_DOWN' : regime === 'HIGH_VOLATILITY' ? 'HIGH_VOLATILITY' : htfBias === -1 ? 'WEEKLY_DOWN' : overheat >= o.overheatBlock ? 'OVERHEAT' : !(candA || candB) ? 'NO_SETUP' : 'NONE'
     // 窓開けは、地合いの条件に関係なく候補にする（検証でも条件を付けていない）
-    const candPass = (gapUp || candWhyNot === 'NONE') && ok(atrV[i])
+    const candPass0 = (gapUp || candWhyNot0 === 'NONE') && ok(atrV[i])
+    // 避ける形（2026-11-20 本人と決定。10年の口座全体の検証で、3つの期間すべて年率が上がった唯一の変更）：
+    // 7日続けて上げた・25日の単純平均から +25% 以上・その日に +15% 以上で高値引け（ストップ高に近い）は、候補にしない
+    let sma25 = null
+    if (i >= 24) {
+      let s25 = 0
+      for (let k = i - 24; k <= i; k++) s25 += bars[k].c
+      sma25 = s25 / 25
+    }
+    const r1day = p && p.c > 0 ? b.c / p.c - 1 : 0
+    const avoidWhy = !o.avoidChase ? 'NONE' : upStreak >= 7 ? 'UP_7DAYS' : sma25 && b.c / sma25 - 1 >= 0.25 ? 'FAR_ABOVE_MA25' : r1day >= 0.15 && rng > 0 && (b.c - b.l) / rng >= 0.9 ? 'LIMIT_UP_LIKE' : 'NONE'
+    const candPass = candPass0 && avoidWhy === 'NONE'
+    const candWhyNot = candPass0 && avoidWhy !== 'NONE' ? avoidWhy : candWhyNot0
     const sigKind = gapUp ? 'GAP' : candKind !== 'NONE' ? candKind : 'STATE'
     const candStop = ok(atrV[i]) ? b.c - o.stopAtr * atrV[i] : null
     if (o.history && ok(atrV[i]) && (candPass || candKind !== 'NONE')) {
@@ -3293,7 +3306,7 @@ export async function miteReport(code, { price = null, state = null, stats = {},
 
   // スイング
   const bc = pk.buy_candidate
-  const WHY = { NO_SETUP: '買いの形が出ていない', TREND_DOWN: '下降トレンド', HIGH_VOLATILITY: '値動きが荒い地合い', OVERHEAT: '高値づかみ危険度が高い', WEEKLY_DOWN: '週足が下向き', GAP_TOO_BIG: '窓が大きすぎる', LOW_SCORE: '買いスコアが基準未満' }
+  const WHY = { NO_SETUP: '買いの形が出ていない', TREND_DOWN: '下降トレンド', HIGH_VOLATILITY: '値動きが荒い地合い', OVERHEAT: '高値づかみ危険度が高い', WEEKLY_DOWN: '週足が下向き', GAP_TOO_BIG: '窓が大きすぎる', LOW_SCORE: '買いスコアが基準未満', UP_7DAYS: '7日続けて上げた（避ける形）', FAR_ABOVE_MA25: '25日線から+25%以上（避ける形）', LIMIT_UP_LIKE: '+15%以上の高値引け（避ける形）' }
   const swingVerdict = bc.pass ? '買い候補' : bc.why_not === 'NO_SETUP' ? '待つ（形なし）' : '見送り'
   const KIND = { GAP: '窓あけ', PULLBACK: '押し目', BREAKOUT: '高値抜け', MOMENTUM: '勢い', NONE: '—' }
   const bt = stats.backtest
