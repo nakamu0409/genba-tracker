@@ -28,6 +28,8 @@ const byDate = arr => {
 const EV = byDate(D.events)
 const SU = byDate(D.surge)
 const SW = byDate(D.swing)
+// 避ける形を外す前の候補（本番の analyze は 11/20 から外しているので、比べるために外さない候補も作る）
+const SW_OFF = process.env.PAIRED ? byDate(loadAll({ avoidChase: false }).swing) : SW
 const evRank = e => (e.kind === 'split' ? 0 : e.kind === 'buyback' && e.score >= 2 ? 1 : e.kind === 'divup' ? 2 : e.kind === 'buyback' && e.score === 1 ? 3 : 9)
 // 米国の下げ相場
 const gs = JSON.parse(readFileSync(new URL('../world/GSPC.json', import.meta.url), 'utf-8')).chart.result[0]
@@ -78,6 +80,12 @@ for (const st of Object.values(stocks)) {
       TS.get(B[i].date).push({ code: st.code, i, turn: st.turn[i - 1] })
     }
   }
+}
+let SEED = 1
+const rnd = str => {
+  let h = 2166136261 ^ SEED
+  for (let k = 0; k < str.length; k++) h = Math.imul(h ^ str.charCodeAt(k), 16777619)
+  return ((h >>> 0) % 100000) / 100000
 }
 function run(P) {
   let cash = P.capital
@@ -182,7 +190,27 @@ function run(P) {
       addRisky('surge', list, 2, 3, 10, null)
     }
     if (P.tracks.swing) {
-      let list = (SW.get(pd) || []).slice().sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+      let list = ((P.noAvoid ? SW_OFF : SW).get(pd) || []).slice()
+      // 並べ方：score（今の決まり）・random（偶然の幅を測る）・turnover（売買代金）・calm（高値づかみ危険度の低い順）・dip（25日線に近い順）
+      const st0 = s => stocks[s.code]
+      const keyOf = {
+        score: s => -(s.score ?? 0),
+        random: s => rnd(s.code + d),
+        turnover: s => -st0(s).turn[s.i],
+        dip: s => {
+          const B = st0(s).bars
+          let m = 0
+          for (let k = Math.max(0, s.i - 24); k <= s.i; k++) m += B[k].c
+          return Math.abs(B[s.i].c / (m / Math.min(25, s.i + 1)) - 1)
+        },
+        lowvol: s => {
+          const B = st0(s).bars
+          let a = 0
+          for (let k = Math.max(0, s.i - 13); k <= s.i; k++) a += (B[k].h - B[k].l) / B[k].c
+          return a
+        }
+      }[P.order || 'score']
+      list.sort((a, b) => keyOf(a) - keyOf(b))
       if (P.avoid) list = list.filter(s => !avoid(stocks[s.code], s.i))
       const max = P.usBear && usBearOn(d) ? 1 : 99
       addRisky('swing', list, max, P.swingR ?? 3, 40, 2)
@@ -250,6 +278,41 @@ const steps = [
   ['＋つられ下げ', { avoid: true, swingR: 5, usBear: true, tracks: { ...BASE.tracks, crash: true, tsurare: true } }],
   ['＋相場全体の急落の翌日の ETF（統合版）', { avoid: true, swingR: 5, usBear: true, tracks: { ...BASE.tracks, crash: true, tsurare: true, etf: true } }]
 ]
+const PER = [['10年', {}], ['前半', { end: '2021-11-19' }], ['後半', { start: '2021-11-19', end: '2025-11-14' }], ['最後の確認', { start: '2025-11-14' }]]
+if (process.env.PAIRED) {
+  // 同じでたらめな順番（同じ SEED）で、変更あり・なしを比べる。差の分布で、偶然ではないかを見る
+  const variants = [['避ける形を外す', { avoid: true }, { noAvoid: true }], ['目標5R', { avoid: true, swingR: 5 }, { avoid: true }], ['米国の下げ相場はスイング1件まで', { avoid: true, usBear: true }, { avoid: true }], ['つられ下げ＋ETF', { avoid: true, tracks: { ...BASE.tracks, tsurare: true, etf: true } }, { avoid: true }]]
+  for (const [nm, on, off] of variants) {
+    const diffs = PER.map(() => [])
+    for (let k = 1; k <= 20; k++) {
+      SEED = k
+      PER.forEach(([, po], j) => diffs[j].push(stats({ ...BASE, ...on, ...po, order: 'random' }).cagr - stats({ ...BASE, ...off, ...po, order: 'random' }).cagr))
+    }
+    console.log(`■ ${nm}（同じ順番で20組。年率の差）`)
+    PER.forEach(([pn], j) => {
+      const a = diffs[j].sort((x, y) => x - y)
+      console.log(`  ${pn}：差の真ん中 ${fmt(a[10], 1)}pt・良くなった組 ${a.filter(x => x > 0).length}/20（${fmt(a[0], 1)}〜${fmt(a[19], 1)}）`)
+    })
+  }
+  process.exit(0)
+}
+if (process.env.ORDER) {
+  const base = { ...BASE, avoid: true }
+  console.log('■ 偶然の幅：スイングの候補を毎日でたらめな順に並べて20回（避ける形は外した口座）')
+  const per = PER.map(() => [])
+  for (let k = 1; k <= 20; k++) {
+    SEED = k
+    PER.forEach(([, po], j) => per[j].push(stats({ ...base, ...po, order: 'random' }).cagr))
+  }
+  PER.forEach(([pn], j) => {
+    const a = per[j].sort((x, y) => x - y)
+    console.log(`  ${pn}：年率 ${fmt(a[0], 1)}〜${fmt(a[a.length - 1], 1)}%（真ん中 ${fmt(a[10], 1)}%）`)
+  })
+  for (const [nm, ord] of [['買いスコアの高い順（今）', 'score'], ['売買代金の大きい順', 'turnover'], ['25日線に近い順（伸びすぎていない）', 'dip'], ['値動きの小さい順', 'lowvol']]) {
+    console.log(`■ ${nm}：` + PER.map(([pn, po]) => `${pn} ${fmt(stats({ ...base, ...po, order: ord }).cagr, 1)}%`).join('  '))
+  }
+  process.exit(0)
+}
 if (process.env.CRASH) {
   steps.length = 0
   steps.push(
@@ -273,7 +336,6 @@ if (process.env.MORE) {
     ['＋避ける形を外す・急騰の押し目をやめる＋つられ下げ＋ETF', { avoid: true, tracks: { events: true, swing: true, tsurare: true, etf: true } }]
   )
 }
-const PER = [['10年', {}], ['前半', { end: '2021-11-19' }], ['後半', { start: '2021-11-19', end: '2025-11-14' }], ['最後の確認', { start: '2025-11-14' }]]
 console.log('100万円・1回の損1%。年率（%）／一番下げたとき（%）／マイナスの月の割合\n')
 for (const [name, o] of steps) {
   const P = { ...BASE, ...o }

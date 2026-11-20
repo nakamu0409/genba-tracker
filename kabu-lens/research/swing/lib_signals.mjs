@@ -6,7 +6,7 @@ import { analyze, surgePullback, tickFloor } from '../../../.claude/scripts/kabu
 
 export const SLIP = 0.001
 
-export function loadAll({ withSwing = true } = {}) {
+export function loadAll({ withSwing = true, avoidChase = true } = {}) {
   const wide = JSON.parse(readFileSync(new URL('../wide.json', import.meta.url), 'utf-8'))
   // ベンチマークに桁のおかしい日がある（2026-03-30・31 が約1/10）。前の正しい日から±30%を超える日は除く
   const benchRaw = JSON.parse(readFileSync(new URL('./bench1306.json', import.meta.url), 'utf-8'))
@@ -35,7 +35,7 @@ export function loadAll({ withSwing = true } = {}) {
   const out = { stocks, bench, regime }
   out.events = eventSignals(stocks, irev, irh)
   out.surge = surgeSignals(stocks)
-  if (withSwing) out.swing = swingSignals(stocks, bench)
+  if (withSwing) out.swing = swingSignals(stocks, bench, avoidChase)
   return out
 }
 
@@ -65,13 +65,13 @@ export function benchRegime(bench) {
 }
 
 /** スイングの買い候補（analyze の signal_history の pass）。date＝合図の日（翌日の寄りで買う） */
-function swingSignals(stocks, bench) {
+function swingSignals(stocks, bench, avoidChase = true) {
   const out = []
   for (const st of Object.values(stocks)) {
     if (st.bars.length < 300) continue
     let p
     try {
-      p = analyze(st.bars, bench, {}, { history: true })
+      p = analyze(st.bars, bench, {}, { history: true, avoidChase })
     } catch {
       continue
     }
