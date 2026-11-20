@@ -2674,7 +2674,7 @@ export async function fetchIntradayWide(list, { date = null, parallel = 8, keepL
           const ld = dates[dates.length - 1]
           const past = d.bars.filter(b => b.date < ld)
           const turnover = past.slice(-20).reduce((s, b) => s + b.c * b.v, 0) / 20
-          ;(paperDays[ld] ||= {})[code] = { name: name || d.name, bars: days[ld], ctx: intradayContext(past), turnover, surge: surgePullback(past), crash: crashSignal(past) }
+          ;(paperDays[ld] ||= {})[code] = { name: name || d.name, bars: days[ld], ctx: intradayContext(past), turnover, surge: surgePullback(past), crash: crashSignal(past), prevR1: past.length >= 2 ? round((past[past.length - 1].c / past[past.length - 2].c - 1) * 100, 2) : null }
           if (dates.length > 1) prevOf[ld] = dates[dates.length - 2]
         }
         if (keepLatest && dates.length) {
@@ -2765,7 +2765,8 @@ export const PAPER_DEFAULTS = {
   peadMax: 2, peadHold: 5, peadGapMax: 15, usBearSwingMax: null,
   crashMax: 2, crashHold: 5, crashSlPct: 20, crashPosPct: 10,
   tsurareMax: 2, tsurareHold: 5, tsurareGap: -5, tsurareMktGap: -2.5,
-  swingTargetR: null
+  swingTargetR: null,
+  etfDipPct: 3, etfDipHold: 20, etfDipPosPct: 20
 }
 
 export function paperNew(params = {}) {
@@ -2846,7 +2847,7 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], 
       if (!done) close(pos, bars[bars.length - 1].c * (1 - slip), '翌日の引け')
       continue
     }
-    if (pos.track === 'crash' || pos.track === 'tsurare') {
+    if (pos.track === 'crash' || pos.track === 'tsurare' || pos.track === 'etfdip') {
       // 急落の反発：非常用の損切り（買値の −crashSlPct%）だけ。届かなければ crashHold 日目の引けで売る
       const x = ohlcOf(bars)
       pos.held = (pos.held || 0) + 1
@@ -2934,6 +2935,21 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], 
     }
     if (isPead) peadCount++
     else bbCount++
+  }
+  // 2c0. 相場全体の急落の翌日（TOPIX 連動ETF 1306 が前の日に −etfDipPct% 以下 → 寄りで ETF を買い、etfDipHold 日目の引けで売る。資金の etfDipPosPct% まで。非常用の損切り −15%）
+  {
+    const etf = stocks['1306']
+    if (etf?.bars?.length && typeof etf.prevR1 === 'number' && etf.prevR1 <= -(p.etfDipPct ?? 3) && !st.positions.some(x => x.code === '1306')) {
+      const x = ohlcOf(etf.bars)
+      const entry = x.o * (1 + slip)
+      const qty = Math.floor(Math.min(equity0 * (p.etfDipPosPct ?? 20) / 100, st.cash) / entry / 10) * 10
+      if (qty >= 10) {
+        const pos = open('etfdip', '1306', 'TOPIX連動ETF', entry, qty, { stop: r1(entry * 0.85), holdDays: p.etfDipHold ?? 20, prevR1: etf.prevR1 })
+        pos.held = 1
+        pos.last = x.c
+        st.positions.push(pos)
+      }
+    }
   }
   // 2c'. 急落の反発（前の日までに5日で −15% 以下、10日ぶりの最初の合図、株価300円以上。売買代金の大きい順に crashMax まで）
   // 相場全体の急落か（合図の出た株の5日の騰落の中央ではなく、全銘柄の5日の騰落の平均が −4% 以下）も印にする
@@ -3854,7 +3870,9 @@ async function main() {
     }
     const fo = args.indexOf('--five-out')
     const pi = args.indexOf('--paper')
-    const day = await fetchIntradayWide(list, { date: d, keepLatest: fo >= 0, paper: pi >= 0 })
+    // 練習口座のときは TOPIX 連動ETF（1306）も取る（相場全体の急落の翌日に ETF を買う形のため）
+    const useList = pi >= 0 && !list.some(x => x.code === '1306') ? list.concat([{ code: '1306', name: 'TOPIX連動ETF' }]) : list
+    const day = await fetchIntradayWide(useList, { date: d, keepLatest: fo >= 0, paper: pi >= 0 })
     // 練習口座：--paper 状態.json（無ければ新しく始める）--paper-cands 買い候補.json（cands の pass。配列）--paper-out 結果.json
     let paper = null
     if (pi >= 0 && day.paper) {

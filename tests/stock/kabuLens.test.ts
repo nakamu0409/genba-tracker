@@ -1092,6 +1092,12 @@ describe('企業の行動の開示（自社株買い・増配・株式分割）'
     expect(paperStep(paperNew({ slipPct: 0, swingTargetR: 5 }), { date: '2026-11-20', stocks, cands }).state.positions[0].target).toBe(1250)
     expect(paperStep(paperNew({ slipPct: 0, swingTargetR: 0 }), { date: '2026-11-20', stocks, cands }).state.positions[0].target).toBeNull()
   })
+  it('練習口座：TOPIX 連動ETF が前の日に −3% 以下なら寄りで ETF を買い、20日持つ', () => {
+    const day = (o: number, c: number) => [{ m: 540, o, h: Math.max(o, c), l: Math.min(o, c), c, v: 1 }]
+    const r = paperStep(paperNew({ slipPct: 0 }), { date: '2026-11-24', stocks: { 1306: { bars: day(380, 385), prevR1: -4 } } })
+    expect(r.state.positions.map(x => [x.track, x.code, x.holdDays, x.qty])).toEqual([['etfdip', '1306', 20, 520]])
+    expect(paperStep(paperNew({ slipPct: 0 }), { date: '2026-11-24', stocks: { 1306: { bars: day(380, 385), prevR1: -2 } } }).state.positions).toHaveLength(0)
+  })
   it('世界の目安：前の夜の S&P500 −2% 以下と、米国の下げ相場を見分ける', () => {
     const ser = (vals: number[]) => vals.map((c, i) => ({ date: '2026-10-' + String(i + 1).padStart(2, '0'), c }))
     const spx = ser([...Array(20).fill(100), 96, 93])
