@@ -198,6 +198,12 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 - files: `{"kabu-lens.mjs": <.claude/scripts/kabu-lens.mjs のコピー>}`（contentType は text/javascript）
 - capabilities を使う前に `artifact-capabilities`、ページを書く前に `artifact-design` のスキルを読む
 
+### 記録帳のページ（2026-11-20 に作り直し）
+
+- 5つのタブ：今日（資金とルール・保有中・/mite・場中の判定）／売買（売買の記録・買おうとした銘柄・監視リスト）／練習口座／合図の成績（候補・買い候補・企業の行動とPTS・引け前の目印・ランキング・決算）／振り返り（週・月の成績表・精度点検）。`#today` などでタブを直接開ける。
+- データの置き場所と名前は変えていない。新しく表に出したのは `settings/nextday_stats`・`settings/marks_stats`・`settings/accuracy_last`・`monthly`（項目名は月の成績表の指示文で決めた real.closed・real.pnl・real.rulePnlNo・paper.base.pct など）。
+- 長い説明は各欄の「この表の見方」にたたんだ。控えは `kabu-lens/ops/trade-ledger.html`。
+
 ### 調べもののデータのしまい場所（記録帳の asset）
 
 - `kabu-lens/research/*.json`・`day/*.json`・`swing/bench1306.json` は git に入らず、コンテナが消えると無くなる。2026-11-20 に記録帳の asset へしまった（本人の許可あり。売買の記録は asset に入れない）。

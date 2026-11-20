@@ -9,5 +9,5 @@
 2. 本番（先月に決着した売買：件数・勝ち負け・損益、ルールどおり／ルール外それぞれの損益、swing/day ごと、月末の資金と前の月との差、放置中の含み損益）。
 3. 練習口座（基本・攻めの増減%、track ごとの件数・勝率・損益）。
 4. 合図の成績：累計から前の月の成績表に写した累計を引いて「先月の分」。30件未満は「まだ少ない」。30件以上でプラス・マイナスがはっきりしたものを2つずつ。
-5. collection "monthly" に「<YYYY-MM>」で set（real・paper・cumulative＝累計の写し）。書いてよいのは monthly だけ。
+5. collection "monthly" に「<YYYY-MM>」で set（real＝closed・wins・losses・pnl・avgWin・avgLoss・ruleYes・ruleNo・rulePnlYes・rulePnlNo・frozenPnl、paper＝base と aggr にそれぞれ startEquity・endEquity・pct・tracks、cumulative＝累計の写し。記録帳の「振り返り」タブの表がこの項目名を読む）。書いてよいのは monthly だけ。
 6. 通知12〜18行：1行目に大事な一文 → 本番 → 練習口座 → 効いている／効いていない → 来月ひとつ考えること → 「過去の検証と本番の数字がずれ続けるときは、決まりを見直す合図。最終判断はご自身で」。
