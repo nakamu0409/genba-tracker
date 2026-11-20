@@ -2776,8 +2776,8 @@ export const PAPER_DEFAULTS = {
   swingGapPct: 2, swingMaxDays: 40, surgeMax: 2, surgeTpR: 3, surgeHold: 10,
   chaseMax: 0, chaseTrigPct: 10, chaseFrom: 570, chaseTo: 690, chaseSlPct: 8,
   peadMax: 2, peadHold: 5, peadGapMax: 15, peadGapMin: 0, usBearSwingMax: null,
-  crashMax: 2, crashHold: 5, crashSlPct: 20, crashPosPct: 10,
-  tsurareMax: 2, tsurareHold: 5, tsurareGap: -5, tsurareMktGap: -2.5,
+  crashMax: 2, crashHold: 5, crashSlPct: 20, crashPosPct: 5, crashOpenMax: 2, crashMktOnly: true, swingMaxPrice: null,
+  tsurareMax: 2, tsurareHold: 5, tsurarePosPct: 10, tsurareGap: -5, tsurareMktGap: -2.5,
   swingTargetR: null,
   etfDipPct: 3, etfDipHold: 20, etfDipPosPct: 20
 }
@@ -2904,6 +2904,8 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], 
     if (st.positions.some(x => x.code === c.code)) continue
     const bars = stocks[c.code]?.bars
     if (!bars?.length || !(c.close > 0) || !(c.stop > 0)) continue
+    // swingMaxPrice があれば、終値がその値段以上の候補は買わない（2026-11-21 本人と決定。10年の検証で1,500円未満の候補が約+0.2R良い。まず練習口座で試す）
+    if (p.swingMaxPrice && c.close >= p.swingMaxPrice) continue
     const x = ohlcOf(bars)
     if (x.o > c.close * (1 + p.swingGapPct / 100) || x.o <= c.stop) continue
     const entry = x.o * (1 + slip)
@@ -2969,20 +2971,25 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], 
   // 相場全体の急落か（合図の出た株の5日の騰落の中央ではなく、全銘柄の5日の騰落の平均が −4% 以下）も印にする
   {
     const all5 = Object.values(stocks).map(s => s.crash?.r5).filter(v => typeof v === 'number')
-    const mkt5 = all5.length ? all5.reduce((a, b) => a + b, 0) / all5.length : null
+    const avg5 = all5.length ? all5.reduce((a, b) => a + b, 0) / all5.length : null
+    // 相場全体の急落：TOPIX 連動ETF（1306）の5日の騰落が −4% 以下。1306 が無ければ全銘柄の平均で代わりにする
+    const mkt5 = typeof stocks['1306']?.crash?.r5 === 'number' ? stocks['1306'].crash.r5 : avg5
+    // 2026-11-21 本人と決定：口座全体の検証（でたらめな順番20組）で一番ましだった「相場全体の急落のときだけ・同時に crashOpenMax まで・資金の crashPosPct%」
+    const crashOk = !p.crashMktOnly || (mkt5 !== null && mkt5 <= -4)
     // 並べ方：検証で安定していた「株価1,500円以上」を先に、その中は売買代金の大きい順
     const big = x => (x.ctx?.prevClose || 0) >= 1500 ? 1 : 0
     const crashes = Object.entries(stocks).filter(([, s]) => s.crash?.hit && s.bars?.length && (s.turnover || 0) >= 1e8).sort((a, b) => big(b[1]) - big(a[1]) || (b[1].turnover || 0) - (a[1].turnover || 0))
     let cn = 0
-    for (const [code, s] of crashes) {
+    for (const [code, s] of crashOk ? crashes : []) {
       if (cn >= (p.crashMax ?? 2)) break
+      if (p.crashOpenMax && st.positions.filter(x => x.track === 'crash').length >= p.crashOpenMax) break
       if (st.positions.some(x => x.code === code)) continue
       const x = ohlcOf(s.bars)
       if (x.h === x.l) continue
       const entry = x.o * (1 + slip)
       const stop = entry * (1 - (p.crashSlPct ?? 20) / 100)
       // 損切りが遠いので、1銘柄に使う金額を資金の crashPosPct% までにする（損切りに当たっても資金の約2%）
-      const qty = Math.floor(Math.min(equity0 * (p.crashPosPct ?? 10) / 100, st.cash) / entry / 100) * 100
+      const qty = Math.floor(Math.min(equity0 * (p.crashPosPct ?? 5) / 100, st.cash) / entry / 100) * 100
       if (qty < 100) continue
       cn++
       const pos = open('crash', code, s.name || '', entry, qty, { stop: r1(stop), holdDays: p.crashHold ?? 5, r5: s.crash.r5, marketWide: mkt5 !== null && mkt5 <= -4, market5: mkt5 === null ? null : round(mkt5, 1) })
@@ -3009,7 +3016,7 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], 
         if (x.h === x.l) continue
         const entry = x.o * (1 + slip)
         const stop = entry * (1 - (p.crashSlPct ?? 20) / 100)
-        const qty = Math.floor(Math.min(equity0 * (p.crashPosPct ?? 10) / 100, st.cash) / entry / 100) * 100
+        const qty = Math.floor(Math.min(equity0 * (p.tsurarePosPct ?? 10) / 100, st.cash) / entry / 100) * 100
         if (qty < 100) continue
         tn++
         const pos = open('tsurare', code, s.name || '', entry, qty, { stop: r1(stop), holdDays: p.tsurareHold ?? 5, gapPct: round((s.bars[0].o / s.ctx.prevClose - 1) * 100, 1), mktGap: round(mktGap, 2) })
@@ -3513,7 +3520,9 @@ export function preTradeCheck(a) {
   if (a.earningsDate && a.today) {
     const n = businessDaysBetween(a.today, a.earningsDate)
     const est = a.earningsEstimated ? '（去年の発表日からの見込み）' : ''
-    if (n >= 0 && n <= 3) blocks.push(`決算前：決算発表予定日が ${a.earningsDate}${est}（${n === 0 ? '今日' : n + '営業日後'}）。決算の3営業日前から当日までは新しく買わない`)
+    // 2026-11-21 本人と決定：悪いのは「買う日がちょうど決算の反応の日」だけ（10年で −0.06〜−0.14R）。買って2〜4日目に決算が来る候補はほかと同じか良かった
+    if (n === 0) blocks.push(`決算の日：決算発表予定日が今日 ${a.earningsDate}${est}。場中の発表なら今日が反応の日で、買う日が反応の日の候補は10年の検証で平均マイナス。今日は新しく買わない`)
+    else if (n >= 1 && n <= 3) warnings.push(`決算が近い：${a.earningsDate}${est}（${n}営業日後）。買ってよい（10年の検証で、買って2〜4日目に決算が来るスイングはほかと同じか良かった）。ただし${n === 1 ? '明日の場中の発表なら明日が反応の日。' : ''}決算の日に大きく動き、損切りを飛び越えることがある`)
     else if (a.earningsEstimated && n > 3 && n <= 8) warnings.push(`決算が近いかもしれない：見込みは ${a.earningsDate}（${n}営業日後）。正式な日付を確認を`)
   } else if (!a.earningsDate) warnings.push('決算発表予定日は確認できず。自分で確認を')
   const dl = a.dilution

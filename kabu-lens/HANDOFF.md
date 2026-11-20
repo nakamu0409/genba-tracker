@@ -233,6 +233,10 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
   - `--world`（`fetchWorld`・`worldBrief`）：前の夜の S&P500・SOX・VIX・ドル円・米金利と、10年の検証にもとづく目安の文（notes）。朝の株ウォッチの③と夜の点検の 5d で使う。
   - 米国の下げ相場（S&P500 が20日で−5%以下・`usBear`）：練習口座の基本の口座だけ `usBearSwingMax: 1`（新しいスイングを1件まで）にして、攻めの口座（制限なし）と比べる。本番の注文票は件数を変えず、1行の注意だけ。
   - 下方修正の株は、夜の点検で買い候補にしない（`settings/main.extra` にも1行）。
+- **11/21 本人と決めたこと（3つ）**：
+  - 決算の前に買わない決まりを緩めた。買わないのは「買う日が決算の反応の日」（前の日の15時以降か、その日の場中に決算が出る）のときだけ。`preTradeCheck` は決算が今日なら止め、1〜3営業日後なら注意だけ。夜の点検・朝の株ウォッチの指示文、`settings/main.extra` も同じに直した（根拠：`study_swing_earnings.mjs`）。
+  - 練習口座の急落の反発：`crashMktOnly: true`（1306 の5日が −4%以下のときだけ）・`crashOpenMax: 2`・`crashPosPct: 5`。つられ下げは `tsurarePosPct: 10` のまま。両方の口座の params に書いた（params は PAPER_DEFAULTS と混ぜないので、新しい項目は DB の params にも書くこと）。
+  - 練習口座の基本の口座（`settings/paper`）だけ `swingMaxPrice: 1500`（終値1,500円以上のスイングの候補は買わない）。攻めの口座は制限なし。
 - 場中の買い場・目印の検証し直しは `research/day/README.md` の最後。買い場は時期に左右され、VWAP 奪回はほぼ0。「買い場 × 窓 +2%以上」が強いが57日だけ。
 
 ### ゼロから作り直す場合の順番

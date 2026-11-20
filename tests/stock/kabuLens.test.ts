@@ -526,7 +526,10 @@ describe('買う前チェック', () => {
     expect(preTradeCheck({ ...base, buysToday: 2 }).blocks.some(b => b.includes('1日の回数'))).toBe(true)
     const pos = [1, 2, 3].map(n => ({ code: '100' + n, entry: 100, last: 110, qty: 100 }))
     expect(preTradeCheck({ ...base, positions: pos }).blocks.some(b => b.includes('銘柄数の上限'))).toBe(true)
-    expect(preTradeCheck({ ...base, earningsDate: '2026-11-19' }).blocks.some(b => b.includes('決算前'))).toBe(true)
+    expect(preTradeCheck({ ...base, earningsDate: '2026-11-17' }).blocks.some(b => b.includes('決算の日'))).toBe(true)
+    const near = preTradeCheck({ ...base, earningsDate: '2026-11-19' })
+    expect(near.blocks.some(b => b.includes('決算'))).toBe(false)
+    expect(near.warnings.some(w => w.includes('決算が近い'))).toBe(true)
     expect(preTradeCheck({ ...base, earningsDate: '2026-11-16' }).blocks).toEqual([])
   })
 
@@ -1060,7 +1063,7 @@ describe('企業の行動の開示（自社株買い・増配・株式分割）'
   })
   it('練習口座：急落の反発は寄りで買い、5日目の引けで売る。−20%で非常用の損切り', () => {
     const day = (o: number, c: number, l = Math.min(o, c)) => [{ m: 540, o, h: Math.max(o, c), l, c, v: 1 }]
-    let st = paperNew({ slipPct: 0 })
+    let st = paperNew({ slipPct: 0, crashPosPct: 10 })
     let r = paperStep(st, { date: '2026-11-20', stocks: { 1111: { name: 'A', bars: day(1000, 1010), turnover: 5e8, crash: { hit: true, r5: -20 } } } })
     expect(r.state.positions[0]).toMatchObject({ track: 'crash', entry: 1000, stop: 800, held: 1 })
     st = r.state
@@ -1068,9 +1071,27 @@ describe('企業の行動の開示（自社株買い・増配・株式分割）'
     expect(st.positions).toHaveLength(1)
     r = paperStep(st, { date: '2026-11-27', stocks: { 1111: { bars: day(1020, 1050) } } })
     expect(r.trades[0]).toMatchObject({ track: 'crash', exit: 1050 })
-    const s2 = paperStep(paperNew({ slipPct: 0 }), { date: '2026-11-20', stocks: { 1111: { bars: day(1000, 1010), turnover: 5e8, crash: { hit: true, r5: -20 } } } }).state
+    const s2 = paperStep(paperNew({ slipPct: 0, crashPosPct: 10 }), { date: '2026-11-20', stocks: { 1111: { bars: day(1000, 1010), turnover: 5e8, crash: { hit: true, r5: -20 } } } }).state
     const r2 = paperStep(s2, { date: '2026-11-24', stocks: { 1111: { bars: day(900, 850, 790) } } })
     expect(r2.trades[0]).toMatchObject({ track: 'crash', exit: 800 })
+  })
+  it('練習口座：急落の反発は、相場全体の急落（1306 の5日が −4% 以下）のときだけ、同時に crashOpenMax まで', () => {
+    const day = (o: number, c: number) => [{ m: 540, o, h: Math.max(o, c), l: Math.min(o, c), c, v: 1 }]
+    const crashStock = (n: string) => ({ [n]: { name: n, bars: day(400, 410), turnover: 5e8, crash: { hit: true, r5: -20 } } })
+    const etf = (r5: number) => ({ 1306: { bars: day(3000, 3000), turnover: 1e9, crash: { hit: false, r5 } } })
+    const calm = paperStep(paperNew({ slipPct: 0 }), { date: '2026-11-20', stocks: { ...crashStock('1111'), ...etf(-1) } })
+    expect(calm.state.positions).toHaveLength(0)
+    const wide = paperStep(paperNew({ slipPct: 0 }), { date: '2026-11-20', stocks: { ...crashStock('1111'), ...crashStock('2222'), ...etf(-6) } })
+    expect(wide.state.positions.map(x => x.track)).toEqual(['crash', 'crash'])
+    expect(wide.state.positions[0].qty).toBe(100)
+    const next = paperStep(wide.state, { date: '2026-11-24', stocks: { ...crashStock('3333'), 1111: { bars: day(410, 410) }, 2222: { bars: day(410, 410) }, ...etf(-6) } })
+    expect(next.state.positions.filter(x => x.track === 'crash').map(x => x.code)).toEqual(['1111', '2222'])
+  })
+  it('練習口座：swingMaxPrice があれば、終値がその値段以上のスイングの候補は買わない', () => {
+    const day = (o: number, c: number) => [{ m: 540, o, h: Math.max(o, c), l: Math.min(o, c), c, v: 1 }]
+    const cands = [{ code: '1111', date: '2026-11-19', close: 2000, stop: 1900, pass: true, score: 90 }, { code: '2222', date: '2026-11-19', close: 1000, stop: 950, pass: true, score: 80 }]
+    const r = paperStep(paperNew({ slipPct: 0, swingMaxPrice: 1500 }), { date: '2026-11-20', stocks: { 1111: { bars: day(2000, 2010) }, 2222: { bars: day(1000, 1010) } }, cands })
+    expect(r.state.positions.map(x => x.code)).toEqual(['2222'])
   })
   it('練習口座：つられ下げは、全体の窓の真ん中が −2.5% 以下の日だけ、窓 −5% 以下の株を寄りで買う', () => {
     const day = (o: number, c: number) => [{ m: 540, o, h: Math.max(o, c), l: Math.min(o, c), c, v: 1 }]
