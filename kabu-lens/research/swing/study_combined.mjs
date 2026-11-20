@@ -167,9 +167,11 @@ function run(P) {
     }
     // 1. 企業の行動
     if (P.tracks.events) {
-      const r20 = e => { const B = stocks[e.code].bars; return e.i >= 20 ? B[e.i].c / B[e.i - 20].c : 1 }
+      const LB = P.evLook ?? 20
+      const r20 = e => { const B = stocks[e.code].bars; return e.i >= LB ? B[e.i].c / B[e.i - LB].c : 1 }
       const evList = (EV.get(pd) || []).filter(x => P.evAll || evRank(x) < 9)
       if (P.evOrder === 'mom') evList.sort((a, b) => r20(b) - r20(a))
+      else if (P.evOrder === 'rev') evList.sort((a, b) => r20(a) - r20(b))
       else if (P.evOrder === 'rankmom') evList.sort((a, b) => evRank(a) - evRank(b) || r20(b) - r20(a))
       else evList.sort((a, b) => evRank(a) - evRank(b))
       for (const e of evList) {
@@ -397,7 +399,11 @@ if (process.env.EVDD) {
 if (process.env.PAIRED) {
   // 同じでたらめな順番（同じ SEED）で、変更あり・なしを比べる。差の分布で、偶然ではないかを見る
   const CRV = { tracks: { ...BASE.tracks, crash: true } }
-  const variants = process.env.PAIRED === 'evorder' ? [
+  const variants = process.env.PAIRED === 'evlook' ? [
+    ['企業の行動50%・5日で上げていた順', { avoid: true, evPosPct: 50, evOrder: 'mom', evLook: 5 }, { avoid: true, evPosPct: 50 }],
+    ['企業の行動50%・60日で上げていた順', { avoid: true, evPosPct: 50, evOrder: 'mom', evLook: 60 }, { avoid: true, evPosPct: 50 }],
+    ['企業の行動50%・20日で下げていた順（逆）', { avoid: true, evPosPct: 50, evOrder: 'rev' }, { avoid: true, evPosPct: 50 }]
+  ] : process.env.PAIRED === 'evorder' ? [
     ['企業の行動50%・20日で上げていた順', { avoid: true, evPosPct: 50, evOrder: 'mom' }, { avoid: true, evPosPct: 50 }],
     ['企業の行動50%・今の種類の順の中で20日の騰落順', { avoid: true, evPosPct: 50, evOrder: 'rankmom' }, { avoid: true, evPosPct: 50 }]
   ] : process.env.PAIRED === 'ma2' ? [
