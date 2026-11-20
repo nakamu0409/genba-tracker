@@ -1619,7 +1619,7 @@ export function worldBrief(wd, jpDate) {
   if (out.vix5 !== null && out.vix5 >= 30) notes.push('VIX が5日で +30% 以上：寄りは安く始まりやすい（平均 −0.9%）。そのあとは少し戻りやすい')
   if (out.jpy !== null && out.jpy <= -1) notes.push('急な円高（ドル円 −1% 以下）：寄りは安く始まりやすい（平均 −0.6%）')
   else if (out.jpy !== null && out.jpy >= 1) notes.push('急な円安（ドル円 +1% 以上）：寄りは高く始まりやすい（平均 +0.7%）')
-  if (out.usBear) notes.push(`米国が下げ相場（S&P500 が20日で ${out.spx20}%）：この間のスイングの候補は10年で平均 −0.12R（ふだん +0.10R）。新しいスイングは減らす`)
+  if (out.usBear) notes.push(`米国が下げ相場（S&P500 が20日で ${out.spx20}%）：10年ではこの間のスイングの候補は平均 −0.12R だが、56年の日経平均では2010年代からはふつうと同じか良い（口座全体でスイングを減らしても良くならなかった）。件数は変えない`)
   if (out.vix !== null && out.vix >= 30) notes.push('VIX が30以上：この間に出たスイングの候補は10年で平均 +0.38R（恐怖が強いときの押し目は成績が良かった）。急騰の押し目は −0.10R で不利')
   out.notes = notes
   return out
