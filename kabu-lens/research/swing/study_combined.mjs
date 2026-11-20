@@ -28,6 +28,14 @@ const byDate = arr => {
 const EV = byDate(D.events)
 const SU = byDate(D.surge)
 const SW = byDate(D.swing)
+// 業種（J-Quants の17業種。2024-08 時点の区分を全期間に当てる）
+const SEC = (() => {
+  try {
+    const m = JSON.parse(readFileSync(new URL('../jq_master.json', import.meta.url), 'utf-8'))
+    const l = Array.isArray(m) ? m : Object.values(m).flat()
+    return new Map(l.filter(x => x?.Code).map(x => [x.Code.slice(0, 4), x.S17]))
+  } catch { return new Map() }
+})()
 // 同じ株に10営業日以内に続いて出た候補の何回目か（study_swing_repeat.mjs と同じ数え方）
 const STREAK = new Map()
 {
@@ -194,6 +202,7 @@ function run(P) {
       for (const s of list) {
         if (buys >= P.dayMax || n >= max) break
         if (held.has(s.code)) continue
+        if (P.secMax && track === 'swing' && pos.filter(p => p.track === 'swing' && SEC.get(p.code) === SEC.get(s.code)).length >= P.secMax) continue
         const x = barOf(s.code)
         if (!x || x.b.h === x.b.l) continue
         if (gapMax !== null && x.b.o > s.close * (1 + gapMax / 100)) continue
@@ -330,7 +339,10 @@ if (process.env.EVDD) {
 if (process.env.PAIRED) {
   // 同じでたらめな順番（同じ SEED）で、変更あり・なしを比べる。差の分布で、偶然ではないかを見る
   const CRV = { tracks: { ...BASE.tracks, crash: true } }
-  const variants = process.env.PAIRED === 'ddcut' ? [
+  const variants = process.env.PAIRED === 'sector' ? [
+    ['同じ業種のスイングは同時に2つまで', { avoid: true, secMax: 2 }, { avoid: true }],
+    ['同じ業種のスイングは同時に1つまで', { avoid: true, secMax: 1 }, { avoid: true }]
+  ] : process.env.PAIRED === 'ddcut' ? [
     ['最高値から−10%の間はスイングの損の上限を半分に', { avoid: true, ddCut: 10 }, { avoid: true }],
     ['最高値から−15%の間は半分に', { avoid: true, ddCut: 15 }, { avoid: true }],
     ['最高値から−10%の間はスイングを止める', { avoid: true, ddCut: 10, ddMult: 0 }, { avoid: true }]
