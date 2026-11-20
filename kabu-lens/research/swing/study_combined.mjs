@@ -336,6 +336,27 @@ const steps = [
   ['＋相場全体の急落の翌日の ETF（統合版）', { avoid: true, swingR: 5, usBear: true, tracks: { ...BASE.tracks, crash: true, tsurare: true, etf: true } }]
 ]
 const PER = [['10年', {}], ['前半', { end: '2021-11-19' }], ['後半', { start: '2021-11-19', end: '2025-11-14' }], ['最後の確認', { start: '2025-11-14' }]]
+if (process.env.PKG) {
+  // 案ごとの年率・一番下げ・マイナスの月（でたらめな順番20回の真ん中）
+  const PK = [
+    ['今（本番に近い：企業の行動30%・3R・40日・1日5回）', { avoid: true }],
+    ['今＋1日2回まで（本番の回数）', { avoid: true, dayMax: 2 }],
+    ['案A：企業の行動50%・20日の順・200日線より下は半分', { avoid: true, evPosPct: 50, evOrder: 'mom', ma200Cut: true }],
+    ['案B：案A＋5R・60日', { avoid: true, evPosPct: 50, evOrder: 'mom', ma200Cut: true, swingR: 5, swingDays: 60 }],
+    ['案C：案B の企業の行動を70%', { avoid: true, evPosPct: 70, evOrder: 'mom', ma200Cut: true, swingR: 5, swingDays: 60 }],
+    ['案B＋1日2回まで', { avoid: true, evPosPct: 50, evOrder: 'mom', ma200Cut: true, swingR: 5, swingDays: 60, dayMax: 2 }]
+  ]
+  for (const [nm, cfg] of PK) {
+    const out = PER.map(() => ({ c: [], d: [] }))
+    for (let k = 1; k <= 20; k++) {
+      SEED = k
+      PER.forEach(([, po], j) => { const r = stats({ ...BASE, ...cfg, ...po, order: 'random' }); out[j].c.push(r.cagr); out[j].d.push(r.mdd) })
+    }
+    const md = a => a.sort((x, y) => x - y)[10]
+    console.log(`■ ${nm}：` + PER.map(([pn], j) => `${pn} ${fmt(md(out[j].c), 1)}%／${fmt(md(out[j].d), 1)}%`).join(' ｜ '))
+  }
+  process.exit(0)
+}
 if (process.env.EVDD) {
   // 企業の行動の1銘柄の上限ごとに、でたらめな順番20回の「年率」と「一番下げたとき」と「月がマイナスの割合」の真ん中
   for (const [pct, stp] of (process.env.EVDD === 'stop' ? [[50, 0], [50, 5], [70, 0], [70, 5]] : [[30, 0], [50, 0], [70, 0], [100, 0]])) {
