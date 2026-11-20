@@ -12,7 +12,7 @@
 // ・日足なので、同じ日に損切りと目標の両方に届いたら損切りとみる。成行・逆指値は0.1%不利。手数料0（楽天のゼロコース）。税金・配当は入れていない
 // ・入っていないもの：場中のデイトレ・低位株の強い引け・夜のPTS（10年分の5分足・1時間足が無いため）
 // ・気をつけること：銘柄は今も上場している約1,400銘柄（倒産・上場廃止した株が入っていない＝成績は甘めに出る）。自社株買いの「良い条件」は同じ10年で見つけたもの
-import { loadAll, SLIP, mean, median, fmt } from './lib_signals.mjs'
+import { loadAll, SLIP, mean, median, fmt, simulate } from './lib_signals.mjs'
 
 const D = loadAll()
 const { stocks, bench } = D
@@ -32,6 +32,24 @@ const SU = byDate(D.surge)
 const SW = byDate(D.swing)
 const evRank = e => (e.kind === 'split' ? 0 : e.kind === 'buyback' && e.score >= 2 ? 1 : e.kind === 'divup' ? 2 : e.kind === 'buyback' && e.score === 1 ? 3 : 9)
 
+// スイングの調子（月の初めの時点で分かる）：その月の1日より前に決着した候補の直近 n 件の平均Rがプラスなら true
+function swingMood(n = 300) {
+  const done = []
+  for (const s of D.swing) {
+    const B = stocks[s.code].bars
+    const t = simulate(B, s.i, s.stop, { rMult: 3, maxDays: 40, gapMax: 2 })
+    if (t) done.push({ exit: B[t.x].date, r: t.r })
+  }
+  done.sort((a, b) => (a.exit < b.exit ? -1 : 1))
+  const mood = new Map()
+  const months = [...new Set(dates.map(d => d.slice(0, 7)))]
+  for (const m of months) {
+    const before = done.filter(x => x.exit < m + '-01').slice(-n)
+    mood.set(m, before.length >= n ? before.reduce((a, x) => a + x.r, 0) / n > 0 : true)
+  }
+  return mood
+}
+let MOOD = null
 function run(P) {
   let cash = P.capital
   let pos = []
@@ -104,7 +122,7 @@ function run(P) {
       const list = (SU.get(pd) || []).map(s => ({ ...s, close: stocks[s.code].bars[s.i].c, turnover: stocks[s.code].turn[s.i] })).sort((a, b) => b.turnover - a.turnover)
       addRisky('surge', list, P.surgeMax, 3, 10, null)
     }
-    if (P.tracks.swing) {
+    if (P.tracks.swing && !(P.swingMood && !MOOD.get(d.slice(0, 7)))) {
       const list = (SW.get(pd) || []).slice().sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
       addRisky('swing', list, 99, 3, 40, 2)
     }
@@ -203,6 +221,16 @@ report('全部入り・1回の損2%', { ...BASE, riskPct: 2 })
 report('全部入り・攻め（1回の損5%・1銘柄50%）', { ...BASE, riskPct: 5, maxPosPct: 50 })
 report('全部入り・300万円', { ...BASE, capital: 3e6 })
 
+if (process.env.MOOD) {
+  MOOD = swingMood(300)
+  console.log('スイングを休む月：' + [...MOOD.entries()].filter(([, v]) => !v).length + '/' + MOOD.size)
+  for (const [nm, o] of [['今のまま', {}], ['スイングの調子が悪い月はスイングを休む', { swingMood: true }]]) {
+    report(nm + '・10年', { ...BASE, ...o })
+    report(nm + '・前半', { ...BASE, ...o, end: '2021-11-19' })
+    report(nm + '・後半', { ...BASE, ...o, start: '2021-11-19' })
+  }
+  process.exit(0)
+}
 if (process.env.GAP) {
   for (const g of [2, 3, 5, 10, 30]) {
     report(`寄指の上限 +${g}%・10年`, { ...BASE, evLimitPct: g })
