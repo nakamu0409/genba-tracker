@@ -111,9 +111,12 @@ function run(P) {
   const trades = []
   const hist = []
   let equityPrev = P.capital
+  let peakEq = P.capital
   for (const d of dates.filter(x => (!P.start || x >= P.start) && (!P.end || x < P.end))) {
     const pd = prevOf.get(d)
-    const riskOne = equityPrev * P.riskPct / 100
+    // ddCut：口座が最高値から ddCut% 以上下がっている間は、スイングなどの1回の損の上限を ddMult 倍にする
+    const inDD = P.ddCut && equityPrev < peakEq * (1 - P.ddCut / 100)
+    const riskOne = equityPrev * P.riskPct / 100 * (inDD ? (P.ddMult ?? 0.5) : 1)
     const maxPos = equityPrev * P.maxPosPct / 100
     const barOf = code => {
       if (code === 'ETF') {
@@ -265,6 +268,7 @@ function run(P) {
     const equity = cash + pos.reduce((s, p) => s + p.qty * p.last, 0)
     hist.push({ date: d, equity })
     equityPrev = equity
+    peakEq = Math.max(peakEq, equity)
   }
   return { hist, trades }
 }
@@ -326,7 +330,11 @@ if (process.env.EVDD) {
 if (process.env.PAIRED) {
   // 同じでたらめな順番（同じ SEED）で、変更あり・なしを比べる。差の分布で、偶然ではないかを見る
   const CRV = { tracks: { ...BASE.tracks, crash: true } }
-  const variants = process.env.PAIRED === 'evstop' ? [
+  const variants = process.env.PAIRED === 'ddcut' ? [
+    ['最高値から−10%の間はスイングの損の上限を半分に', { avoid: true, ddCut: 10 }, { avoid: true }],
+    ['最高値から−15%の間は半分に', { avoid: true, ddCut: 15 }, { avoid: true }],
+    ['最高値から−10%の間はスイングを止める', { avoid: true, ddCut: 10, ddMult: 0 }, { avoid: true }]
+  ] : process.env.PAIRED === 'evstop' ? [
     ['企業の行動70%・寄値−5%の損切り（70%だけと比べて）', { avoid: true, evPosPct: 70, evStop: 5 }, { avoid: true, evPosPct: 70 }],
     ['企業の行動50%・寄値−5%の損切り（50%だけと比べて）', { avoid: true, evPosPct: 50, evStop: 5 }, { avoid: true, evPosPct: 50 }]
   ] : process.env.PAIRED === 'daymax' ? [
@@ -374,14 +382,21 @@ if (process.env.PAIRED) {
   ] : process.env.PAIRED === 'price' ? [['株価3,000円以上の候補を外す', { avoid: true, maxPrice: 3000 }, { avoid: true }], ['株価1,500円以上の候補を外す', { avoid: true, maxPrice: 1500 }, { avoid: true }]] : [['避ける形を外す', { avoid: true }, { noAvoid: true }], ['目標5R', { avoid: true, swingR: 5 }, { avoid: true }], ['米国の下げ相場はスイング1件まで', { avoid: true, usBear: true }, { avoid: true }], ['つられ下げ＋ETF', { avoid: true, tracks: { ...BASE.tracks, tsurare: true, etf: true } }, { avoid: true }]]
   for (const [nm, on, off] of variants) {
     const diffs = PER.map(() => [])
+    const ddd = []
     for (let k = 1; k <= 20; k++) {
       SEED = k
-      PER.forEach(([, po], j) => diffs[j].push(stats({ ...BASE, ...on, ...po, order: 'random' }).cagr - stats({ ...BASE, ...off, ...po, order: 'random' }).cagr))
+      PER.forEach(([, po], j) => {
+        const x = stats({ ...BASE, ...on, ...po, order: 'random' })
+        const y = stats({ ...BASE, ...off, ...po, order: 'random' })
+        diffs[j].push(x.cagr - y.cagr)
+        ;(ddd[j] ||= []).push(x.mdd - y.mdd)
+      })
     }
     console.log(`■ ${nm}（同じ順番で20組。年率の差）`)
     PER.forEach(([pn], j) => {
       const a = diffs[j].sort((x, y) => x - y)
-      console.log(`  ${pn}：差の真ん中 ${fmt(a[10], 1)}pt・良くなった組 ${a.filter(x => x > 0).length}/20（${fmt(a[0], 1)}〜${fmt(a[19], 1)}）`)
+      const dd = ddd[j].sort((x, y) => x - y)
+      console.log(`  ${pn}：差の真ん中 ${fmt(a[10], 1)}pt・良くなった組 ${a.filter(x => x > 0).length}/20（${fmt(a[0], 1)}〜${fmt(a[19], 1)}）・一番下げの差の真ん中 ${fmt(dd[10], 1)}pt`)
     })
   }
   process.exit(0)
