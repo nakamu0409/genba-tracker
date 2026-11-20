@@ -325,7 +325,11 @@ if (process.env.EVDD) {
 if (process.env.PAIRED) {
   // 同じでたらめな順番（同じ SEED）で、変更あり・なしを比べる。差の分布で、偶然ではないかを見る
   const CRV = { tracks: { ...BASE.tracks, crash: true } }
-  const variants = process.env.PAIRED === 'evsize' ? [
+  const variants = process.env.PAIRED === 'daymax' ? [
+    ['1日の買いを2回まで（今の比べ方は5回）', { avoid: true, dayMax: 2 }, { avoid: true }],
+    ['1日の買いを3回まで', { avoid: true, dayMax: 3 }, { avoid: true }],
+    ['1日2回まで・企業の行動50%', { avoid: true, dayMax: 2, evPosPct: 50 }, { avoid: true, dayMax: 2 }]
+  ] : process.env.PAIRED === 'evsize' ? [
     ['企業の行動は1銘柄70%まで', { avoid: true, evPosPct: 70 }, { avoid: true }],
     ['企業の行動は1銘柄100%まで', { avoid: true, evPosPct: 100 }, { avoid: true }]
   ] : process.env.PAIRED === 'events2' ? [
