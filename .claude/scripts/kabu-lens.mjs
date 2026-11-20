@@ -1464,6 +1464,90 @@ export async function fetchTdnet(date, { codes = [], maxPages = 40 } = {}) {
   return out
 }
 
+/** 決算短信の表の数字（「1,115」「△17」「－」）を数に。読めないものは null */
+function tanshinNum(s) {
+  const t = String(s).replace(/,/g, '').replace(/^[△▲]/, '-').replace(/^\((.+)\)$/, '-$1')
+  return /^-?\d+(\.\d+)?$/.test(t) ? Number(t) : null
+}
+
+/**
+ * 決算短信の1ページ目（pdftotext -layout の文字）から要点を取り出す。
+ * 返り値：kind（中間・四半期・通期）、actual（今期の累計：sales・salesYoY・op・opYoY・ord・ordYoY・net・netYoY。△はマイナス、－は null）、
+ * forecast（通期の予想。同じ項目）、revised（直近の業績予想からの修正の有無 true/false/null）、eqRatio（自己資本比率%）、
+ * progressOp（営業利益の通期予想に対する進み具合%。通期の決算なら null）。列が4組でない（銀行など）ときは pairs だけ返す
+ */
+export function parseTanshin(text) {
+  const lines = String(text).split('\n')
+  const out = { kind: null, actual: null, forecast: null, revised: null, eqRatio: null, progressOp: null, pairs: null }
+  const head = lines.slice(0, 5).join(' ')
+  out.kind = /中間/.test(head) ? 'half' : /四半期/.test(head) ? 'quarter' : /決算短信/.test(head) ? 'full' : null
+  const z2h = s => s.replace(/[０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
+  const rowVals = (line) => {
+    const toks = line.trim().split(/\s+/)
+    // 先頭の見出し（「2027年３月期中間期」「通期」など）を飛ばす。見出しが空白で割れていることがある
+    let k = 0
+    while (k < toks.length && tanshinNum(toks[k]) === null && !/^[－―—-]$/.test(toks[k])) k++
+    return toks.slice(k).map(t => (/^[－―—-]$/.test(t) ? null : tanshinNum(t)))
+  }
+  const toObj = (v) => {
+    const n = Math.floor(v.length / 2)
+    if (n < 4) return { pairs: v }
+    const [sales, salesYoY, op, opYoY, ord, ordYoY, net, netYoY] = v
+    return { sales, salesYoY, op, opYoY, ord, ordYoY, net, netYoY }
+  }
+  // 1．の（1）経営成績：最初の「百万円」の行のあと、年の見出しで始まる最初の行
+  const i1 = lines.findIndex(l => /経営成績|業績/.test(l) && /[（(]\s*[1１]\s*[）)]/.test(l))
+  if (i1 >= 0) {
+    for (let i = i1 + 1; i < Math.min(lines.length, i1 + 15); i++) {
+      if (/^\s*(令和)?\d{1,4}\s*年/.test(z2h(lines[i])) && /\d/.test(lines[i].replace(/^\s*\S+/, ''))) {
+        const v = rowVals(z2h(lines[i]).replace(/^\s*(令和)?\d{1,4}\s*年\s*\d{1,2}\s*月期\S*/, ''))
+        // 列が多いと最後の数字が次の行に折り返すことがある（見出しの無い、数字だけの行）
+        const nx = lines[i + 1] || ''
+        if (v.length < 8 && nx.trim() && !/年/.test(nx) && nx.trim().split(/\s+/).every(t => tanshinNum(t) !== null || /^[－―—-]$/.test(t))) v.push(...rowVals(nx))
+        if (v.length >= 6) {
+          const o = toObj(v)
+          if (o.pairs) out.pairs = v
+          else out.actual = o
+        }
+        break
+      }
+    }
+  }
+  const eq = lines.findIndex(l => /自己資本比率|親会社所有者帰属持分比率/.test(l))
+  if (eq >= 0) {
+    for (let i = eq + 1; i < Math.min(lines.length, eq + 5); i++) {
+      if (/^\s*(令和)?\d{1,4}\s*年/.test(z2h(lines[i]))) {
+        const v = rowVals(z2h(lines[i]).replace(/^\s*(令和)?\d{1,4}\s*年\s*\d{1,2}\s*月期\S*/, ''))
+        // 列は 総資産・純資産・自己資本比率（・1株当たり純資産）の順
+        if (v.length >= 3) out.eqRatio = v[2]
+        break
+      }
+    }
+  }
+  // 3．業績予想：「通期」で始まる行
+  const i3 = lines.findIndex(l => /業績予想/.test(l) && /^\s*[3３][．.]/.test(l))
+  if (i3 >= 0) {
+    for (let i = i3 + 1; i < Math.min(lines.length, i3 + 15); i++) {
+      if (/^\s*通\s*期/.test(lines[i])) {
+        const v = rowVals(lines[i].replace(/^\s*通\s*期/, ''))
+        if (v.length >= 8) out.forecast = toObj(v)
+        break
+      }
+    }
+    const rv = lines.slice(i3).join('\n').match(/業績予想からの修正の有無\s*[：:]\s*(有|無)/)
+    if (rv) out.revised = rv[1] === '有'
+  }
+  if (out.kind !== 'full' && out.actual?.op != null && out.forecast?.op > 0) out.progressOp = Math.round(out.actual.op / out.forecast.op * 1000) / 10
+  return out
+}
+
+/** 決算短信の PDF（URL）を落として1ページ目を読む。pdftotext が要る */
+export function fetchTanshin(url) {
+  const r = spawnSync('bash', ['-c', 'curl -sSL --fail --max-time 30 "$1" | pdftotext -layout -l 1 - -', '_', url], { encoding: 'utf-8', maxBuffer: 16 * 1024 * 1024 })
+  if (r.status !== 0 || !r.stdout) return { url, error: `PDFを読めませんでした（${(r.stderr || '').trim().slice(0, 80) || r.status}）` }
+  return { url, ...parseTanshin(r.stdout) }
+}
+
 /** 松井証券のランキング（デイトレ適性など）の表を読む */
 export function parseMatsuiRanking(html) {
   const tables = String(html).match(/<table class="m-table"[\s\S]*?<\/table>/g) || []
@@ -3347,6 +3431,29 @@ async function main() {
     const date = rest.find(a => /^\d{8}$/.test(a))
     const codes = rest.filter(a => isTseCode(a.toUpperCase())).map(a => a.toUpperCase())
     console.log(JSON.stringify(await fetchTdnet(date, { codes }), null, 2))
+    return
+  }
+  if (args.includes('--tanshin')) {
+    // --tanshin <YYYYMMDD> [コード...]：その日の決算短信（訂正を除く）を全部読んで要点を出す。--tanshin <PDFのURL...> なら、その PDF だけ
+    const rest = args.slice(args.indexOf('--tanshin') + 1).filter(a => !a.startsWith('--'))
+    const urls = rest.filter(a => /^https:\/\/www\.release\.tdnet\.info\//.test(a))
+    if (urls.length) {
+      console.log(JSON.stringify(urls.map(fetchTanshin), null, 2))
+      return
+    }
+    const date = rest.find(a => /^\d{8}$/.test(a))
+    const codes = rest.filter(a => isTseCode(a.toUpperCase())).map(a => a.toUpperCase())
+    const td = await fetchTdnet(date, { codes })
+    if (td.error) {
+      console.log(JSON.stringify({ date: td.date, error: td.error }))
+      return
+    }
+    const rows = []
+    for (const x of td.rows.filter(x => x.pdf && /決算短信/.test(x.title) && !/訂正/.test(x.title))) {
+      rows.push({ code: x.code, name: x.name, time: x.time, title: x.title, ...fetchTanshin(x.pdf) })
+      await sleep(300)
+    }
+    console.log(JSON.stringify({ date: td.date, count: rows.length, rows }, null, 2))
     return
   }
   if (args.includes('--scan-wide')) {

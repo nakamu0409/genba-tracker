@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -1163,5 +1163,35 @@ describe('現金と資金の自動計算', () => {
     ])
     expect(r).toMatchObject({ cash: 100000 - 30000 + 28000 - 20000, invested: 52000 + 21000, unknown: ['e'], frozenValue: 90000 })
     expect(r.capital).toBe(r.cash + r.invested)
+  })
+
+  it('parseTanshin: 今期の累計・通期予想・修正の有無・自己資本比率・進み具合を読む（折り返し・△・令和の年も）', () => {
+    const text = [
+      '                 2027 年３月期 中間決算短信〔日本基準〕（連結）',
+      '',
+      '１．2027 年３月期中間期の連結業績（2026 年４月１日～2026 年９月 30 日）',
+      '（１）連結経営成績（累計）',
+      '                        売 上 高                           営業利益                     経常利益',
+      '                        百万円              ％          百万円                ％        百万円             ％              百万円',
+      '2027 年３月期中間期          1,647             0.7             32       △42.6           27       △46.6                  8',
+      '                                                                                                                 △76.1',
+      '2026 年３月期中間期          1,635             4.0             56        36.0           52        39.7                 36 51.8',
+      '（２）連結財政状態',
+      '                        総 資 産                           純 資 産                  自己資本比率                      １株当たり純',
+      '2027 年３月期中間期                        1,376                             101                      7.3                        125.85',
+      '３．2027 年３月期の連結業績予想（2026 年４月１日～2027 年３月 31 日）',
+      '    通期      3,500 5.4 130 11.7 120 9.0 90 －   46.15',
+      '（注）直近に公表されている業績予想からの修正の有無：有'
+    ].join('\n')
+    const r = parseTanshin(text)
+    expect(r.kind).toBe('half')
+    expect(r.actual).toEqual({ sales: 1647, salesYoY: 0.7, op: 32, opYoY: -42.6, ord: 27, ordYoY: -46.6, net: 8, netYoY: -76.1 })
+    expect(r.forecast).toMatchObject({ sales: 3500, op: 130, netYoY: null })
+    expect(r.revised).toBe(true)
+    expect(r.eqRatio).toBe(7.3)
+    expect(r.progressOp).toBe(24.6)
+    const era = parseTanshin('2026年12月期 第３四半期決算短信\n（１）連結経営成績（累計）\n 百万円 ％\n ８年12月期第３四半期      13,044  0.7     438 △12.9   536 △10.4        593   69.7\n')
+    expect(era.kind).toBe('quarter')
+    expect(era.actual).toMatchObject({ sales: 13044, opYoY: -12.9, netYoY: 69.7 })
   })
 })
