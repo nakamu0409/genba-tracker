@@ -338,7 +338,7 @@ const steps = [
 const PER = [['10年', {}], ['前半', { end: '2021-11-19' }], ['後半', { start: '2021-11-19', end: '2025-11-14' }], ['最後の確認', { start: '2025-11-14' }]]
 if (process.env.PKGY) {
   // 年ごとの騰落（でたらめな順番20回の真ん中）：今 と 案B
-  const cfgs = [['今', { avoid: true }], ['案B', { avoid: true, evPosPct: 50, evOrder: 'mom', ma200Cut: true, swingR: 5, swingDays: 60 }]]
+  const cfgs = [['今', { avoid: true }], ['案B', { avoid: true, evPosPct: 50, evOrder: 'mom', ma200Cut: true, swingR: 5, swingDays: 60 }], ['案A', { avoid: true, evPosPct: 50, evOrder: 'mom', ma200Cut: true }], ['企業の行動50%だけ', { avoid: true, evPosPct: 50 }], ['5R・60日だけ', { avoid: true, swingR: 5, swingDays: 60 }]]
   const res = {}
   for (const [nm, cfg] of cfgs) {
     for (let k = 1; k <= 20; k++) {
@@ -354,7 +354,7 @@ if (process.env.PKGY) {
     }
   }
   const md = a => a.sort((x, y) => x - y)[10]
-  for (const y of Object.keys(res['今']).sort()) console.log(`  ${y}  今 ${fmt(md(res['今'][y]), 1)}%  案B ${fmt(md(res['案B'][y]), 1)}%`)
+  for (const y of Object.keys(res['今']).sort()) console.log(`  ${y}  ` + cfgs.map(([nm]) => `${nm} ${fmt(md(res[nm][y]), 1)}%`).join('  '))
   process.exit(0)
 }
 if (process.env.PKG) {
