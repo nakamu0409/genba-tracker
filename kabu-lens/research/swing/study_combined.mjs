@@ -309,17 +309,17 @@ const steps = [
 const PER = [['10年', {}], ['前半', { end: '2021-11-19' }], ['後半', { start: '2021-11-19', end: '2025-11-14' }], ['最後の確認', { start: '2025-11-14' }]]
 if (process.env.EVDD) {
   // 企業の行動の1銘柄の上限ごとに、でたらめな順番20回の「年率」と「一番下げたとき」と「月がマイナスの割合」の真ん中
-  for (const pct of [30, 50, 70, 100]) {
+  for (const [pct, stp] of (process.env.EVDD === 'stop' ? [[50, 0], [50, 5], [70, 0], [70, 5]] : [[30, 0], [50, 0], [70, 0], [100, 0]])) {
     const out = PER.map(() => ({ c: [], d: [], n: [] }))
     for (let k = 1; k <= 20; k++) {
       SEED = k
       PER.forEach(([, po], j) => {
-        const r = stats({ ...BASE, avoid: true, evPosPct: pct, ...po, order: 'random' })
+        const r = stats({ ...BASE, avoid: true, evPosPct: pct, evStop: stp || undefined, ...po, order: 'random' })
         out[j].c.push(r.cagr); out[j].d.push(r.mdd); out[j].n.push(r.neg)
       })
     }
     const md = a => a.sort((x, y) => x - y)[10]
-    console.log(`■ 1銘柄 ${pct}%：` + PER.map(([pn], j) => `${pn} 年率 ${fmt(md(out[j].c), 1)}%・一番下げ ${fmt(md(out[j].d), 1)}%・マイナスの月 ${md(out[j].n).toFixed(0)}%`).join(' ｜ '))
+    console.log(`■ 1銘柄 ${pct}%${stp ? '・損切り−' + stp + '%' : ''}：` + PER.map(([pn], j) => `${pn} 年率 ${fmt(md(out[j].c), 1)}%・一番下げ ${fmt(md(out[j].d), 1)}%・マイナスの月 ${md(out[j].n).toFixed(0)}%`).join(' ｜ '))
   }
   process.exit(0)
 }
