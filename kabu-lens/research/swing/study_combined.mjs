@@ -158,6 +158,7 @@ function run(P) {
         held.add(e.code)
         cash -= qty * o
         if (e.kind === 'split') pos.push({ track: 'split', code: e.code, entryDate: d, entry: o, qty, stop: o * 0.92, target: Infinity, maxDays: 5, held: 0, last: o })
+        else if (P.evStop && x.b.l <= o * (1 - P.evStop / 100)) close({ track: e.kind, code: e.code, entry: o, qty }, o * (1 - P.evStop / 100) * (1 - SLIP), '損切り')
         else close({ track: e.kind, code: e.code, entry: o, qty }, x.b.c, '大引け')
       }
     }
@@ -325,7 +326,10 @@ if (process.env.EVDD) {
 if (process.env.PAIRED) {
   // 同じでたらめな順番（同じ SEED）で、変更あり・なしを比べる。差の分布で、偶然ではないかを見る
   const CRV = { tracks: { ...BASE.tracks, crash: true } }
-  const variants = process.env.PAIRED === 'daymax' ? [
+  const variants = process.env.PAIRED === 'evstop' ? [
+    ['企業の行動70%・寄値−5%の損切り（70%だけと比べて）', { avoid: true, evPosPct: 70, evStop: 5 }, { avoid: true, evPosPct: 70 }],
+    ['企業の行動50%・寄値−5%の損切り（50%だけと比べて）', { avoid: true, evPosPct: 50, evStop: 5 }, { avoid: true, evPosPct: 50 }]
+  ] : process.env.PAIRED === 'daymax' ? [
     ['1日の買いを2回まで（今の比べ方は5回）', { avoid: true, dayMax: 2 }, { avoid: true }],
     ['1日の買いを3回まで', { avoid: true, dayMax: 3 }, { avoid: true }],
     ['1日2回まで・企業の行動50%', { avoid: true, dayMax: 2, evPosPct: 50 }, { avoid: true, dayMax: 2 }]
