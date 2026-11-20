@@ -198,6 +198,10 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 - files: `{"kabu-lens.mjs": <.claude/scripts/kabu-lens.mjs のコピー>}`（contentType は text/javascript）
 - capabilities を使う前に `artifact-capabilities`、ページを書く前に `artifact-design` のスキルを読む
 
+### 検証の一覧（`settings/patterns`）
+- 記録帳の「合図の成績」タブの一番上に出る。rows の1行＝1つの形：group（使える／避ける／上乗せなし／確かめ中）、name、hold、p1・p2・p3（選ぶ・確かめる・最後の確認。2年だけの検証は1年目・2年目）、unit（% か R）、verdict（good／bad／none／wait）、status（今の扱い）、note。
+- 新しい検証をしたら、ここに行を足すか直す（`ArtifactData` で update）。控えは `kabu-lens/research/patterns.json`。
+
 ### 記録帳のページ（2026-11-20 に作り直し）
 
 - 5つのタブ：今日（資金とルール・保有中・/mite・場中の判定）／売買（売買の記録・買おうとした銘柄・監視リスト）／練習口座／合図の成績（候補・買い候補・企業の行動とPTS・引け前の目印・ランキング・決算）／振り返り（週・月の成績表・精度点検）。`#today` などでタブを直接開ける。
