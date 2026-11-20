@@ -247,7 +247,9 @@ function run(P) {
         const rps = entry - s.stop
         if (!(rps > 0)) continue
         const room = riskOne * P.maxOpenRiskMult - openRisk()
-        const qty = Math.floor(Math.min(riskOne / rps, maxPos / entry, cash / entry, Math.max(0, room) / rps) / 100) * 100
+        // swReserve：スイングなどは、現金が資金の swReserve% を下回るところまでは使わない（企業の行動のために残す）
+        const usable = P.swReserve ? Math.max(0, cash - equityPrev * P.swReserve / 100) : cash
+        const qty = Math.floor(Math.min(riskOne / rps, maxPos / entry, usable / entry, Math.max(0, room) / rps) / 100) * 100
         if (qty < 100) continue
         buys++
         n++
@@ -431,10 +433,16 @@ if (process.env.PBR) {
   }
   process.exit(0)
 }
+const PB = { avoid: true, evPosPct: 50, evOrder: 'mom', ma200Cut: true, swingR: 5, swingDays: 60 }
+const PC = { ...PB, evPosPct: 70 }
 if (process.env.PAIRED) {
   // 同じでたらめな順番（同じ SEED）で、変更あり・なしを比べる。差の分布で、偶然ではないかを見る
   const CRV = { tracks: { ...BASE.tracks, crash: true } }
-  const variants = process.env.PAIRED === 'evfirst' ? [
+  const variants = process.env.PAIRED === 'reserve' ? [
+    ['案B＋現金を資金の30%残す', { ...PB, swReserve: 30 }, PB],
+    ['案B＋現金を資金の50%残す', { ...PB, swReserve: 50 }, PB],
+    ['案C（70%）＋現金を資金の70%残す', { ...PC, swReserve: 70 }, PC]
+  ] : process.env.PAIRED === 'evfirst' ? [
     ['スイング：20日以内に自社株買い・増配の株を先に', { avoid: true, evFirst: true }, { avoid: true }]
   ] : process.env.PAIRED === 'evlook' ? [
     ['企業の行動50%・5日で上げていた順', { avoid: true, evPosPct: 50, evOrder: 'mom', evLook: 5 }, { avoid: true, evPosPct: 50 }],
