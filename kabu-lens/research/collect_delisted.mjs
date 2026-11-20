@@ -10,7 +10,7 @@ async function get(path) {
   const out = []
   let key = null
   do {
-    const wait = 13000 - (Date.now() - last)
+    const wait = 15500 - (Date.now() - last)
     if (wait > 0) await sleep(wait)
     last = Date.now()
     const url = 'https://api.jquants.com/v2/' + path + (key ? `&pagination_key=${encodeURIComponent(key)}` : '')
