@@ -2789,7 +2789,7 @@ export const PAPER_DEFAULTS = {
   dayFrom: 630, dayTo: 780, delay: 20, fillWindow: 30, lowAt: 870, lowEntryM: 890, lowTpPct: 5, lowSlPct: 8, lowExitM: 780,
   swingGapPct: 2, swingMaxDays: 40, surgeMax: 2, surgeTpR: 3, surgeHold: 10,
   chaseMax: 0, chaseTrigPct: 10, chaseFrom: 570, chaseTo: 690, chaseSlPct: 8,
-  evPosPct: null, evStopPct: null, ma200Half: false, evOrder: null, peadMax: 2, peadHold: 5, peadGapMax: 15, peadGapMin: 0, usBearSwingMax: null,
+  evPosPct: null, evStopPct: null, ma200Half: false, evOrder: null, swReserve: null, peadMax: 2, peadHold: 5, peadGapMax: 15, peadGapMin: 0, usBearSwingMax: null,
   crashMax: 2, crashHold: 5, crashSlPct: 20, crashPosPct: 5, crashOpenMax: 2, crashMktOnly: true, swingMaxPrice: null,
   tsurareMax: 2, tsurareHold: 5, tsurarePosPct: 10, tsurareGap: -5, tsurareMktGap: -2.5,
   swingTargetR: null,
@@ -2924,7 +2924,9 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], 
     if (x.o > c.close * (1 + p.swingGapPct / 100) || x.o <= c.stop) continue
     const entry = x.o * (1 + slip)
     // ma200Half：TOPIX 連動ETF（1306）が200日線より下の間は、スイングの1回の損の上限を半分にする（2026-11-21 の口座全体の検証で、年率も上がり一番下げたときも浅くなった）
-    const qty = sizeOf(entry, c.stop, st.cash, p.ma200Half && stocks['1306']?.below200 ? 0.5 : 1)
+    // swReserve：スイングは、現金が資金の swReserve% を下回るところまでは使わない（企業の行動のために残す。2026-11-21 の口座全体の検証で、企業の行動70%なら年率が上がった）
+    const usable = p.swReserve ? Math.max(0, st.cash - equity0 * p.swReserve / 100) : st.cash
+    const qty = sizeOf(entry, c.stop, usable, p.ma200Half && stocks['1306']?.below200 ? 0.5 : 1)
     if (qty < 100) continue
     // swingTargetR があれば、目標を「買値 + 損切り幅 × swingTargetR」に置き直す（0 なら目標なし。2026-11-20 の見直しで、3R より遠いほうが良かった）
     const tR = p.swingTargetR

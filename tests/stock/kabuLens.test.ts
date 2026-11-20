@@ -1055,6 +1055,13 @@ describe('企業の行動の開示（自社株買い・増配・株式分割）'
     expect(below200(mk([...Array(199).fill(100), 110]))).toBe(false)
     expect(below200(mk([...Array(150).fill(100), 10, 10, ...Array(49).fill(100), 99]))).toBe(true)
   })
+  it('練習口座：swReserve があれば、スイングは現金をその%まで残す', () => {
+    const day = (o: number, c: number) => [{ m: 540, o, h: Math.max(o, c), l: Math.min(o, c), c, v: 1 }]
+    const cands = [{ code: '1111', date: '2026-11-19', close: 1000, stop: 990, pass: true, score: 90 }]
+    const mk = (r: number | null) => paperStep(paperNew({ slipPct: 0, riskPct: 100, maxPosPct: 100, swReserve: r }), { date: '2026-11-20', stocks: { 1111: { bars: day(1000, 1010) } }, cands })
+    expect(mk(null).state.positions[0].qty).toBe(1000)
+    expect(mk(70).state.positions[0].qty).toBe(300)
+  })
   it('練習口座：ma200Half なら、1306 が200日線より下の日はスイングの株数を半分にする', () => {
     const day = (o: number, c: number) => [{ m: 540, o, h: Math.max(o, c), l: Math.min(o, c), c, v: 1 }]
     const cands = [{ code: '1111', date: '2026-11-19', close: 1000, stop: 900, pass: true, score: 90 }]
