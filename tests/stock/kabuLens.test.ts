@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { worldBrief, parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { crashSignal, worldBrief, parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -1042,6 +1042,29 @@ describe('企業の行動の開示（自社株買い・増配・株式分割）'
     const r = paperStep(st, { date: '2026-11-20', stocks: { 1111: { bars: day(1080, 1100), ctx: { prevClose: 1000 } }, 2222: { bars: day(1200, 1210), ctx: { prevClose: 1000 } }, 3333: { bars: day(1050, 1060), ctx: { prevClose: 1000 } } }, buybacks: [{ code: '2222', kind: 'pead' }, { code: '1111', kind: 'pead' }, { code: '3333', kind: 'pead' }] })
     // 2222 は窓 +20% で見送り、1111 を買い、3333 は上限で見送り
     expect(r.state.positions.map(x => [x.track, x.code, x.entry])).toEqual([['pead', '1111', 1080]])
+  })
+  it('急落の合図：5日で −15% 以下・10日ぶり・300円以上', () => {
+    const mk = (cs: number[]) => cs.map((c, i) => ({ date: 'd' + i, o: c, h: c, l: c, c, v: 1 }))
+    const flat = Array(20).fill(1000)
+    expect(crashSignal(mk([...flat, 1000, 1000, 1000, 1000, 800]))).toMatchObject({ hit: true, first: true, r5: -20 })
+    // 300円未満は合図にしない
+    expect(crashSignal(mk([...Array(20).fill(300), 280, 270, 260, 250, 240])).hit).toBe(false)
+    // 10日以内にすでに合図が出ていれば最初ではない
+    expect(crashSignal(mk([...flat, 800, 800, 800, 800, 800, 800, 800, 700, 650, 600, 550, 500])).first).toBe(false)
+  })
+  it('練習口座：急落の反発は寄りで買い、5日目の引けで売る。−20%で非常用の損切り', () => {
+    const day = (o: number, c: number, l = Math.min(o, c)) => [{ m: 540, o, h: Math.max(o, c), l, c, v: 1 }]
+    let st = paperNew({ slipPct: 0 })
+    let r = paperStep(st, { date: '2026-11-20', stocks: { 1111: { name: 'A', bars: day(1000, 1010), turnover: 5e8, crash: { hit: true, r5: -20 } } } })
+    expect(r.state.positions[0]).toMatchObject({ track: 'crash', entry: 1000, stop: 800, held: 1 })
+    st = r.state
+    for (const d of ['2026-11-24', '2026-11-25', '2026-11-26']) st = paperStep(st, { date: d, stocks: { 1111: { bars: day(1010, 1020) } } }).state
+    expect(st.positions).toHaveLength(1)
+    r = paperStep(st, { date: '2026-11-27', stocks: { 1111: { bars: day(1020, 1050) } } })
+    expect(r.trades[0]).toMatchObject({ track: 'crash', exit: 1050 })
+    const s2 = paperStep(paperNew({ slipPct: 0 }), { date: '2026-11-20', stocks: { 1111: { bars: day(1000, 1010), turnover: 5e8, crash: { hit: true, r5: -20 } } } }).state
+    const r2 = paperStep(s2, { date: '2026-11-24', stocks: { 1111: { bars: day(900, 850, 790) } } })
+    expect(r2.trades[0]).toMatchObject({ track: 'crash', exit: 800 })
   })
   it('練習口座：米国の下げ相場では usBearSwingMax までしか新しいスイングを買わない', () => {
     const day = (o, c) => [{ m: 540, o, h: Math.max(o, c), l: Math.min(o, c), c, v: 1 }]

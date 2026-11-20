@@ -2639,6 +2639,20 @@ export function mergeNextDay(prev, recs) {
  * 毎晩の自動記録：universe の銘柄すべてについて、前の営業日の場中の判定を再現し、その日の大引け・翌営業日（＝今日）の大引けまでで答え合わせする。
  * 今日の夜に動かすと「前の営業日」が対象になる（翌日の終値がそろうため）。
  */
+/**
+ * 急落の反発の合図（2026-11-20 の検証：5日で −15% 以下・10日ぶりに初めて・株価300円以上 → 翌日の寄りで買い5日目の引けで売る）。
+ * daily は前の日までの日足。返り値 {r5, first, hit}。hit が true なら合図
+ */
+export function crashSignal(daily) {
+  const n = daily?.length ? daily.length - 1 : -1
+  if (n < 16) return null
+  const r5 = k => (daily[k].c / daily[k - 5].c - 1) * 100
+  const now = r5(n)
+  let first = true
+  for (let k = n - 10; k < n; k++) if (k >= 5 && r5(k) <= -15) first = false
+  return { r5: round(now, 1), first, hit: now <= -15 && first && daily[n].c >= 300 }
+}
+
 export async function fetchIntradayWide(list, { date = null, parallel = 8, keepLatest = false, paper = false } = {}) {
   const items = []
   const latest = {}
@@ -2660,7 +2674,7 @@ export async function fetchIntradayWide(list, { date = null, parallel = 8, keepL
           const ld = dates[dates.length - 1]
           const past = d.bars.filter(b => b.date < ld)
           const turnover = past.slice(-20).reduce((s, b) => s + b.c * b.v, 0) / 20
-          ;(paperDays[ld] ||= {})[code] = { name: name || d.name, bars: days[ld], ctx: intradayContext(past), turnover, surge: surgePullback(past) }
+          ;(paperDays[ld] ||= {})[code] = { name: name || d.name, bars: days[ld], ctx: intradayContext(past), turnover, surge: surgePullback(past), crash: crashSignal(past) }
           if (dates.length > 1) prevOf[ld] = dates[dates.length - 2]
         }
         if (keepLatest && dates.length) {
@@ -2748,7 +2762,8 @@ export const PAPER_DEFAULTS = {
   dayFrom: 630, dayTo: 780, delay: 20, fillWindow: 30, lowAt: 870, lowEntryM: 890, lowTpPct: 5, lowSlPct: 8, lowExitM: 780,
   swingGapPct: 2, swingMaxDays: 40, surgeMax: 2, surgeTpR: 3, surgeHold: 10,
   chaseMax: 0, chaseTrigPct: 10, chaseFrom: 570, chaseTo: 690, chaseSlPct: 8,
-  peadMax: 2, peadHold: 5, peadGapMax: 15, usBearSwingMax: null
+  peadMax: 2, peadHold: 5, peadGapMax: 15, usBearSwingMax: null,
+  crashMax: 2, crashHold: 5, crashSlPct: 20, crashPosPct: 10
 }
 
 export function paperNew(params = {}) {
@@ -2829,6 +2844,19 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], 
       if (!done) close(pos, bars[bars.length - 1].c * (1 - slip), '翌日の引け')
       continue
     }
+    if (pos.track === 'crash') {
+      // 急落の反発：非常用の損切り（買値の −crashSlPct%）だけ。届かなければ crashHold 日目の引けで売る
+      const x = ohlcOf(bars)
+      pos.held = (pos.held || 0) + 1
+      if (x.o <= pos.stop) close(pos, x.o * (1 - slip), '損切り（寄り）')
+      else if (x.l <= pos.stop) close(pos, pos.stop * (1 - slip), '損切り')
+      else if (pos.held >= (pos.holdDays || 5)) close(pos, x.c * (1 - slip), `${pos.holdDays || 5}日目の引け`)
+      else {
+        pos.last = x.c
+        keep.push(pos)
+      }
+      continue
+    }
     if (pos.track === 'split' || pos.track === 'pead') {
       pos.held = (pos.held || 0) + 1
       pos.last = bars[bars.length - 1].c
@@ -2901,6 +2929,33 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], 
     }
     if (isPead) peadCount++
     else bbCount++
+  }
+  // 2c'. 急落の反発（前の日までに5日で −15% 以下、10日ぶりの最初の合図、株価300円以上。売買代金の大きい順に crashMax まで）
+  // 相場全体の急落か（合図の出た株の5日の騰落の中央ではなく、全銘柄の5日の騰落の平均が −4% 以下）も印にする
+  {
+    const all5 = Object.values(stocks).map(s => s.crash?.r5).filter(v => typeof v === 'number')
+    const mkt5 = all5.length ? all5.reduce((a, b) => a + b, 0) / all5.length : null
+    const crashes = Object.entries(stocks).filter(([, s]) => s.crash?.hit && s.bars?.length && (s.turnover || 0) >= 1e8).sort((a, b) => (b[1].turnover || 0) - (a[1].turnover || 0))
+    let cn = 0
+    for (const [code, s] of crashes) {
+      if (cn >= (p.crashMax ?? 2)) break
+      if (st.positions.some(x => x.code === code)) continue
+      const x = ohlcOf(s.bars)
+      if (x.h === x.l) continue
+      const entry = x.o * (1 + slip)
+      const stop = entry * (1 - (p.crashSlPct ?? 20) / 100)
+      // 損切りが遠いので、1銘柄に使う金額を資金の crashPosPct% までにする（損切りに当たっても資金の約2%）
+      const qty = Math.floor(Math.min(equity0 * (p.crashPosPct ?? 10) / 100, st.cash) / entry / 100) * 100
+      if (qty < 100) continue
+      cn++
+      const pos = open('crash', code, s.name || '', entry, qty, { stop: r1(stop), holdDays: p.crashHold ?? 5, r5: s.crash.r5, marketWide: mkt5 !== null && mkt5 <= -4, market5: mkt5 === null ? null : round(mkt5, 1) })
+      pos.held = 1
+      if (x.l <= pos.stop) close(pos, pos.stop * (1 - slip), '損切り（当日）')
+      else {
+        pos.last = x.c
+        st.positions.push(pos)
+      }
+    }
   }
   // 2c. 急騰した株の押し目（前の営業日に反発を確認 → 寄りで買う。損切りは押しの安値の1%下、目標 surgeTpR、surgeHold 日目の引けまで）
   const surges = Object.entries(stocks).filter(([, s]) => s.surge && s.bars?.length).sort((a, b) => (b[1].turnover || 0) - (a[1].turnover || 0))
