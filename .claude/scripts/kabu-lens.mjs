@@ -2775,7 +2775,7 @@ export const PAPER_DEFAULTS = {
   dayFrom: 630, dayTo: 780, delay: 20, fillWindow: 30, lowAt: 870, lowEntryM: 890, lowTpPct: 5, lowSlPct: 8, lowExitM: 780,
   swingGapPct: 2, swingMaxDays: 40, surgeMax: 2, surgeTpR: 3, surgeHold: 10,
   chaseMax: 0, chaseTrigPct: 10, chaseFrom: 570, chaseTo: 690, chaseSlPct: 8,
-  evPosPct: null, peadMax: 2, peadHold: 5, peadGapMax: 15, peadGapMin: 0, usBearSwingMax: null,
+  evPosPct: null, evStopPct: null, peadMax: 2, peadHold: 5, peadGapMax: 15, peadGapMin: 0, usBearSwingMax: null,
   crashMax: 2, crashHold: 5, crashSlPct: 20, crashPosPct: 5, crashOpenMax: 2, crashMktOnly: true, swingMaxPrice: null,
   tsurareMax: 2, tsurareHold: 5, tsurarePosPct: 10, tsurareGap: -5, tsurareMktGap: -2.5,
   swingTargetR: null,
@@ -2949,7 +2949,10 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], 
       st.positions.push(pos)
     } else {
       const pos = open('bb', b.code, b.name || s.name || '', o, qty, { limit, kind: b.kind || 'buyback' })
-      close(pos, bars[bars.length - 1].c, '大引け')
+      // evStopPct があれば、寄値から −evStopPct% の逆指値（2026-11-21 の60分足の検証：−5%なら平均は変わらず、最悪の1回が −13% → −5% に縮む）
+      const evStop = p.evStopPct ? o * (1 - p.evStopPct / 100) : null
+      if (evStop && bars.some(x => x.l <= evStop)) close(pos, evStop * (1 - slip), '損切り（場中）')
+      else close(pos, bars[bars.length - 1].c, '大引け')
     }
     if (isPead) peadCount++
     else bbCount++
