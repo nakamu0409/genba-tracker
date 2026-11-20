@@ -198,6 +198,15 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 - files: `{"kabu-lens.mjs": <.claude/scripts/kabu-lens.mjs のコピー>}`（contentType は text/javascript）
 - capabilities を使う前に `artifact-capabilities`、ページを書く前に `artifact-design` のスキルを読む
 
+### 調べもののデータのしまい場所（記録帳の asset）
+
+- `kabu-lens/research/*.json`・`day/*.json`・`swing/bench1306.json` は git に入らず、コンテナが消えると無くなる。2026-11-20 に記録帳の asset へしまった（本人の許可あり。売買の記録は asset に入れない）。
+- しまい方：gzip → base64 → 14MB ごとの `.txt`（asset は `.gz` を受け付けない）。小さいファイルは `{name: base64}` の JSON 1つにまとめた。
+- どの asset がどのファイルかは、記録帳の DB の `research_store`（doc_id はしまった日）。files[] に path・sha256・parts（順番どおりの asset id）か bundle。
+- 戻すとき：`research_store` の最新 doc を index.json に保存 → Artifact の read（`path` に asset id）で全部落とす → `node kabu-lens/research/restore_data.mjs index.json <落とした先>`。sha256 が合わないものは書かない。
+- しまい直すとき（データが増えたら月1くらい）：同じ手順で新しい日付の doc を作る。古い asset は新しい doc ができてから消してよい（容量の節約）。
+- しまっていないもの：`bars.json`・`day/paper_backfill*.json`・`day/events_down.json`（取り直せる・小さい）。
+
 ### ゼロから作り直す場合の順番
 
 1. `npx vitest run tests/stock` が通ることを確かめる（スクリプトは壊れていないか）。
