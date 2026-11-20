@@ -40,6 +40,7 @@ const thru = []
 const near = []
 const far = []
 const onEntry = []
+const byLag = {}
 for (const s of D.swing) {
   const set = react[s.code]
   if (!set || s.date < firstOf[s.code]) continue
@@ -52,6 +53,11 @@ for (const s of D.swing) {
   let soon = false
   for (let k = s.i + 1; k <= s.i + 5; k++) if (set.has(k)) soon = true
   ;(soon ? near : far).push({ date: s.date, r: t.r })
+  // 合図の日から何営業日後に反応の日が来るか（1＝買う日）
+  let lag = 0
+  for (let k = s.i; k <= s.i + 10; k++) if (set.has(k)) { lag = k - s.i; break }
+  const g = lag === 0 ? '10日以内に無し' : lag === 1 ? '1（買う日）' : lag <= 4 ? '2〜4（買って3日以内）' : '5〜10'
+  ;(byLag[g] ||= []).push({ date: s.date, r: t.r })
   if (R === t.e) onEntry.push({ date: s.date, r: t.r })
   else if (R > t.e) {
     const sell = B[R - 1].c * (1 - SLIP)
@@ -69,3 +75,5 @@ row('5日以内に決算', near)
 row('それ以外', far)
 console.log('\n■ ③ 買った日が決算の反応の日')
 row('買った日＝反応の日', onEntry)
+console.log('\n■ ④ 合図の日から反応の日まで（今の決まりは「決算の3営業日前から当日まで買わない」＝1〜4 に当たる）')
+for (const g of ['1（買う日）', '2〜4（買って3日以内）', '5〜10', '10日以内に無し']) row(g, byLag[g] || [])
