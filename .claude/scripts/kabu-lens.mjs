@@ -2760,8 +2760,12 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [] }
       n++
       const pos = open('chase', e.code, e.s.name || '', entry, qty, { stop: r1(stop), fromPrevPct: round((bars[e.k].c / e.s.ctx.prevClose - 1) * 100, 1), seenAt: `${Math.floor((e.m + 5) / 60)}:${String((e.m + 5) % 60).padStart(2, '0')}` })
       let done = false
+      let hi = entry
       for (const b of bars.slice(e.k + 1)) {
-        const hit = b.o <= stop && b !== eb ? [b.o, '損切り（足の始め）'] : b.l <= stop ? [stop, '損切り'] : null
+        // chaseTrailPct：買ってからの高値から −chaseTrailPct% 下げたら売る（0 なら使わない。足の終値で判定し、次の足の始値で売る形に近づけるため終値で手じまう）
+        const trail = (p.chaseTrailPct ?? 0) > 0 && b !== eb && b.c <= hi * (1 - p.chaseTrailPct / 100)
+        hi = Math.max(hi, b.h)
+        const hit = b.o <= stop && b !== eb ? [b.o, '損切り（足の始め）'] : b.l <= stop ? [stop, '損切り'] : trail ? [b.c, '高値から崩れた'] : null
         if (hit) {
           close(pos, hit[0] * (1 - slip), hit[1])
           done = true
