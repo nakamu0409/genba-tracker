@@ -234,6 +234,8 @@ function run(P) {
       if (P.streakMin) list = list.filter(s => streakOf(s) >= P.streakMin)
       if (P.avoid) list = list.filter(s => !avoid(stocks[s.code], s.i))
       if (P.maxPrice) list = list.filter(s => stocks[s.code].bars[s.i].c < P.maxPrice)
+      // 損切りを遠くする（2×ATR → 2×ATR×stopWiden。終値からの距離を広げる）
+      if (P.stopWiden) list = list.map(s => ({ ...s, stop: s.close - (s.close - s.stop) * P.stopWiden }))
       const max = P.usBear && usBearOn(d) ? 1 : 99
       addRisky('swing', list, max, P.swingR ?? 3, 40, 2)
     }
@@ -304,7 +306,11 @@ const PER = [['10年', {}], ['前半', { end: '2021-11-19' }], ['後半', { star
 if (process.env.PAIRED) {
   // 同じでたらめな順番（同じ SEED）で、変更あり・なしを比べる。差の分布で、偶然ではないかを見る
   const CRV = { tracks: { ...BASE.tracks, crash: true } }
-  const variants = process.env.PAIRED === 'repeat' ? [
+  const variants = process.env.PAIRED === 'exits' ? [
+    ['目標なし（40日・損切りだけ）', { avoid: true, swingR: 0 }, { avoid: true }],
+    ['損切り 3×ATR・目標3R', { avoid: true, stopWiden: 1.5 }, { avoid: true }],
+    ['損切り 3×ATR・目標5R', { avoid: true, stopWiden: 1.5, swingR: 5 }, { avoid: true }]
+  ] : process.env.PAIRED === 'repeat' ? [
     ['続いた回数の多い候補を先に買う', { avoid: true, streakFirst: true }, { avoid: true }],
     ['3回目以上の候補だけ買う', { avoid: true, streakMin: 3 }, { avoid: true }],
     ['2回目以上の候補だけ買う', { avoid: true, streakMin: 2 }, { avoid: true }]
