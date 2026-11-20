@@ -220,6 +220,9 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 - `kabu-lens/research/collect_jquants.mjs` が日付ごとに `fins/summary?date=` と `equities/bars/daily?date=` を取り、`research/jq_fins.json`・`jq_daily.json`・`jq_master.json` にためる（git に入らない。途中から続けられる）。全部で3〜4時間。
 - 2024-08 と 2026-08 の銘柄一覧を比べると、期間中に消えた銘柄が303ある。これらを入れて検証し直すと、Yahoo の今ある銘柄だけの偏りが無くなる。
 - 使い道：決算の中身（進み具合・増益率・予想の修正）と翌日・5日後の値動き（2年分）、上場廃止を含めた急騰の押し目・企業の行動の検証のやり直し。
+- 全銘柄の日付ごとの日足は時間がかかりすぎた（30日分で止めた・`jq_daily.json`）。代わりに消えた303銘柄だけを銘柄ごとに取った（`collect_delisted.mjs` → `jq_delisted.json`。1分5回の上限に当たらないよう15.5秒あける）。
+- 結果は `swing/README.md` の「決算の中身・世界の状況・上場廃止の銘柄」。決算後のドリフト（上方修正+20%以上で5日後+1.3%、下方修正で窓−3%以下は−1.1%）と、米国の下げ相場（S&P500 20日で−5%以下）でスイングが −0.12R になることが、前半・後半とも同じ向きで出た。どれもまだ決まりには入れていない。
+- しまい場所：記録帳の `research_store/2026-11-20b`（前の分＋J-Quants・世界の指標17・決算短信1か月）。
 
 ### ゼロから作り直す場合の順番
 
