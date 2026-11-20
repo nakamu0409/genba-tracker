@@ -2324,6 +2324,42 @@ export function lowExit(next, entry, { tp = 5, sl = 8, exitM = 780 } = {}) {
   return { exit: next[next.length - 1].c, reason: '翌日の大引け' }
 }
 
+// ---- 現金と資金の自動計算 ----------------------------------------------------
+/**
+ * 基準の日（cashBaseAt。その日の大引けまでの売買は cashBase に入っている）から後の売買で、今の現金と資金を出す。手数料は0（楽天のゼロコース）。
+ * trades: [{id, date, entry, qty, status, exit, exitDate, last}]。買いは date が基準の日より後、売りは exitDate が基準の日より後のものを足し引きする。
+ * status が skipped・plan の記録は数えない。entry・exit・qty が数でない記録は unknown に入れる（推測で埋めない）
+ * 返り値 {cash, capital（現金＋放置していない保有の時価）, invested, frozenValue, since, moves: [{date, id, kind, amount}], unknown: [id]}
+ */
+export function cashNow(settings, trades) {
+  const base = settings.cashBase ?? settings.cash
+  const since = settings.cashBaseAt ?? settings.capitalAt
+  let cash = base
+  const moves = []
+  const unknown = []
+  for (const t of trades) {
+    if (['skipped', 'plan'].includes(t.status)) continue
+    if (t.date > since) {
+      if (ok(t.entry) && ok(t.qty)) {
+        cash -= t.entry * t.qty
+        moves.push({ date: t.date, id: t.id, kind: 'buy', amount: -Math.round(t.entry * t.qty) })
+      } else unknown.push(t.id)
+    }
+    if (t.status === 'closed' && t.exitDate && t.exitDate > since) {
+      if (ok(t.exit) && ok(t.qty)) {
+        cash += t.exit * t.qty
+        moves.push({ date: t.exitDate, id: t.id, kind: 'sell', amount: Math.round(t.exit * t.qty) })
+      } else unknown.push(t.id)
+    }
+  }
+  moves.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+  // 本人が放置すると決めた保有（frozen）は、資金に数えない（1回の損失の上限などの計算に入れないため）。frozenValue に別に出す
+  const val = t => (ok(t.last) ? t.last : t.entry || 0) * (t.qty || 0)
+  const invested = trades.filter(t => t.status === 'open' && !t.frozen).reduce((s, t) => s + val(t), 0)
+  const frozenValue = trades.filter(t => t.status === 'open' && t.frozen).reduce((s, t) => s + val(t), 0)
+  return { cash: Math.round(cash), capital: Math.round(cash + invested), invested: Math.round(invested), frozenValue: Math.round(frozenValue), since, base, moves, unknown }
+}
+
 // ---- 答えが出終わった記録を1日1件にまとめる（記録帳のデータベースは全部で25,000件まで）----------------
 // 毎晩の定期実行が、その日に答えが出終わった記録を collection "archive" の doc「<collection>-<日付>」1件にまとめ、元の記録は消す。
 // 累計（settings の *_stats）は別に持っているので数字は変わらない。cands は --signals-report --also で archive の分も足して数える
@@ -3316,6 +3352,17 @@ async function main() {
   if (args.includes('--scan-wide')) {
     const file = args[args.indexOf('--scan-wide') + 1]
     console.log(JSON.stringify(await scanCandidates(JSON.parse(readFileSync(file, 'utf-8'))), null, 2))
+    return
+  }
+  if (args.includes('--cash-now')) {
+    // --cash-now settings.json trades.json（trades は配列か、ArtifactData の out_dir のフォルダ）
+    const i = args.indexOf('--cash-now')
+    const st = JSON.parse(readFileSync(args[i + 1], 'utf-8'))
+    const p = args[i + 2]
+    const trades = statSync(p).isDirectory()
+      ? readdirSync(p).filter(n => n.endsWith('.json') && !n.startsWith('.')).map(n => ({ ...JSON.parse(readFileSync(`${p}/${n}`, 'utf-8')), id: n.replace(/\.json$/, '') }))
+      : JSON.parse(readFileSync(p, 'utf-8'))
+    console.log(JSON.stringify(cashNow(st, trades), null, 2))
     return
   }
   if (args.includes('--archive-doc')) {

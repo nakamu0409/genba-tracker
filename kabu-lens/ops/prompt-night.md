@@ -65,7 +65,10 @@
    - movers：手順8が成功したら、手順8a で読んだ今日の記録すべてについて、読んだ data に手順8の records の afternoon_open、close、afternoon_pct、worst_dip_pct、best_pop_pct、basis を重ねて id（doc_id）を入れた配列を作り、update はせずに、下の「まとめる」で archive の「movers-<今日の YYYY-MM-DD>」に入れて元の記録を消す（if_version は手順8a で読んだ version）。手順8が失敗したら movers は何も変えない
    - settings の movers_stats：手順8の stats をそのまま set（日数が増えたときだけ）
    - archive：「まとめる」の movers-<今日>
+   - settings の main：手順9b の cash・capital・capitalAt だけ（update、if_version）
    ほかの項目・記録は変えない。消すのは「まとめる」の (d) で、まとめの保存に成功した movers だけ。失敗したら1回だけやり直し、だめなら「記録帳の更新に失敗」と書く。
+
+9b. 現金と資金の計算し直し（毎晩）：trades の last を今日の終値に書き戻したあと、trades を out_dir "/tmp/trades_now"、settings/main を out_dir "/tmp/settings_now" で保存し、`node <保存先> --cash-now /tmp/settings_now/settings/main.json /tmp/trades_now/trades > /tmp/cash.json`。cash・capital（放置の保有を数えない）を settings/main に、capitalAt を今日にして update。unknown があれば書かずに通知に1行。前の晩の cash と10万円以上違えば理由を1行。手順1の「capitalAt が7日以上前」の注意は「cashBaseAt が30日以上前なら、楽天の買付余力を /kiroku で送ってください」に変えた。
 
 ## まとめる（記録帳のデータベースは全部で25,000件までなので、答えが出終わった記録を1日1件にまとめる）
 答えが出終わった記録の配列（各記録に id＝元の doc_id）を、collection "archive" の doc_id「<col>-<日付>」1件にまとめ、元の記録を消す：

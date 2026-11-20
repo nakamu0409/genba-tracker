@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -1148,5 +1148,20 @@ describe('低位株の急騰の追いかけ（練習口座・攻めだけ）', (
     expect(t).toMatchObject({ entry: 111.1, exit: 117.9, reason: '大引け' })
     r = paperStep(st, { date: '2026-11-21', stocks: { 1111: { bars: [bar(570, 100, 112, 100, 111), bar(575, 111, 112, 100, 101), bar(895, 101, 103, 99, 100)], ctx } } })
     expect(r.trades.find((x: { track: string }) => x.track === 'chase')).toMatchObject({ reason: '損切り', exit: 102.1 })
+  })
+})
+
+describe('現金と資金の自動計算', () => {
+  it('基準の日より後の買いを引き、売りを足す。予定・見送りは数えない', () => {
+    const r = cashNow({ cashBase: 100000, cashBaseAt: '2026-11-18' }, [
+      { id: 'a', date: '2026-11-18', entry: 500, qty: 100, status: 'open', last: 520 },
+      { id: 'b', date: '2026-11-20', entry: 300, qty: 100, status: 'closed', exit: 280, exitDate: '2026-11-21' },
+      { id: 'c', date: '2026-11-20', entry: 400, qty: 100, status: 'skipped' },
+      { id: 'd', date: '2026-11-21', entry: 200, qty: 100, status: 'open', last: 210 },
+      { id: 'e', date: '2026-11-21', qty: 100, status: 'open' },
+      { id: 'f', date: '2026-10-01', entry: 200, qty: 1000, status: 'open', last: 90, frozen: true }
+    ])
+    expect(r).toMatchObject({ cash: 100000 - 30000 + 28000 - 20000, invested: 52000 + 21000, unknown: ['e'], frozenValue: 90000 })
+    expect(r.capital).toBe(r.cash + r.invested)
   })
 })
