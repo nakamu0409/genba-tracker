@@ -25,7 +25,7 @@ for (const e of D.events) {
   m25 /= 25
   rows.push({
     date: e.date, time: e.time || '', dow: new Date(e.date).getDay(),
-    r20: (B[e.i].c / B[e.i - 20].c - 1) * 100, above: B[e.i].c > m25,
+    r20: (B[e.i].c / B[e.i - 20].c - 1) * 100, above: B[e.i].c > m25, r1: (B[e.i].c / B[e.i - 1].c - 1) * 100, gap: (B[k].o / B[e.i].c - 1) * 100,
     r: (B[x].c / B[k].o - 1) * 100 - (bench[k1].c / bench[k0].o - 1) * 100 - 0.2
   })
 }
@@ -44,3 +44,5 @@ for (const [n, a, b] of [['−10%未満', -1e9, -10], ['−10〜0%', -10, 0], ['
 console.log('■ 25日線')
 line('上', rows.filter(r => r.above))
 line('下', rows.filter(r => !r.above))
+console.log('■ 発表の日の騰落（15時までの動き）')
+for (const [n, a, b] of [['−3%未満', -1e9, -3], ['−3〜0%', -3, 0], ['0〜+3%', 0, 3], ['+3%以上', 3, 1e9]]) line(n, rows.filter(r => r.r1 >= a && r.r1 < b))
