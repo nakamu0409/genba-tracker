@@ -338,7 +338,7 @@ const steps = [
 const PER = [['10年', {}], ['前半', { end: '2021-11-19' }], ['後半', { start: '2021-11-19', end: '2025-11-14' }], ['最後の確認', { start: '2025-11-14' }]]
 if (process.env.PKGY) {
   // 年ごとの騰落（でたらめな順番20回の真ん中）：今 と 案B
-  const cfgs = [['今', { avoid: true }], ['案B', { avoid: true, evPosPct: 50, evOrder: 'mom', ma200Cut: true, swingR: 5, swingDays: 60 }], ['案A', { avoid: true, evPosPct: 50, evOrder: 'mom', ma200Cut: true }], ['企業の行動50%だけ', { avoid: true, evPosPct: 50 }], ['5R・60日だけ', { avoid: true, swingR: 5, swingDays: 60 }]]
+  const cfgs = [['今', { avoid: true }], ['案B', { avoid: true, evPosPct: 50, evOrder: 'mom', ma200Cut: true, swingR: 5, swingDays: 60 }], ['案A', { avoid: true, evPosPct: 50, evOrder: 'mom', ma200Cut: true }], ['企業の行動50%だけ', { avoid: true, evPosPct: 50 }], ['50%＋20日の順', { avoid: true, evPosPct: 50, evOrder: 'mom' }], ['50%＋200日線', { avoid: true, evPosPct: 50, ma200Cut: true }]]
   const res = {}
   for (const [nm, cfg] of cfgs) {
     for (let k = 1; k <= 20; k++) {
