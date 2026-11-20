@@ -52,6 +52,16 @@ const STREAK = new Map()
     }
   }
 }
+const MA200 = new Map()
+{
+  let sm = 0
+  for (let i = 0; i < bench.length; i++) {
+    sm += bench[i].c
+    if (i >= 200) sm -= bench[i - 200].c
+    if (i >= 199) MA200.set(bench[i].date, sm / 200)
+  }
+}
+const below200 = d => { const k = bi.get(d); return k !== undefined && MA200.has(d) && bench[k].c < MA200.get(d) }
 const streakOf = s => STREAK.get(s.code + ':' + s.i) || 1
 // 避ける形を外す前の候補（本番の analyze は 11/20 から外しているので、比べるために外さない候補も作る）
 const SW_OFF = process.env.PAIRED ? byDate(loadAll({ avoidChase: false }).swing) : SW
@@ -123,7 +133,7 @@ function run(P) {
   for (const d of dates.filter(x => (!P.start || x >= P.start) && (!P.end || x < P.end))) {
     const pd = prevOf.get(d)
     // ddCut：口座が最高値から ddCut% 以上下がっている間は、スイングなどの1回の損の上限を ddMult 倍にする
-    const inDD = P.ddCut && equityPrev < peakEq * (1 - P.ddCut / 100)
+    const inDD = (P.ddCut && equityPrev < peakEq * (1 - P.ddCut / 100)) || (P.ma200Cut && below200(pd))
     const riskOne = equityPrev * P.riskPct / 100 * (inDD ? (P.ddMult ?? 0.5) : 1)
     const maxPos = equityPrev * P.maxPosPct / 100
     const barOf = code => {
@@ -339,7 +349,10 @@ if (process.env.EVDD) {
 if (process.env.PAIRED) {
   // 同じでたらめな順番（同じ SEED）で、変更あり・なしを比べる。差の分布で、偶然ではないかを見る
   const CRV = { tracks: { ...BASE.tracks, crash: true } }
-  const variants = process.env.PAIRED === 'sector' ? [
+  const variants = process.env.PAIRED === 'ma200' ? [
+    ['TOPIX が200日線より下の間はスイングを半分に', { avoid: true, ma200Cut: true }, { avoid: true }],
+    ['200日線より下の間は止める', { avoid: true, ma200Cut: true, ddMult: 0 }, { avoid: true }]
+  ] : process.env.PAIRED === 'sector' ? [
     ['同じ業種のスイングは同時に2つまで', { avoid: true, secMax: 2 }, { avoid: true }],
     ['同じ業種のスイングは同時に1つまで', { avoid: true, secMax: 1 }, { avoid: true }]
   ] : process.env.PAIRED === 'ddcut' ? [
