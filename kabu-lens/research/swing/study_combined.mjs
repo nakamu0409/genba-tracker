@@ -237,7 +237,7 @@ function run(P) {
       // 損切りを遠くする（2×ATR → 2×ATR×stopWiden。終値からの距離を広げる）
       if (P.stopWiden) list = list.map(s => ({ ...s, stop: s.close - (s.close - s.stop) * P.stopWiden }))
       const max = P.usBear && usBearOn(d) ? 1 : 99
-      addRisky('swing', list, max, P.swingR ?? 3, 40, 2)
+      addRisky('swing', list, max, P.swingR ?? 3, P.swingDays ?? 40, 2)
     }
     // 6. 値動きで決着
     const keep = []
@@ -306,7 +306,10 @@ const PER = [['10年', {}], ['前半', { end: '2021-11-19' }], ['後半', { star
 if (process.env.PAIRED) {
   // 同じでたらめな順番（同じ SEED）で、変更あり・なしを比べる。差の分布で、偶然ではないかを見る
   const CRV = { tracks: { ...BASE.tracks, crash: true } }
-  const variants = process.env.PAIRED === 'exits' ? [
+  const variants = process.env.PAIRED === 'exits2' ? [
+    ['目標5R・60日', { avoid: true, swingR: 5, swingDays: 60 }, { avoid: true }],
+    ['目標3R・60日', { avoid: true, swingDays: 60 }, { avoid: true }]
+  ] : process.env.PAIRED === 'exits' ? [
     ['目標なし（40日・損切りだけ）', { avoid: true, swingR: 0 }, { avoid: true }],
     ['損切り 3×ATR・目標3R', { avoid: true, stopWiden: 1.5 }, { avoid: true }],
     ['損切り 3×ATR・目標5R', { avoid: true, stopWiden: 1.5, swingR: 5 }, { avoid: true }]
