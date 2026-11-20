@@ -309,7 +309,10 @@ const PER = [['10年', {}], ['前半', { end: '2021-11-19' }], ['後半', { star
 if (process.env.PAIRED) {
   // 同じでたらめな順番（同じ SEED）で、変更あり・なしを比べる。差の分布で、偶然ではないかを見る
   const CRV = { tracks: { ...BASE.tracks, crash: true } }
-  const variants = process.env.PAIRED === 'events2' ? [
+  const variants = process.env.PAIRED === 'evsize' ? [
+    ['企業の行動は1銘柄70%まで', { avoid: true, evPosPct: 70 }, { avoid: true }],
+    ['企業の行動は1銘柄100%まで', { avoid: true, evPosPct: 100 }, { avoid: true }]
+  ] : process.env.PAIRED === 'events2' ? [
     ['自社株買い・増配は、下げて始まったら買わない', { avoid: true, evMinGap: 0 }, { avoid: true }]
   ] : process.env.PAIRED === 'events' ? [
     ['寄指の上限を終値×1.03に', { avoid: true, evLimit: 1.03 }, { avoid: true }],
