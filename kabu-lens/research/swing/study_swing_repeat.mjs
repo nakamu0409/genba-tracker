@@ -22,7 +22,7 @@ for (const list of Object.values(byCode)) {
     const gapDays = prev ? s.i - prev.i : Infinity
     streak = gapDays <= 10 ? streak + 1 : 1
     const t = simulate(B, s.i, s.stop, { rMult: 3, maxDays: 40, gapMax: 2 })
-    if (t) rows.push({ date: s.date, r: t.r, streak, gapDays, holding: prev !== null && prevExit >= s.i + 1 })
+    if (t) rows.push({ date: s.date, r: t.r, streak, gapDays, holding: prev !== null && prevExit >= s.i + 1, low: B[s.i].c < 1500, kind: s.kind })
     if (t) prevExit = t.x
     prev = s
   }
@@ -44,3 +44,13 @@ line('11日以上・初めて', rows.filter(r => r.gapDays > 10))
 console.log('■ 前の候補を買っていたら、まだ持っている日か')
 line('まだ持っている', rows.filter(r => r.holding))
 line('持っていない', rows.filter(r => !r.holding))
+console.log('■ 株価 × 何回目か')
+for (const [pn, pf] of [['1,500円未満', r => r.low], ['1,500円以上', r => !r.low]]) {
+  line(pn + '・1〜2回目', rows.filter(r => pf(r) && r.streak <= 2))
+  line(pn + '・3回目以上', rows.filter(r => pf(r) && r.streak >= 3))
+}
+console.log('■ 形の種類 × 何回目か')
+for (const k of ['GAP', 'PULLBACK', 'BREAKOUT', 'MOMENTUM']) {
+  line(k + '・1〜2回目', rows.filter(r => r.kind === k && r.streak <= 2))
+  line(k + '・3回目以上', rows.filter(r => r.kind === k && r.streak >= 3))
+}
