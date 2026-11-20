@@ -247,6 +247,50 @@ section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
 .pp-l-pnl { text-align: right; white-space: pre; font-size: .78rem; line-height: 1.35; }
 .pp-none { color: var(--muted); font-size: .82rem; padding: 6px 2px; }
 @media (max-width: 360px) { .pp-duel { grid-template-columns: minmax(0, 1fr); } }
+/* 今日気をつけること */
+.alerts { display: grid; gap: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.alerts.calm { border-style: dashed; }
+.alerts-h { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; align-items: baseline; font-size: .9rem; }
+.alerts-h .num { font-size: .8rem; color: var(--muted); }
+.alert { font-size: .84rem; padding: 6px 10px 6px 26px; border-radius: 8px; position: relative; font-weight: 700; }
+.alert::before { content: ""; position: absolute; left: 10px; top: 50%; width: 8px; height: 8px; border-radius: 999px; transform: translateY(-50%); background: currentColor; }
+.alert.crit { color: var(--up); background: color-mix(in srgb, var(--up) 10%, var(--surface)); }
+.alert.warn { color: var(--warn); background: var(--warn-soft); }
+.st-rule-yes { color: var(--accent); } .st-rule-no { color: var(--warn); }
+.slip .pp-gauge { margin-top: 2px; }
+/* 確定した損益の積み上げ */
+.curve-wrap { display: grid; gap: 4px; border-top: 1px dashed var(--line); padding-top: 10px; }
+.curve-h { display: flex; justify-content: space-between; gap: 8px; font-size: .76rem; color: var(--muted); flex-wrap: wrap; }
+.curve { width: 100%; height: auto; display: block; }
+.curve-line { fill: none; stroke: var(--ink); stroke-width: 1.5; stroke-linejoin: round; }
+.curve-area { stroke: none; }
+.curve-area.up { fill: color-mix(in srgb, var(--up) 14%, transparent); } .curve-area.down { fill: color-mix(in srgb, var(--down) 14%, transparent); }
+.curve-dot.up { fill: var(--up); } .curve-dot.down { fill: var(--down); }
+/* 合図の成績表 */
+.score { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 270px), 1fr)); gap: 8px; }
+.sc-sum { grid-column: 1 / -1; font-size: .8rem; color: var(--muted); }
+.sc { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: grid; gap: 6px; min-width: 0; border-left-width: 4px; }
+.sc.ok { border-left-color: var(--accent); } .sc.off { border-left-color: var(--warn); } .sc.few { border-left-color: var(--line); }
+.sc-h { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.sc-h b { font-size: .9rem; }
+.sc-pill { font-size: .66rem; font-weight: 700; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; color: var(--muted); white-space: nowrap; }
+.sc.ok .sc-pill { color: var(--accent); } .sc.off .sc-pill { color: var(--warn); }
+.sc-what { font-size: .72rem; color: var(--muted); }
+.sc-nums { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.sc-nums span { display: block; font-size: .64rem; color: var(--muted); letter-spacing: .04em; }
+.sc-nums b { font-size: 1.02rem; }
+.sc-xp { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; font-size: .68rem; color: var(--muted); }
+/* ルールを守れた週 */
+.streak { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 14px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.streak-n { font-size: 2.2rem; font-weight: 600; color: var(--accent); line-height: 1; grid-row: span 2; }
+.streak-t { display: grid; gap: 2px; min-width: 0; }
+.streak-t b { font-size: .92rem; } .streak-t span { font-size: .72rem; color: var(--muted); }
+.streak-dots { grid-column: 1 / -1; display: flex; gap: 5px; flex-wrap: wrap; margin-top: 4px; }
+.streak-dots i { width: 14px; height: 14px; border-radius: 4px; background: var(--accent); }
+.streak-dots i.ng { background: transparent; border: 1.5px solid var(--warn); }
+.extra-li { display: block !important; }
+.extra-rules { margin: 6px 0 0; padding-left: 1.3em; display: grid; gap: 4px; font-size: .82rem; color: var(--ink); }
+
 
 </style>
 
@@ -264,6 +308,7 @@ section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
   </nav>
   <div class="tab-panel" role="tabpanel" id="panel-today" aria-labelledby="tab-today" hidden>
     <p class="tab-intro">保有と注文、/mite と場中の判定</p>
+    <div class="alerts" id="today-alerts" aria-live="polite"></div>
   <section aria-labelledby="h-money">
     <div class="sec-head"><h2 id="h-money">資金とルール</h2><button class="small" id="set-btn" type="button">変更</button></div>
     <div class="panel">
@@ -347,6 +392,7 @@ section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
         <div class="stat"><div class="label">損切りを決めた割合</div><div class="value" id="s-stop">—</div><div class="hint">見送り以外の記録のうち</div></div>
         <div class="stat"><div class="label">平均R</div><div class="value" id="s-r">—</div><div class="hint">損切り幅を1とした結果</div></div>
       </div>
+      <div class="curve-wrap" id="log-curve-wrap" hidden><div class="curve-h"><span>確定した損益の積み上げ</span><span class="num" id="log-curve-v"></span></div><svg id="log-curve" class="curve" viewBox="0 0 320 110" role="img" aria-label="確定した損益の積み上げ"></svg></div>
     </div>
     <div class="bar">
       <button class="primary" id="new-btn" type="button">＋ 記録を追加</button>
@@ -505,7 +551,8 @@ section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
   </section>
   </div>
   <div class="tab-panel" role="tabpanel" id="panel-signals" aria-labelledby="tab-signals" hidden>
-    <p class="tab-intro">仕組みが出した合図の答え合わせ。数十件たまるまでは偶然の影響が大きい</p>
+    <p class="tab-intro">仕組みが出した合図の答え合わせ。本番の数字が過去の検証と同じ向きなら「検証どおり」。件数が少ないうちは判定しない</p>
+    <div class="score" id="scoreboard"></div>
   <section aria-labelledby="h-cand">
     <div class="sec-head"><h2 id="h-cand">候補の成績（約1,150銘柄）</h2><span class="count" id="cand-count"></span></div>
     <details class="more how"><summary>この表の見方</summary><p>売買の多い東証の株すべてで、毎晩出た買い候補（条件を通過したもの・ルールで見送ったもの）を記録し、翌営業日の始値で買っていたらどうなったかを追います。R は損切り幅を1とした損益（+1R＝損切り幅と同じだけの利益）。どの条件の候補が当たるかを見て、おすすめの精度を上げるためのデータです。</p></details>
@@ -565,6 +612,7 @@ section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
   <section aria-labelledby="h-week">
     <div class="sec-head"><h2 id="h-week">週の振り返り</h2><span class="count" id="week-count"></span></div>
     <p class="sub">毎週金曜の夜に、1週間の売買を「ルールどおりにできたか」でまとめます。</p>
+    <div class="streak" id="week-streak" hidden></div>
     <div class="panel" id="week-panel" hidden><div class="sig-scroll"><table class="sig-table" aria-label="週ごとの振り返り"><thead><tr><th>週（金曜）</th><th class="num">買い</th><th class="num">上限超え</th><th class="num">損益</th><th class="num">ルール○</th><th class="num">✕</th><th class="num">未記入</th></tr></thead><tbody id="week-body"></tbody></table></div></div>
     <div class="panel" id="week-empty"><div class="empty">まだありません。最初の振り返りは金曜の夜に入ります。</div></div>
   </section>
@@ -615,6 +663,7 @@ section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start); else start();
 
   var $ = function (id) { return document.getElementById(id); };
+  var el = function (tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
   var num = function (v) { return typeof v === "number" && isFinite(v); };
   var pc = function (v, d) { return num(v) ? (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(d === undefined ? 2 : d) + "%" : "—"; };
   var yen = function (v) { return num(v) ? (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(Math.round(v)).toLocaleString("ja-JP") + "円" : "—"; };
@@ -677,7 +726,75 @@ section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
     $("mon-count").textContent = list.length ? list.length + "か月" : "";
     toggle("mon", list.length > 0);
   }
-  window.ledgerExtra = { renderNextDay: renderNextDay, renderMarks: renderMarks, renderAccuracy: renderAccuracy, renderMonthly: renderMonthly };
+  // 合図の成績表（1枚ずつ）
+  var SC = {};
+  function sum2(g, ks, f) { var o = { n: 0, filled: 0, sumOC: 0, nHold: 0, sumHold: 0 }; ks.forEach(function (k) { var x = g && g[k]; if (!x) return; Object.keys(o).forEach(function (q) { o[q] += x[q] || 0; }); }); return o; }
+  function cards() {
+    var cs = SC.cands_stats, bt = SC.backtest, iw = SC.intraday_wide_stats && SC.intraday_wide_stats.groups, mk = SC.marks_stats && SC.marks_stats.groups, nd = SC.nextday_stats && SC.nextday_stats.groups, mv = SC.movers_stats, ks = SC.kessan_stats;
+    var out = [];
+    var pass = cs && cs.by_pass && cs.by_pass["通過"];
+    out.push({ name: "スイングの買い候補", what: "夜の候補（通過）を翌日の寄りで。損切り幅を1とした平均", n: pass ? pass.count : 0, need: 30, v: pass ? pass.avg_r : null, unit: "R", bt: bt && bt.any_day ? bt.any_day.avg_r : null });
+    var tk = iw && iw.TAKE;
+    out.push({ name: "場中の買い場", what: "絞り込み後の買い場。大引けまでの全銘柄平均との差", n: tk ? tk.n : 0, need: 200, v: tk && tk.n ? tk.sumExC / tk.n : null, unit: "%", bt: 0.18 });
+    var rc = iw && iw.RECLAIM_PM;
+    out.push({ name: "後場のVWAP奪回", what: "翌日の引けまでの全銘柄平均との差", n: rc ? rc.n : 0, need: 200, v: rc && rc.n ? rc.sumExN / rc.n : null, unit: "%", bt: 0.23 });
+    var lw = mk && mk.LOW_STRONG_CLOSE;
+    out.push({ name: "低位株の強い引け", what: "14:50に買い、翌日 +5%／−8%／13時", n: lw ? lw.n : 0, need: 30, v: lw && lw.n ? lw.sum / lw.n : null, unit: "%", bt: 1.6 });
+    var bb = sum2(nd, ["buyback_s1", "buyback_s2"]);
+    out.push({ name: "自社株買いの翌日", what: "良い条件1つ以上。寄りで買い引けで売る", n: bb.filled, need: 30, v: bb.filled ? bb.sumOC / bb.filled : null, unit: "%", bt: 0.5 });
+    var dv = sum2(nd, ["divup"]);
+    out.push({ name: "増配の翌日", what: "寄りで買い引けで売る", n: dv.filled, need: 30, v: dv.filled ? dv.sumOC / dv.filled : null, unit: "%", bt: 0.48 });
+    var sp = sum2(nd, ["split"]);
+    out.push({ name: "株式分割", what: "寄りで買い5営業日目の引けで売る", n: sp.nHold, need: 30, v: sp.nHold ? sp.sumHold / sp.nHold : null, unit: "%", bt: 0.85 });
+    var pu = sum2(nd, ["up"]);
+    out.push({ name: "夜のPTSで上げた株", what: "翌日の寄り→引け（試しに記録中）", n: pu.filled, need: 30, v: pu.filled ? pu.sumOC / pu.filled : null, unit: "%", bt: null });
+    if (mv && mv.up) {
+      var hi = mv.up.HIGH, lo = mv.up.LOW, nn = Math.min(hi ? hi.n : 0, lo ? lo.n : 0);
+      var dh = hi && hi.n ? hi.drop3 / hi.n * 100 : null, dl = lo && lo.n ? lo.drop3 / lo.n * 100 : null;
+      out.push({ name: "ランキングの危険度", what: "値上がり株で、危険度「高」が「低」より3%以上下げた割合が多いか", n: nn, need: 30, v: dh !== null && dl !== null ? dh - dl : null, unit: "pt", bt: 10, vtext: dh !== null && dl !== null ? "高 " + dh.toFixed(0) + "%・低 " + dl.toFixed(0) + "%" : null });
+    }
+    var r12 = ks && ks.react12;
+    out.push({ name: "決算の反応+12%以上", what: "次の始値で買い5日後。TOPIXとの差", n: r12 ? r12.nEx || 0 : 0, need: 30, v: r12 && r12.nEx ? r12.sumEx5 / r12.nEx : null, unit: "%", bt: 0.4 });
+    return out;
+  }
+  function renderScore() {
+    var box = $("scoreboard"); if (!box) return; box.textContent = "";
+    var f = function (v, u) { return v === null || v === undefined ? "—" : (v > 0 ? "+" : v < 0 ? "−" : "±") + Math.abs(v).toFixed(u === "R" ? 2 : u === "pt" ? 0 : 2) + u; };
+    var tally = { ok: 0, few: 0, off: 0 };
+    cards().forEach(function (c) {
+      var state = c.n < c.need || c.v === null ? "few" : c.bt === null ? "few" : (c.v > 0) === (c.bt > 0) ? "ok" : "off";
+      tally[state]++;
+      var card = el("article", "sc " + state);
+      var h = el("div", "sc-h"); h.appendChild(el("b", "", c.name)); h.appendChild(el("span", "sc-pill", state === "ok" ? "検証どおり" : state === "off" ? "検証とずれ" : c.bt === null ? "記録中" : "まだ少ない")); card.appendChild(h);
+      card.appendChild(el("div", "sc-what", c.what));
+      var nums = el("div", "sc-nums");
+      var a = el("div"); a.appendChild(el("span", "", "本番")); a.appendChild(el("b", "num " + (c.v > 0 ? "up" : c.v < 0 ? "down" : ""), c.vtext || f(c.v, c.unit))); nums.appendChild(a);
+      var b = el("div"); b.appendChild(el("span", "", "過去の検証")); b.appendChild(el("b", "num", c.bt === null ? "—" : (c.unit === "pt" ? "高が多い" : f(c.bt, c.unit)))); nums.appendChild(b);
+      card.appendChild(nums);
+      var xp = el("div", "sc-xp"); var bar = el("div", "pp-bar thin"); var fi = el("i"); fi.style.width = Math.min(100, c.n / c.need * 100) + "%"; bar.appendChild(fi); xp.appendChild(bar);
+      xp.appendChild(el("span", "num", c.n.toLocaleString("ja-JP") + " / " + c.need + "件"));
+      card.appendChild(xp);
+      box.appendChild(card);
+    });
+    var sum = el("div", "sc-sum"); sum.textContent = "検証どおり " + tally.ok + "・ずれ " + tally.off + "・まだ少ない " + tally.few; box.insertBefore(sum, box.firstChild);
+  }
+  function score(k, d) { SC[k] = d; renderScore(); }
+  function streak(docs) {
+    var box = $("week-streak"); if (!box) return;
+    var list = docs.slice().sort(function (a, b) { return String(b.weekEnd || b.id) < String(a.weekEnd || a.id) ? -1 : 1; });
+    if (!list.length) { box.hidden = true; return; }
+    var nn = 0; for (var i = 0; i < list.length; i++) { var w = list[i]; if ((w.ruleNo || 0) === 0 && (w.overLimitDays || 0) === 0 && (w.lateStops || 0) === 0) nn++; else break; }
+    var best = 0, cur = 0; list.slice().reverse().forEach(function (w) { if ((w.ruleNo || 0) === 0 && (w.overLimitDays || 0) === 0 && (w.lateStops || 0) === 0) { cur++; best = Math.max(best, cur); } else cur = 0; });
+    box.textContent = "";
+    var big = el("div", "streak-n num", String(nn)); box.appendChild(big);
+    var t = el("div", "streak-t"); t.appendChild(el("b", "", nn ? nn + "週つづけてルールを守れた" : "今週からまた数え直し"));
+    t.appendChild(el("span", "", "ルール外の売買・回数の上限超え・損切りの遅れが無い週を数える。これまでの最長 " + best + "週"));
+    box.appendChild(t);
+    var dots = el("div", "streak-dots"); list.slice(0, 12).reverse().forEach(function (w) { var ok = (w.ruleNo || 0) === 0 && (w.overLimitDays || 0) === 0 && (w.lateStops || 0) === 0; var d = el("i", ok ? "ok" : "ng"); d.title = String(w.weekEnd || w.id); dots.appendChild(d); });
+    box.appendChild(dots);
+    box.hidden = false;
+  }
+  window.ledgerExtra = { renderNextDay: renderNextDay, renderMarks: renderMarks, renderAccuracy: renderAccuracy, renderMonthly: renderMonthly, score: score, streak: streak };
 })();
 </script>
 
@@ -781,11 +898,13 @@ section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
     var flags = $("m-flags"); flags.textContent = "";
     var msgs = [];
     if (c === null) msgs.push("資金の合計が未入力です。「変更」から入れると、損失の上限と株数を計算できます。");
-    if (open.length > S("maxPositions")) msgs.push("保有 " + open.length + " 銘柄：上限の " + S("maxPositions") + " 銘柄を超えています");
-    var noStop = open.filter(function (r) { return n(r.stop) === null; }).length;
+    var active = open.filter(function (r) { return !r.frozen; });
+    if (active.length > S("maxPositions")) msgs.push("保有 " + active.length + " 銘柄（放置の株を除く）：上限の " + S("maxPositions") + " 銘柄を超えています");
+    var noStop = active.filter(function (r) { return n(r.stop) === null; }).length;
     if (noStop) msgs.push("損切りが決まっていない保有が " + noStop + " 銘柄あります");
     if (c !== null && cash !== null && posCapYen() !== null && cash < 10000 && open.length) msgs.push("現金がほとんどありません。新しく買うには、先にどれかを売る必要があります");
     msgs.forEach(function (m) { flags.appendChild(el("div", "flag", m)); });
+    renderAlerts(open);
 
     var ul = $("rules"); ul.textContent = "";
     function li(a, b) { var x = el("li"); x.appendChild(el("span", "", a)); x.appendChild(el("b", "num", b)); ul.appendChild(x); }
@@ -793,10 +912,35 @@ section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
     li("1銘柄の上限", posCapYen() === null ? S("maxPosPct") + "%" : yenPlain(posCapYen()) + "（" + S("maxPosPct") + "%）");
     li("同時に持つ銘柄", S("maxPositions") + " 銘柄まで");
     li("デイトレ", "1日 " + S("dayTradeMax") + " 回まで／損失 " + (c === null ? S("dayLossPct") + "%" : yenPlain(c * S("dayLossPct") / 100)) + " でその日は終了");
-    String((settings && settings.extra) || "").split("\n").forEach(function (line) {
-      if (!line.trim()) return;
-      var x = el("li"); x.appendChild(el("span", "", line.trim())); ul.appendChild(x);
+    var ex = String((settings && settings.extra) || "").split("\n").filter(function (line) { return line.trim(); });
+    if (ex.length) {
+      var exLi = el("li", "extra-li"); var det = el("details", "more"); det.appendChild(el("summary", "", "そのほかの決めごと（" + ex.length + "）"));
+      var ol = el("ol", "extra-rules"); ex.forEach(function (line) { ol.appendChild(el("li", "", line.trim())); }); det.appendChild(ol);
+      exLi.appendChild(det); ul.appendChild(exLi);
+    }
+  }
+
+  // ── 今日気をつけること ──
+  function renderAlerts(open) {
+    var box = $("today-alerts"); box.textContent = "";
+    var items = [], t = today();
+    open.forEach(function (r) {
+      if (r.frozen) return;
+      var nm = r.name || r.code || "?", s = n(r.stop), l = n(r.last);
+      if (s === null) items.push([2, nm + "：損切りが決まっていない"]);
+      else if (l !== null && l <= s) items.push([2, nm + "：損切り " + price(s) + " を割っている（今 " + price(l) + "）"]);
+      else if (l !== null && (l / s - 1) * 100 <= 2) items.push([1, nm + "：損切りまで あと " + ((l / s - 1) * 100).toFixed(1) + "%"]);
+      if (r.style === "day" && r.date && r.date < t) items.push([1, nm + "：デイトレの株が持ち越しになっている"]);
+      if (r.holdUntil) { var hd = dayDiff(r.holdUntil); if (hd !== null && hd <= 1) items.push([1, nm + "：保有期限 " + (hd <= 0 ? "今日まで" : "明日まで")]); }
+      parseEvents(r.events).forEach(function (ev) { var d = dayDiff(ev.date); if (d !== null && d >= 0 && d <= 3) items.push([1, nm + "：" + ev.label + "（" + (d === 0 ? "今日" : "あと" + d + "日") + "）"]); });
     });
+    var max = S("dayTradeMax"), cnt = rows.filter(function (r) { return r.date === t && r.status !== "skip" && r.status !== "plan"; }).length;
+    var head = el("div", "alerts-h");
+    head.appendChild(el("b", "", items.length ? "今日気をつけること " + items.length + "件" : "今日気をつけること：なし"));
+    head.appendChild(el("span", "num", "今日の買い " + cnt + "/" + max + "回"));
+    box.appendChild(head);
+    items.sort(function (a, b) { return b[0] - a[0]; }).forEach(function (it) { box.appendChild(el("div", "alert " + (it[0] === 2 ? "crit" : "warn"), it[1])); });
+    box.classList.toggle("calm", !items.length);
   }
 
   // ── 日付 ──
@@ -847,20 +991,29 @@ section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
     head.appendChild(nm);
     var badges = el("div", "bar");
     if (r.style === "day") badges.appendChild(el("span", "status st-plan", "デイトレ"));
+    if (r.rule === "yes") badges.appendChild(el("span", "status st-rule-yes", "ルールどおり"));
+    if (r.rule === "no") badges.appendChild(el("span", "status st-rule-no", "ルール外"));
     badges.appendChild(el("span", "status " + st[1], st[0]));
     head.appendChild(badges);
     slip.appendChild(head);
 
     var e = n(r.entry), t = n(r.target), s = n(r.stop), q = n(r.qty), l = n(r.last);
     slip.appendChild(levels(e, s, t));
+    if (r.status === "open" && s !== null && t !== null && t > s && e !== null) {
+      var gp = function (v) { return Math.max(0, Math.min(100, (v - s) / (t - s) * 100)); };
+      var g = el("div", "pp-gauge"); var gi = el("i", "g-entry"); gi.style.left = gp(e) + "%"; g.appendChild(gi);
+      if (l !== null) { var gn = el("i", "g-now " + signCls(l - e)); gn.style.left = gp(l) + "%"; g.appendChild(gn); }
+      slip.appendChild(g);
+      var gl = el("div", "pp-g-lab num"); gl.appendChild(el("span", "", "損切り " + price(s)));
+      gl.appendChild(el("span", "", l !== null ? "今 " + price(l) + "（損切りまで " + pct((s / l - 1) * 100) + "）" : "買 " + price(e)));
+      gl.appendChild(el("span", "", "利確 " + price(t))); slip.appendChild(gl);
+    }
 
     var meta = el("div", "meta");
     if (r.date) meta.appendChild(el("span", "", "買い " + r.date));
     if (q !== null) meta.appendChild(el("span", "", q.toLocaleString("ja-JP") + "株"));
     if (e !== null && q !== null) meta.appendChild(el("span", "", "買った金額 " + yenPlain(e * q)));
     if (r.reason) meta.appendChild(el("span", "", "理由：" + r.reason));
-    if (r.rule === "yes") meta.appendChild(el("span", "", "ルール ◯"));
-    if (r.rule === "no") meta.appendChild(el("span", "", "ルール ✕"));
     slip.appendChild(meta);
 
     if (r.status === "open" || r.status === "plan") {
@@ -954,6 +1107,23 @@ section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
     var avgR = rs.length ? rs.reduce(function (a, b) { return a + b; }, 0) / rs.length : null;
     var rEl = $("s-r"); rEl.textContent = avgR === null ? "—" : (avgR > 0 ? "+" : "") + avgR.toFixed(2) + "R"; rEl.className = "value " + (avgR === null ? "" : signCls(avgR));
 
+    var cw = $("log-curve-wrap"), csv = $("log-curve"); csv.textContent = "";
+    var cl = closed.filter(function (r) { return r.exitDate; }).sort(function (a, b) { return String(a.exitDate) < String(b.exitDate) ? -1 : String(a.exitDate) > String(b.exitDate) ? 1 : 0; });
+    cw.hidden = cl.length < 2;
+    if (cl.length >= 2) {
+      var cum = [0]; cl.forEach(function (r) { cum.push(cum[cum.length - 1] + pnlOf(r)); });
+      var lo = Math.min.apply(null, cum), hi = Math.max.apply(null, cum); if (hi === lo) { hi += 1; lo -= 1; }
+      var pd = (hi - lo) * 0.12; lo -= pd; hi += pd;
+      var NS = "http://www.w3.org/2000/svg", L = 8, R = 312, T = 8, B = 100;
+      var X = function (i) { return L + i / (cum.length - 1) * (R - L); }, Y = function (v) { return T + (hi - v) / (hi - lo) * (B - T); };
+      var mk = function (tag, at) { var e2 = document.createElementNS(NS, tag); Object.keys(at).forEach(function (k) { e2.setAttribute(k, at[k]); }); csv.appendChild(e2); return e2; };
+      mk("line", { x1: L, x2: R, y1: Y(0), y2: Y(0), class: "race-zero" });
+      var ptsS = cum.map(function (v, i) { return X(i) + "," + Y(v); }).join(" ");
+      mk("polygon", { points: L + "," + Y(0) + " " + ptsS + " " + R + "," + Y(0), class: "curve-area " + (cum[cum.length - 1] >= 0 ? "up" : "down") });
+      mk("polyline", { points: ptsS, class: "curve-line" });
+      cum.forEach(function (v, i) { if (!i) return; mk("circle", { cx: X(i), cy: Y(v), r: 2.6, class: "curve-dot " + (v - cum[i - 1] > 0 ? "up" : "down") }); });
+      var lv = $("log-curve-v"); lv.textContent = yen(cum[cum.length - 1]) + "（" + cl.length + "回）"; lv.className = "num " + signCls(cum[cum.length - 1]);
+    }
     var list = $("list"); clearSlips(list);
     var shown = rows.filter(function (r) {
       if (r.status === "open") return filter === "all";
@@ -1579,6 +1749,10 @@ section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
       db.doc("settings/kessan_stats").onSnapshot(function (snap) { renderKessan(snap.exists ? snap.data() : null); }, function () {});
       db.doc("settings/movers_stats").onSnapshot(function (snap) { renderMovers(snap.exists ? snap.data() : null); }, function () {});
       var X = window.ledgerExtra;
+      ["cands_stats", "backtest", "intraday_wide_stats", "marks_stats", "nextday_stats", "movers_stats", "kessan_stats"].forEach(function (k) {
+        db.doc("settings/" + k).onSnapshot(function (snap) { X.score(k, snap.exists ? snap.data() : null); }, function () {});
+      });
+      db.collection("weekly").limit(100).onSnapshot(function (snap) { X.streak(snap.docs.map(function (doc) { var o = Object.assign({}, doc.data()); o.id = doc.id; return o; })); }, function () {});
       db.doc("settings/nextday_stats").onSnapshot(function (snap) { X.renderNextDay(snap.exists ? snap.data() : null); }, function () {});
       db.doc("settings/marks_stats").onSnapshot(function (snap) { X.renderMarks(snap.exists ? snap.data() : null); }, function () {});
       db.doc("settings/accuracy_last").onSnapshot(function (snap) { X.renderAccuracy(snap.exists ? snap.data() : null); }, function () {});
