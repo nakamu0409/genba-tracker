@@ -60,7 +60,8 @@ function run(P) {
       for (const e of (EV.get(pd) || []).filter(x => P.bbAll || evRank(x) < 9).sort((a, b) => evRank(a) - evRank(b))) {
         if (buys >= P.dayMax || todayCodes.has(e.code)) continue
         const x = barOf(e.code)
-        if (!x || x.b.h === x.b.l || x.b.o > e.limit) continue
+        const lim = P.evLimitPct ? Math.floor(e.close * (1 + P.evLimitPct / 100)) : e.limit
+        if (!x || x.b.h === x.b.l || x.b.o > lim) continue
         const o = x.b.o * (1 + (P.evSlip || 0))
         const qty = Math.floor(Math.min(maxPos, cash) / o / 100) * 100
         if (qty < 100) continue
@@ -202,6 +203,14 @@ report('全部入り・1回の損2%', { ...BASE, riskPct: 2 })
 report('全部入り・攻め（1回の損5%・1銘柄50%）', { ...BASE, riskPct: 5, maxPosPct: 50 })
 report('全部入り・300万円', { ...BASE, capital: 3e6 })
 
+if (process.env.GAP) {
+  for (const g of [2, 3, 5, 10, 30]) {
+    report(`寄指の上限 +${g}%・10年`, { ...BASE, evLimitPct: g })
+    report(`寄指の上限 +${g}%・前半`, { ...BASE, evLimitPct: g, end: '2021-11-19' })
+    report(`寄指の上限 +${g}%・後半`, { ...BASE, evLimitPct: g, start: '2021-11-19' })
+  }
+  process.exit(0)
+}
 if (process.env.TUNE) {
   console.log('\n======== スイングと現金の取り合いを減らす案（前半・後半も）')
   for (const [name, o] of [['今のまま（上限×3）', {}], ['損の合計の上限×2', { maxOpenRiskMult: 2 }], ['損の合計の上限×1', { maxOpenRiskMult: 1 }], ['現金を資産の30%残す', { reservePct: 30 }], ['現金を資産の50%残す', { reservePct: 50 }], ['上限×2 ＋ 現金30%残す', { maxOpenRiskMult: 2, reservePct: 30 }]]) {
