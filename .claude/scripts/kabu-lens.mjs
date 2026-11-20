@@ -2936,7 +2936,9 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], 
   {
     const all5 = Object.values(stocks).map(s => s.crash?.r5).filter(v => typeof v === 'number')
     const mkt5 = all5.length ? all5.reduce((a, b) => a + b, 0) / all5.length : null
-    const crashes = Object.entries(stocks).filter(([, s]) => s.crash?.hit && s.bars?.length && (s.turnover || 0) >= 1e8).sort((a, b) => (b[1].turnover || 0) - (a[1].turnover || 0))
+    // 並べ方：検証で安定していた「株価1,500円以上」を先に、その中は売買代金の大きい順
+    const big = x => (x.ctx?.prevClose || 0) >= 1500 ? 1 : 0
+    const crashes = Object.entries(stocks).filter(([, s]) => s.crash?.hit && s.bars?.length && (s.turnover || 0) >= 1e8).sort((a, b) => big(b[1]) - big(a[1]) || (b[1].turnover || 0) - (a[1].turnover || 0))
     let cn = 0
     for (const [code, s] of crashes) {
       if (cn >= (p.crashMax ?? 2)) break
