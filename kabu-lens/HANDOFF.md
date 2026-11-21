@@ -290,6 +290,11 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 - 昼の急騰株への飛びつきは、平均ほぼ0%・勝率47%。「勝てる特徴」は無く、「危ない特徴」だけあった → 危険度スコア（`chaseRisk`）。**「低」は安全という意味ではない。**
 
 ## 続きでやること・決まっていないこと
+- **2026-11-21 のセッションの終わりに、途中のもの（次のセッションで続ける）**：
+  - **自社株買いの規模**：`research/collect_bb_detail.mjs` が開示 PDF（f.irbank.net）から取得の割合・期間・方法を `research/bb_detail.json` に集めている（4,528件中 約3,600件まで。続きから再開できる。2時間で止まるので、止まったら回し直す）。途中の分は記録帳の asset にしまった（`research_store/2026-11-21-bb` に assetId。中身は {bb_detail, kronos_out}）。コンテナが新しくなったら、そこから bb_detail.json を戻してから再開する。集め終わったら `node --max-old-space-size=7000 kabu-lens/research/swing/study_bb_size.mjs`。途中では「取得の割合2〜5%は3つの期間ともプラス」「取得期間6か月超は3つの期間ともマイナス」（README の「自社株買いの規模・期間・方法」）。全部そろって同じなら、`buybackScore` に足すか本人と相談。
+  - **株式分割の比率**：`research/collect_split_detail.mjs`（同じ作り）はまだ回していない。自社株買いが終わってから回す。
+  - **Kronos**：30日分で「当たっていない」と判断して止めた（README）。予測の AI と PyTorch はスクラッチの kvenv・kronos（コンテナが新しくなると消える。やり直す必要はない）。Kronos のために足したネットワークの許可（Hugging Face・PyTorch の置き場所）は、本人の判断で残している。
+  - 練習口座の4つは 11/24 の夜（23:07）が初回。翌朝、`settings/paper_live`・`paper_events` に history ができたか、記録帳の練習口座のタブに4つ出るかを確かめる。
 - **2026-12 中旬ごろ（練習口座が約1か月たったら）**：練習口座（`settings/paper`・`paper_aggr`）と本番（`trades`）の実際の約定を、検証の想定と比べる。特に (a) 企業の行動を寄指で買えた割合と、寄値が `study_events_liquidity.mjs` の想定どおりか、(b) 案Bの各部分（evOrder・ma200Half・5R・60日・swReserve）の損益、(c) 1回ずつの平均が検証（企業の行動 +0.2〜+0.4%・スイング +0.1〜+0.25R）とずれていないか。
 - **2027-02 ごろ（決算短信が3か月分たまったら）**：`archive` の `tanshin-<日付>` と `research/tanshin.json` を合わせ、営業利益の進み具合・前年比・予想の修正の有無で、翌日の窓・5日後が変わるかを確かめる（`study_fins.mjs` と同じ分け方。J-Quants の2年分と見比べる）。
 - 5分足は 2026-08-20 から毎晩 `five_index`（記録帳の asset）にたまっている。半年分（2027-02 ごろ）たまったら、場中の買い場・目印（`research/day/README.md`）を確かめ直す。
