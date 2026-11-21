@@ -2789,7 +2789,7 @@ export const PAPER_DEFAULTS = {
   dayFrom: 630, dayTo: 780, delay: 20, fillWindow: 30, lowAt: 870, lowEntryM: 890, lowTpPct: 5, lowSlPct: 8, lowExitM: 780,
   swingGapPct: 2, swingMaxDays: 40, surgeMax: 2, surgeTpR: 3, surgeHold: 10,
   chaseMax: 0, chaseTrigPct: 10, chaseFrom: 570, chaseTo: 690, chaseSlPct: 8,
-  evPosPct: null, evStopPct: null, ma200Half: false, evOrder: null, swReserve: null, peadMax: 2, peadHold: 5, peadGapMax: 15, peadGapMin: 0, usBearSwingMax: null,
+  evPosPct: null, evStopPct: null, ma200Half: false, evOrder: null, swReserve: null, evTurnCap: null, peadMax: 2, peadHold: 5, peadGapMax: 15, peadGapMin: 0, usBearSwingMax: null,
   crashMax: 2, crashHold: 5, crashSlPct: 20, crashPosPct: 5, crashOpenMax: 2, crashMktOnly: true, swingMaxPrice: null,
   tsurareMax: 2, tsurareHold: 5, tsurarePosPct: 10, tsurareGap: -5, tsurareMktGap: -2.5,
   swingTargetR: null,
@@ -2958,7 +2958,9 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], 
     if (isPead && p.peadGapMin !== null && o < s.ctx.prevClose * (1 + (p.peadGapMin ?? 0) / 100)) continue
     // 企業の行動（自社株買い・増配・株式分割）は evPosPct% まで（2026-11-21 本人と決定。口座全体の検証で、量を増やすと20組すべてで年率が上がった。決算後のドリフトは maxPosPct のまま）
     const posPct = !isPead && p.evPosPct ? p.evPosPct : p.maxPosPct
-    const qty = Math.floor(Math.min(equity0 * posPct / 100, st.cash) / o / 100) * 100
+    // evTurnCap：企業の行動の1銘柄の金額を、20日平均の売買代金の evTurnCap% までにする（寄りの値段を押し上げないため。2026-11-21 の検証で、500万円では抑えないと成績を大きく見誤る）
+    const turnCap = !isPead && p.evTurnCap && s.turnover > 0 ? s.turnover * p.evTurnCap / 100 : Infinity
+    const qty = Math.floor(Math.min(equity0 * posPct / 100, st.cash, turnCap) / o / 100) * 100
     if (qty < 100) continue
     if (b.kind === 'split' || isPead) {
       // 株式分割・決算後のドリフト：寄りで買い、5営業日後の引けで売る（その日を1日目と数える）

@@ -1055,6 +1055,11 @@ describe('企業の行動の開示（自社株買い・増配・株式分割）'
     expect(below200(mk([...Array(199).fill(100), 110]))).toBe(false)
     expect(below200(mk([...Array(150).fill(100), 10, 10, ...Array(49).fill(100), 99]))).toBe(true)
   })
+  it('練習口座：evTurnCap があれば、企業の行動は売買代金の◯%までしか買わない', () => {
+    const day = (o: number, c: number) => [{ m: 540, o, h: Math.max(o, c) + 5, l: Math.min(o, c) - 5, c, v: 1000 }]
+    const r = paperStep(paperNew({ slipPct: 0, evPosPct: 70, evTurnCap: 1.5 }), { date: '2026-11-20', stocks: { 1111: { bars: day(1000, 1010), ctx: { prevClose: 1000 }, turnover: 2e7 } }, buybacks: [{ code: '1111', kind: 'buyback' }] })
+    expect(r.trades[0].qty).toBe(300)
+  })
   it('練習口座：swReserve があれば、スイングは現金をその%まで残す', () => {
     const day = (o: number, c: number) => [{ m: 540, o, h: Math.max(o, c), l: Math.min(o, c), c, v: 1 }]
     const cands = [{ code: '1111', date: '2026-11-19', close: 1000, stop: 990, pass: true, score: 90 }]
