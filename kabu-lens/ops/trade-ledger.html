@@ -727,7 +727,7 @@ section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
     body.appendChild(tr);
   }
   function toggle(name, has) { $(name + "-panel").hidden = !has; $(name + "-empty").hidden = has; }
-  var ND = [["buyback_s2", "自社株買い（良い条件2つ以上）"], ["buyback_s1", "自社株買い（良い条件1つ）"], ["buyback_s0", "自社株買い（良い条件なし）"], ["divup", "増配"], ["split", "株式分割"], ["up", "夜のPTSで上げた株"], ["up_thin", "夜のPTSで上げた株（出来高が少ない）"], ["down", "夜のPTSで下げた株"], ["down_thin", "夜のPTSで下げた株（出来高が少ない）"]];
+  var ND = [["buyback_s2", "自社株買い（良い条件2つ以上）"], ["buyback_s1", "自社株買い（良い条件1つ）"], ["buyback_s0", "自社株買い（良い条件なし）"], ["divup", "増配"], ["split", "株式分割"], ["yutai_end", "優待の廃止（記録だけ・本番では買わない）"], ["up", "夜のPTSで上げた株"], ["up_thin", "夜のPTSで上げた株（出来高が少ない）"], ["down", "夜のPTSで下げた株"], ["down_thin", "夜のPTSで下げた株（出来高が少ない）"]];
   function renderNextDay(st) {
     var g = st && st.groups ? st.groups : {}, body = $("nd-body"); body.textContent = "";
     var keys = ND.map(function (x) { return x[0]; }).concat(Object.keys(g).filter(function (k) { return !ND.some(function (x) { return x[0] === k; }); }));

@@ -1433,6 +1433,22 @@ export function pickEvents(rows, universe = null) {
 }
 
 /**
+ * 株主優待の廃止・中止・休止（2026-11-21 本人と決定：記録だけ。本番では買わない）。15:00以降・決算と別の日・universe の銘柄。
+ * 10年の検証で、翌朝は平均 −2.7% 安く始まり、その日のうちに +1.1% 戻る傾向（前半・後半とも。件数は約20ずつ）。30件ほどたまったら本当に効くか判断する
+ */
+export function pickYutaiEnd(rows, universe = null) {
+  const set = universe ? new Set(universe) : null
+  const kessan = new Set(rows.filter(r => /決算短信|決算発表|四半期決算/.test(r.title)).map(r => r.code))
+  const out = new Map()
+  for (const r of rows) {
+    if (r.time < '15:00' || kessan.has(r.code) || (set && !set.has(r.code))) continue
+    if (!(/株主優待/.test(r.title) && /(廃止|中止|休止)/.test(r.title))) continue
+    if (!out.has(r.code)) out.set(r.code, { code: r.code, name: r.name, time: r.time, title: r.title, kind: 'yutai_end', pdf: r.pdf || null })
+  }
+  return [...out.values()]
+}
+
+/**
  * 自社株買いの開示 PDF（1〜2ページ目の pdftotext の文字）から、取得の規模を取り出す（2026-11-21 の検証：取得の割合が発行済株式の2%以上なら翌朝の買いが良い）
  * pct＝取得しうる株式の総数の、発行済株式総数（自己株式を除く）に対する割合（％。変更の開示は最後＝変更後の値）、days＝取得期間の日数、method＝市場／ToSTNeT／TOB／信託／その他
  */
@@ -3975,6 +3991,8 @@ async function main() {
     const uni = ui >= 0 ? JSON.parse(readFileSync(args[ui + 1], 'utf-8')).map(x => x.code) : null
     const td = await fetchTdnet(d)
     const rows = pickEvents(td.rows, uni)
+    // 優待の廃止は記録だけ（skip。注文票には出さない）。同じ銘柄が企業の行動にもあれば足さない
+    for (const y of pickYutaiEnd(td.rows, uni)) if (!rows.some(x => x.code === y.code)) rows.push(y)
     for (const r of rows) {
       try {
         const y = await fetchYahoo(`${r.code}.T`, '3mo')
@@ -4007,6 +4025,12 @@ async function main() {
         else if (bp.pct >= 2) r.why = [...(r.why || []), `取得の割合 ${bp.pct}%（2%以上）`]
         r.expect_pct = r.score_with_size >= 2 ? 0.7 : r.score_with_size === 1 ? 0.36 : -0.06
         r.sell = '同じ日の引成'
+      } else if (r.kind === 'yutai_end') {
+        r.skip = true
+        r.record_only = true
+        r.why = ['優待の廃止（記録だけ。本番では買わない）']
+        r.expect_pct = null
+        r.sell = '同じ日の引成（記録だけ）'
       } else if (r.kind === 'divup') {
         r.skip = false
         r.expect_pct = 0.48
@@ -4018,7 +4042,7 @@ async function main() {
       }
     }
     rows.sort((a, b) => (b.skip ? -1 : b.expect_pct) - (a.skip ? -1 : a.expect_pct))
-    console.log(JSON.stringify({ date: td.date, total_disclosures: td.total, error: td.error || null, rule: '翌営業日に寄指（limit 以下なら寄りで買う）。kind: buyback＝自社株買い（同じ日の引成で売る。良い条件＋取得の割合2%以上で2つ以上だけ買い、ほかは skip）、divup＝増配（同じ日の引成）、split＝株式分割（5営業日後の引成）。決算と同じ日の発表・立会外の取得は除く。expect_pct＝10年の検証での1回の平均（全体比の%）。大きい順', rows }, null, 2))
+    console.log(JSON.stringify({ date: td.date, total_disclosures: td.total, error: td.error || null, rule: '翌営業日に寄指（limit 以下なら寄りで買う）。kind: buyback＝自社株買い（同じ日の引成で売る。良い条件＋取得の割合2%以上で2つ以上だけ買い、ほかは skip）、divup＝増配（同じ日の引成）、split＝株式分割（5営業日後の引成）、yutai_end＝株主優待の廃止（記録だけ。skip。11/21〜）。決算と同じ日の発表・立会外の取得は除く。expect_pct＝10年の検証での1回の平均（全体比の%）。大きい順', rows }, null, 2))
     return
   }
   if (args.includes('--scan-now')) {

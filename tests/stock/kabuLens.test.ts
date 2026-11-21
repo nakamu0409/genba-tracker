@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { below200, parseBuybackPdf, drawdownStop, nikkeiFutBrief, crashSignal, worldBrief, parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, paperInputOf, paperInputFromFive, paperReplay, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { below200, parseBuybackPdf, drawdownStop, nikkeiFutBrief, pickYutaiEnd, crashSignal, worldBrief, parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, paperInputOf, paperInputFromFive, paperReplay, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -1406,5 +1406,20 @@ describe('日経平均先物（11/21）', () => {
     expect(r.n225Date).toBe('2026-11-20')
     expect(r.futTime.startsWith('2026-11-21 06:')).toBe(true)
     expect(nikkeiFutBrief(null, n)).toBeNull()
+  })
+})
+
+describe('優待の廃止（記録だけ・11/21）', () => {
+  it('15:00以降・決算と別の日・universe の銘柄の、優待の廃止・中止・休止だけ', () => {
+    const rows = [
+      { code: '1111', name: 'A', time: '15:30', title: '株主優待制度の廃止に関するお知らせ' },
+      { code: '2222', name: 'B', time: '14:00', title: '株主優待制度の廃止に関するお知らせ' },
+      { code: '3333', name: 'C', time: '15:00', title: '株主優待制度の拡充に関するお知らせ' },
+      { code: '4444', name: 'D', time: '15:00', title: '株主優待制度の休止に関するお知らせ' },
+      { code: '4444', name: 'D', time: '15:00', title: '2026年3月期 第2四半期決算短信' },
+      { code: '5555', name: 'E', time: '16:00', title: '株主優待制度の中止のお知らせ' }
+    ]
+    expect(pickYutaiEnd(rows).map(r => r.code)).toEqual(['1111', '5555'])
+    expect(pickYutaiEnd(rows, ['5555']).map(r => r.kind)).toEqual(['yutai_end'])
   })
 })
