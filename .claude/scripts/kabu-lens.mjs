@@ -3885,10 +3885,13 @@ async function main() {
           r.repeat = null
         }
         Object.assign(r, buybackScore(r))
-        // 取得の割合（開示 PDF）。本番の買い方はまだ変えない（練習口座で試し中：割合2%以上を良い条件の1つに数え、2つ以上だけ買う）
+        // 取得の割合（開示 PDF）
         const bp = fetchBuybackPdf(r.pdf)
         r.size_pct = bp.pct ?? null
+        r.score_base = r.score
         r.score_with_size = r.score + (bp.pct >= 2 ? 1 : 0)
+        // score は割合を足した数にする（夜の注文票の「良い条件◯つ」と、答え合わせの組 buyback_s0〜s2 が新しい決まりの数になるように。11/21〜。もとの数は score_base）
+        r.score = r.score_with_size
         // 2026-11-21 本人と決定（本番）：取得の割合2%以上を良い条件の1つに数え、2つ以上のものだけ買う。PDF が読めず割合が分からないときは、もとの良い条件だけで数える
         r.skip = r.score_with_size < 2
         if (r.skip) r.why = [...(r.why || []), r.size_pct === null ? '取得の割合は読めず' : `取得の割合 ${r.size_pct}%（2%未満）`]
