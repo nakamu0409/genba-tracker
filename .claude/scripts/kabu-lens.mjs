@@ -3889,8 +3889,11 @@ async function main() {
         const bp = fetchBuybackPdf(r.pdf)
         r.size_pct = bp.pct ?? null
         r.score_with_size = r.score + (bp.pct >= 2 ? 1 : 0)
-        r.skip = r.score === 0
-        r.expect_pct = r.score >= 2 ? 0.7 : r.score === 1 ? 0.36 : -0.06
+        // 2026-11-21 本人と決定（本番）：取得の割合2%以上を良い条件の1つに数え、2つ以上のものだけ買う。PDF が読めず割合が分からないときは、もとの良い条件だけで数える
+        r.skip = r.score_with_size < 2
+        if (r.skip) r.why = [...(r.why || []), r.size_pct === null ? '取得の割合は読めず' : `取得の割合 ${r.size_pct}%（2%未満）`]
+        else if (bp.pct >= 2) r.why = [...(r.why || []), `取得の割合 ${bp.pct}%（2%以上）`]
+        r.expect_pct = r.score_with_size >= 2 ? 0.7 : r.score_with_size === 1 ? 0.36 : -0.06
         r.sell = '同じ日の引成'
       } else if (r.kind === 'divup') {
         r.skip = false
@@ -3903,7 +3906,7 @@ async function main() {
       }
     }
     rows.sort((a, b) => (b.skip ? -1 : b.expect_pct) - (a.skip ? -1 : a.expect_pct))
-    console.log(JSON.stringify({ date: td.date, total_disclosures: td.total, error: td.error || null, rule: '翌営業日に寄指（limit 以下なら寄りで買う）。kind: buyback＝自社株買い（同じ日の引成で売る。score 0 は見送り）、divup＝増配（同じ日の引成）、split＝株式分割（5営業日後の引成）。決算と同じ日の発表・立会外の取得は除く。expect_pct＝10年の検証での1回の平均（全体比の%）。大きい順', rows }, null, 2))
+    console.log(JSON.stringify({ date: td.date, total_disclosures: td.total, error: td.error || null, rule: '翌営業日に寄指（limit 以下なら寄りで買う）。kind: buyback＝自社株買い（同じ日の引成で売る。良い条件＋取得の割合2%以上で2つ以上だけ買い、ほかは skip）、divup＝増配（同じ日の引成）、split＝株式分割（5営業日後の引成）。決算と同じ日の発表・立会外の取得は除く。expect_pct＝10年の検証での1回の平均（全体比の%）。大きい順', rows }, null, 2))
     return
   }
   if (args.includes('--scan-now')) {
