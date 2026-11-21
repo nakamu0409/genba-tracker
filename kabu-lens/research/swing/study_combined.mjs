@@ -79,6 +79,21 @@ const pbrOf = s => {
   for (const [d, v] of l) { if (d >= s.date) break; b = v }
   return b > 0 ? stocks[s.code].bars[s.i].c / b : null
 }
+// VIX：日本の日 d には、d より前の日付（米国時間）の最後の終値を使う
+const VIXOF = (() => {
+  try {
+    const r = JSON.parse(readFileSync(new URL('../world/VIX.json', import.meta.url), 'utf-8')).chart.result[0]
+    const q = r.indicators.quote[0]
+    const v = r.timestamp.map((t, i) => [new Date((t - 5 * 3600) * 1000).toISOString().slice(0, 10), q.close[i]]).filter(x => x[1] > 0)
+    const m = new Map()
+    let j = -1
+    for (const b of bench) {
+      while (j + 1 < v.length && v[j + 1][0] < b.date) j++
+      if (j >= 0) m.set(b.date, v[j][1])
+    }
+    return m
+  } catch { return new Map() }
+})()
 const EVBY = {}
 for (const e of D.events) if (e.kind !== 'split') (EVBY[e.code] ||= []).push(e.i)
 const recentEv = s => (EVBY[s.code] || []).some(i => i <= s.i && i >= s.i - 20)
@@ -154,7 +169,8 @@ function run(P) {
     const pd = prevOf.get(d)
     // ddCut：口座が最高値から ddCut% 以上下がっている間は、スイングなどの1回の損の上限を ddMult 倍にする
     const inDD = (P.ddCut && equityPrev < peakEq * (1 - P.ddCut / 100)) || (P.ma200Cut && belowMA(pd, P.maDays ?? 200))
-    const riskOne = equityPrev * P.riskPct / 100 * (inDD ? (P.ddMult ?? 0.5) : 1)
+    const vixHi = P.vixBoost && (VIXOF.get(d) ?? 0) >= (P.vixAt ?? 30)
+    const riskOne = equityPrev * P.riskPct / 100 * (inDD ? (P.ddMult ?? 0.5) : 1) * (vixHi ? P.vixBoost : 1)
     const maxPos = equityPrev * P.maxPosPct / 100
     const barOf = code => {
       if (code === 'ETF') {
@@ -440,7 +456,11 @@ const PC = { ...PB, evPosPct: 70 }
 if (process.env.PAIRED) {
   // 同じでたらめな順番（同じ SEED）で、変更あり・なしを比べる。差の分布で、偶然ではないかを見る
   const CRV = { tracks: { ...BASE.tracks, crash: true } }
-  const variants = process.env.PAIRED === 'reserve' ? [
+  const variants = process.env.PAIRED === 'vix' ? [
+    ['案B＋VIX30以上の日はスイングを1.5倍', { ...PB, vixBoost: 1.5 }, PB],
+    ['案B＋VIX30以上の日はスイングを2倍', { ...PB, vixBoost: 2 }, PB],
+    ['案B＋VIX25以上の日はスイングを1.5倍', { ...PB, vixBoost: 1.5, vixAt: 25 }, PB]
+  ] : process.env.PAIRED === 'reserve' ? [
     ['案B＋現金を資金の30%残す', { ...PB, swReserve: 30 }, PB],
     ['案B＋現金を資金の50%残す', { ...PB, swReserve: 50 }, PB],
     ['案C（70%）＋現金を資金の70%残す', { ...PC, swReserve: 70 }, PC]
