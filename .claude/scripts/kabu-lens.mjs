@@ -30,7 +30,7 @@
 //   node .claude/scripts/kabu-lens.mjs --intraday-replay 7203 2026-11-18  # ある日の場中の判定を30分ごとに再現
 //   node .claude/scripts/kabu-lens.mjs --next-day-result recs.json [--stats st.json]  # 企業の行動・夜のPTSの、翌営業日（と hold 営業日後）の値動き
 //   node .claude/scripts/kabu-lens.mjs --intraday-wide universe-wide.json [--stats st.json] [--five-out f.json]  # 前の営業日の場中の判定を全銘柄で再現して数える（毎晩の自動記録）。--five-out でその日の5分足も保存
-//     [--paper 練習口座.json --paper-cands 候補.json --paper-out 新しい練習口座.json]  # 練習口座（仮の資金で合図どおりに売買）を今日の分すすめる
+//     [--paper 練習口座.json --paper-cands 候補.json --paper-out 新しい練習口座.json] [--paper2/3/4 …-out …-name]  # 練習口座（仮の資金で合図どおりに売買）を今日の分すすめる
 //   node .claude/scripts/kabu-lens.mjs --intraday-result recs.json [--stats st.json]  # 場中の判定の答え合わせ
 //   node .claude/scripts/kabu-lens.mjs --movers-result <記録.json> [--stats <累計.json>]  # 昼に出した危険度の答え合わせ（後場の結果）
 //
@@ -4009,6 +4009,24 @@ async function main() {
         const o2 = args.indexOf('--paper2-out')
         if (o2 >= 0) writeFileSync(args[o2 + 1], JSON.stringify(r2.state))
         paper.second = { skipped: !!r2.skipped, trades: r2.trades.map(t => ({ ...t, id: 'aggr-' + t.id, account: 'aggr' })), opened: r2.opened, summary: paperSummary(r2.state, r2.trades), equity: r2.state.history[r2.state.history.length - 1] || null, state_file: o2 >= 0 ? args[o2 + 1] : null }
+      }
+      // 3つ目・4つ目の口座（11/21 本人と決定：本番どおり・企業の行動だけ）：--paper3 状態.json --paper3-out 新しい状態.json --paper3-name live（--paper4 も同じ）
+      paper.others = []
+      for (const n of ['3', '4']) {
+        const pn = args.indexOf(`--paper${n}`)
+        if (pn < 0) continue
+        let sn = null
+        try {
+          sn = JSON.parse(readFileSync(args[pn + 1], 'utf-8'))
+        } catch {
+          sn = null
+        }
+        if (!sn?.params) continue
+        const nm = args.includes(`--paper${n}-name`) ? args[args.indexOf(`--paper${n}-name`) + 1] : `p${n}`
+        const rn = paperStep(sn, { date: day.paper.date, stocks: day.paper.stocks, cands: Array.isArray(cands) ? cands : [], buybacks, usBear })
+        const on = args.indexOf(`--paper${n}-out`)
+        if (on >= 0) writeFileSync(args[on + 1], JSON.stringify(rn.state))
+        paper.others.push({ name: nm, skipped: !!rn.skipped, trades: rn.trades.map(t => ({ ...t, id: nm + '-' + t.id, account: nm })), opened: rn.opened, summary: paperSummary(rn.state, rn.trades), equity: rn.state.history[rn.state.history.length - 1] || null, state_file: on >= 0 ? args[on + 1] : null })
       }
     }
     delete day.paper

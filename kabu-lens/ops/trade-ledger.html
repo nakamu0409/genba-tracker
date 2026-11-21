@@ -16,6 +16,7 @@
   --up: #c8323a;
   --down: #1f8a55;
   --warn: #a8660b;
+  --acc3: #5b6474; --acc4: #0f7a6e;
   --warn-soft: #fbf1dc;
   --font-body: "Zen Kaku Gothic New", "Hiragino Kaku Gothic ProN", "Noto Sans JP", system-ui, sans-serif;
   --font-num: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
@@ -23,13 +24,13 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #12161d; --surface: #1a2029; --ink: #e7eaf0; --muted: #9aa3b2; --line: #2b3340;
-    --accent: #8fa9e0; --accent-soft: #212c40; --up: #ff6b6f; --down: #4cc98a; --warn: #e3a64a; --warn-soft: #33290f;
+    --accent: #8fa9e0; --accent-soft: #212c40; --up: #ff6b6f; --down: #4cc98a; --warn: #e3a64a; --warn-soft: #33290f; --acc3: #a3acbb; --acc4: #3fc7b4;
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #12161d; --surface: #1a2029; --ink: #e7eaf0; --muted: #9aa3b2; --line: #2b3340;
-  --accent: #8fa9e0; --accent-soft: #212c40; --up: #ff6b6f; --down: #4cc98a; --warn: #e3a64a; --warn-soft: #33290f;
+  --accent: #8fa9e0; --accent-soft: #212c40; --up: #ff6b6f; --down: #4cc98a; --warn: #e3a64a; --warn-soft: #33290f; --acc3: #a3acbb; --acc4: #3fc7b4;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
@@ -185,6 +186,12 @@ section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
 .pp-duel { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .pp-card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: grid; gap: 6px; min-width: 0; position: relative; }
 .pp-card.aggr { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
+.pp-card.live { border-color: color-mix(in srgb, var(--acc3) 45%, var(--line)); }
+.pp-card.events { border-color: color-mix(in srgb, var(--acc4) 45%, var(--line)); }
+.pp-card.live.lead::after { background: var(--acc3); } .pp-card.events.lead::after { background: var(--acc4); }
+.pp-card.live .pp-name { color: var(--acc3); } .pp-card.events .pp-name { color: var(--acc4); }
+.pp-card.live .pp-bar i { background: var(--acc3); } .pp-card.events .pp-bar i { background: var(--acc4); }
+.pp-what { font-size: .68rem; color: var(--muted); line-height: 1.5; }
 .pp-card.lead::after { content: "リード"; position: absolute; top: -9px; right: 10px; background: var(--accent); color: var(--surface); font-size: .66rem; font-weight: 700; letter-spacing: .08em; padding: 1px 8px; border-radius: 999px; }
 .pp-card.aggr.lead::after { background: var(--warn); }
 .pp-top { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
@@ -208,7 +215,7 @@ section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
 .pp-sub { font-size: .72rem; color: var(--muted); }
 .pp-key { font-size: .72rem; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
 .pp-key i { display: inline-block; width: 14px; height: 3px; border-radius: 2px; margin-left: 6px; }
-.k-base { background: var(--accent); } .k-aggr { background: var(--warn); }
+.k-base { background: var(--accent); } .k-aggr { background: var(--warn); } .k-live { background: var(--acc3); } .k-events { background: var(--acc4); }
 .pp-race { width: 100%; height: auto; display: block; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
 .race-grid { stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 3; }
 .race-zero { stroke: var(--muted); stroke-width: 1; }
@@ -216,6 +223,8 @@ section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
 .race-line { fill: none; stroke-width: 2; stroke-linejoin: round; }
 .race-line.r-base, .race-dot.r-base { stroke: var(--accent); } .race-dot.r-base { fill: var(--accent); }
 .race-line.r-aggr, .race-dot.r-aggr { stroke: var(--warn); } .race-dot.r-aggr { fill: var(--warn); }
+.race-line.r-live, .race-dot.r-live { stroke: var(--acc3); } .race-dot.r-live { fill: var(--acc3); }
+.race-line.r-events, .race-dot.r-events { stroke: var(--acc4); } .race-dot.r-events { fill: var(--acc4); }
 .race-dot { stroke-width: 2; }
 .pp-pos { display: grid; gap: 8px; }
 .pp-p { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; gap: 6px; min-width: 0; }
@@ -536,15 +545,17 @@ section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
     <p class="tab-intro">仮の資金で合図どおりに売買した記録</p>
   <section aria-labelledby="h-paper">
     <div class="sec-head"><h2 id="h-paper">練習口座</h2><span class="count" id="paper-count"></span></div>
-    <details class="more how"><summary>売買の決まり</summary><p>仮の資金100万円で、合図どおりに買って売ったらどうなったかを毎晩数えます（本人の売買とは別）。デイトレ＝場中の買い場に指値（30分で約定しなければ取り消し）、損切りの目安に逆指値、届かなければ大引け。1日2回まで。スイング＝前の夜の買い候補を寄りで（終値の+2%以内なら）、損切り・目標・最長40営業日、3銘柄まで。低位株＝強い引けの目印で14:50に買い、翌日 +5%／−8%／13時。自社株買い＝前の日の15時以降に発表（決算と別の日）された株のうち良い条件（久しぶり・15時台前半・25日線の下）が1つ以上のものと、増配を、寄りが前日の終値の+2%以内なら寄りで買い、大引けで売る。株式分割は同じく寄りで買い、5営業日目の大引けで売る（合わせて1日2回まで）。1回の損は資金の1%まで、1銘柄は30%まで、100株単位。成行は0.1%不利に約定、手数料0。</p><p>攻めの口座は、1回の損を資金の5%まで・1銘柄50%まで・スイングは10銘柄まで・低位株は3回まで・急騰の追いかけあり。2026/11/20 に200万円を足して300万円で始めたとみなしています。</p></details>
+    <details class="more how"><summary>売買の決まり</summary><p>仮の資金100万円で、合図どおりに買って売ったらどうなったかを毎晩数えます（本人の売買とは別）。デイトレ＝場中の買い場に指値（30分で約定しなければ取り消し）、損切りの目安に逆指値、届かなければ大引け。1日2回まで。スイング＝前の夜の買い候補を寄りで（終値の+2%以内なら）、損切り・目標・最長40営業日、3銘柄まで。低位株＝強い引けの目印で14:50に買い、翌日 +5%／−8%／13時。自社株買い＝前の日の15時以降に発表（決算と別の日）された株のうち良い条件（久しぶり・15時台前半・25日線の下）が1つ以上のものと、増配を、寄りが前日の終値の+2%以内なら寄りで買い、大引けで売る。株式分割は同じく寄りで買い、5営業日目の大引けで売る（合わせて1日2回まで）。1回の損は資金の1%まで、1銘柄は30%まで、100株単位。成行は0.1%不利に約定、手数料0。</p><p>2026/11/21 から4つの口座で比べています。基本＝おすすめの形（企業の行動50%・発表前に上げていた順・TOPIX が200日線より下はスイング半分・スイング5R・60日・1,500円未満のスイングだけ）。攻め＝同じ形を強めに（企業の行動70%・1回の損5%・スイング10銘柄まで・現金70%を残す。500万円）。本番どおり＝今の本番の決まりのまま（実際の資金に合わせた額）。企業の行動だけ＝スイングをせず、自社株買い・増配・株式分割だけ（50%）。企業の行動の1銘柄は、どの口座も20日平均の売買代金の1.5%まで。</p></details>
     <div id="paper-panel" class="pp" hidden>
       <div class="pp-duel">
         <article class="pp-card" id="pp-base" aria-label="基本の口座"></article>
         <article class="pp-card aggr" id="pp-aggr" aria-label="攻めの口座"></article>
+        <article class="pp-card live" id="pp-live" aria-label="本番どおりの口座" hidden></article>
+        <article class="pp-card events" id="pp-events" aria-label="企業の行動だけの口座" hidden></article>
       </div>
       <div class="pp-block">
-        <div class="pp-h"><h3>資産の競争</h3><span class="pp-key"><i class="k-base"></i>基本 <i class="k-aggr"></i>攻め</span></div>
-        <svg id="pp-race" class="pp-race" viewBox="0 0 320 120" role="img" aria-label="2つの口座の増減%の推移"></svg>
+        <div class="pp-h"><h3>資産の競争</h3><span class="pp-key"><i class="k-base"></i>基本 <i class="k-aggr"></i>攻め <i class="k-live"></i>本番どおり <i class="k-events"></i>企業の行動だけ</span></div>
+        <svg id="pp-race" class="pp-race" viewBox="0 0 320 120" role="img" aria-label="練習口座の増減%の推移"></svg>
       </div>
       <div class="pp-block">
         <div class="pp-h"><h3>保有中</h3><span class="pp-sub" id="pp-pos-n"></span></div>
@@ -1495,7 +1506,8 @@ section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
     el.textContent = "ここに無い売買もあります。証券会社の取引履歴（" + String(hh.from || "").slice(5).replace("-", "/") + "〜" + String(hh.to || "").slice(5).replace("-", "/") + "、" + (hh.trades || "?") + "件）で数えた実現損益は " + (hh.realized > 0 ? "+" : "") + Math.round(hh.realized).toLocaleString("ja-JP") + "円（勝ち" + (hh.winners || 0) + "銘柄・負け" + (hh.losers || 0) + "銘柄）。下の数字は、記録帳に入れた売買だけの集計です。";
   }
 
-  var paperState = null, paperTrades = [], paperBf = null, paperAggr = null;
+  var paperState = null, paperTrades = [], paperBf = null, paperAggr = null, paperLive = null, paperEv = null;
+  var ACCT_WHAT = { base: "おすすめの形", aggr: "おすすめを強めに", live: "今の本番の決まり", events: "企業の行動だけ" };
   var TRACK = { day: "デイトレ", swing: "スイング", low: "低位株の強い引け", bb: "自社株買い・増配の翌日", split: "株式分割（5日）", surge: "急騰後の押し目（反発確認）", chase: "低位株の急騰の追いかけ（攻めだけ）", pead: "決算後のドリフト（上方修正+20%・5日）", crash: "急落の反発（5日で−15%・5日持つ）", tsurare: "つられ下げ（全体の窓−2.5%の日に−5%の株・5日）", etfdip: "全体の急落の翌日にTOPIX ETF（20日）" };
   function renderPaper() {
     var yenS = function (v) { return (v > 0 ? "+" : v < 0 ? "−" : "±") + Math.abs(Math.round(v)).toLocaleString("ja-JP") + "円"; };
@@ -1508,8 +1520,11 @@ section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
       bf.hidden = false;
     }
     var accts = [];
-    if (paperState && paperState.history && paperState.history.length) accts.push({ key: "base", name: "基本", st: paperState, trades: paperTrades.filter(function (t) { return t.account !== "aggr"; }) });
+    var other = { aggr: 1, live: 1, events: 1 };
+    if (paperState && paperState.history && paperState.history.length) accts.push({ key: "base", name: "基本", st: paperState, trades: paperTrades.filter(function (t) { return !other[t.account]; }) });
     if (paperAggr && paperAggr.history && paperAggr.history.length) accts.push({ key: "aggr", name: "攻め", st: paperAggr, trades: paperTrades.filter(function (t) { return t.account === "aggr"; }) });
+    if (paperLive && paperLive.history && paperLive.history.length) accts.push({ key: "live", name: "本番どおり", st: paperLive, trades: paperTrades.filter(function (t) { return t.account === "live"; }) });
+    if (paperEv && paperEv.history && paperEv.history.length) accts.push({ key: "events", name: "企業の行動だけ", st: paperEv, trades: paperTrades.filter(function (t) { return t.account === "events"; }) });
     if (!accts.length) { $("paper-panel").hidden = true; $("paper-empty").hidden = false; return; }
     $("paper-empty").hidden = true; $("paper-panel").hidden = false;
     accts.forEach(function (a) {
@@ -1524,6 +1539,7 @@ section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
       top.appendChild(el("span", "pp-name", a.name));
       top.appendChild(el("span", "pp-rule", "1回の損 " + st.params.riskPct + "%・1銘柄 " + st.params.maxPosPct + "%まで"));
       card.appendChild(top);
+      card.appendChild(el("div", "pp-what", ACCT_WHAT[a.key] || ""));
       card.appendChild(el("div", "pp-eq num " + tone(a.ret), Math.round(last.equity).toLocaleString("ja-JP") + "円"));
       card.appendChild(el("div", "pp-delta num " + tone(a.ret), yenS(last.equity - cap) + "（" + pc(a.ret) + "）"));
       var dl = el("dl", "pp-stats");
@@ -1537,10 +1553,11 @@ section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
       card.classList.toggle("lead", accts.length > 1);
     });
     if (accts.length > 1) {
-      var lead = accts[0].ret >= accts[1].ret ? accts[0] : accts[1];
-      accts.forEach(function (a) { $("pp-" + a.key).classList.toggle("lead", a === lead && accts[0].ret !== accts[1].ret); });
+      var lead = accts.reduce(function (m, a) { return a.ret > m.ret ? a : m; }, accts[0]);
+      var tie = accts.filter(function (a) { return a.ret === lead.ret; }).length > 1;
+      accts.forEach(function (a) { $("pp-" + a.key).classList.toggle("lead", a === lead && !tie); });
     }
-    if (!paperAggr || !paperAggr.history || !paperAggr.history.length) $("pp-aggr").hidden = true; else $("pp-aggr").hidden = false;
+    ["base", "aggr", "live", "events"].forEach(function (k) { $("pp-" + k).hidden = !accts.some(function (a) { return a.key === k; }); });
     $("paper-count").textContent = String(accts[0].st.history[accts[0].st.history.length - 1].date).slice(5).replace("-", "/") + " まで";
     // 資産の競争（始めからの増減%）
     var svg = $("pp-race"); svg.textContent = ""; var ns = "http://www.w3.org/2000/svg";
@@ -1798,6 +1815,8 @@ section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
       db.collection("intraday").limit(300).onSnapshot(function (snap) { intraDocs = snap.docs.map(function (doc) { var o = Object.assign({}, doc.data()); o.id = doc.id; return o; }); renderIntra(); }, function () {});
       db.doc("settings/paper").onSnapshot(function (snap) { paperState = snap.exists ? snap.data() : null; renderPaper(); }, function () {});
       db.doc("settings/paper_aggr").onSnapshot(function (snap) { paperAggr = snap.exists ? snap.data() : null; renderPaper(); }, function () {});
+      db.doc("settings/paper_live").onSnapshot(function (snap) { paperLive = snap.exists ? snap.data() : null; renderPaper(); }, function () {});
+      db.doc("settings/paper_events").onSnapshot(function (snap) { paperEv = snap.exists ? snap.data() : null; renderPaper(); }, function () {});
       db.doc("settings/paper_backfill").onSnapshot(function (snap) { paperBf = snap.exists ? snap.data() : null; renderPaper(); }, function () {});
       db.collection("paper_trades").limit(1000).onSnapshot(function (snap) { paperTrades = snap.docs.map(function (doc) { var o = Object.assign({}, doc.data()); o.id = doc.id; return o; }); renderPaper(); }, function () {});
       db.doc("settings/intraday_wide_stats").onSnapshot(function (snap) { wideStats = snap.exists ? snap.data() : null; renderWide(); }, function () {});
