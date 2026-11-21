@@ -216,6 +216,11 @@ function run(P) {
       if (P.evOrder === 'mom') evList.sort((a, b) => r20(b) - r20(a))
       else if (P.evOrder === 'rev') evList.sort((a, b) => r20(a) - r20(b))
       else if (P.evOrder === 'rankmom') evList.sort((a, b) => evRank(a) - evRank(b) || r20(b) - r20(a))
+      // bbsmall：取得の割合2%以上で、ふだんの売買代金が3億円未満の自社株買いを先に（11/21 の検証で3つの期間とも +1.0〜1.5%）。あとは今の種類の順
+      else if (P.evOrder === 'bbsmall') {
+        const hot = e => e.kind === 'buyback' && (BBD[`${e.code}|${e.date}|${e.time}`]?.pct ?? 0) >= 2 && stocks[e.code].turn[e.i] < 3e8 ? 0 : 1
+        evList.sort((a, b) => hot(a) - hot(b) || evRank(a) - evRank(b))
+      }
       else evList.sort((a, b) => evRank(a) - evRank(b))
       for (const e of evList) {
         if (buys >= P.dayMax || held.has(e.code)) continue
