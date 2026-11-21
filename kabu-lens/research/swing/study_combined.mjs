@@ -216,7 +216,9 @@ function run(P) {
         if (!x || x.b.h === x.b.l || x.b.o > lim) continue
         if (P.evMinGap !== undefined && e.kind !== 'split' && x.b.o < e.close * (1 + P.evMinGap / 100)) continue
         const o = x.b.o
-        const qty = Math.floor(Math.min(P.evPosPct ? equityPrev * P.evPosPct / 100 : maxPos, cash) / o / 100) * 100
+        // evTurnCap：1銘柄の金額を、前の日までの20日平均の売買代金の evTurnCap% までにする（寄りで値段を押し上げないため）
+        const cap = P.evTurnCap ? stocks[e.code].turn[e.i] * P.evTurnCap / 100 : Infinity
+        const qty = Math.floor(Math.min(P.evPosPct ? equityPrev * P.evPosPct / 100 : maxPos, cash, cap) / o / 100) * 100
         if (qty < 100) continue
         buys++
         held.add(e.code)
@@ -456,7 +458,11 @@ const PC = { ...PB, evPosPct: 70 }
 if (process.env.PAIRED) {
   // 同じでたらめな順番（同じ SEED）で、変更あり・なしを比べる。差の分布で、偶然ではないかを見る
   const CRV = { tracks: { ...BASE.tracks, crash: true } }
-  const variants = process.env.PAIRED === 'vix' ? [
+  const variants = process.env.PAIRED === 'turncap' ? [
+    ['500万円・案C＋現金70%：売買代金の0.6%まで', { ...PC, swReserve: 70, capital: 5e6, evTurnCap: 0.6 }, { ...PC, swReserve: 70, capital: 5e6 }],
+    ['500万円・案C＋現金70%：売買代金の1.5%まで', { ...PC, swReserve: 70, capital: 5e6, evTurnCap: 1.5 }, { ...PC, swReserve: 70, capital: 5e6 }],
+    ['100万円・案B：売買代金の0.6%まで', { ...PB, evTurnCap: 0.6 }, PB]
+  ] : process.env.PAIRED === 'vix' ? [
     ['案B＋VIX30以上の日はスイングを1.5倍', { ...PB, vixBoost: 1.5 }, PB],
     ['案B＋VIX30以上の日はスイングを2倍', { ...PB, vixBoost: 2 }, PB],
     ['案B＋VIX25以上の日はスイングを1.5倍', { ...PB, vixBoost: 1.5, vixAt: 25 }, PB]
