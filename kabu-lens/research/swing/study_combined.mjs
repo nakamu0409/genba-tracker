@@ -389,6 +389,42 @@ const steps = [
   ['＋相場全体の急落の翌日の ETF（統合版）', { avoid: true, swingR: 5, usBear: true, tracks: { ...BASE.tracks, crash: true, tsurare: true, etf: true } }]
 ]
 const PER = [['10年', {}], ['前半', { end: '2021-11-19' }], ['後半', { start: '2021-11-19', end: '2025-11-14' }], ['最後の確認', { start: '2025-11-14' }]]
+if (process.env.GRID) {
+  // 組み合わせの探索（過去に合わせすぎないよう、前半だけで選び、後半・最後の確認で確かめる）：GRID=<{base, grid: {key: [値...]}, seeds, top, ddMin}> の JSON ファイル
+  const G = JSON.parse(readFileSync(process.env.GRID, 'utf-8'))
+  const keys = Object.keys(G.grid)
+  let combos = [{}]
+  for (const k of keys) combos = combos.flatMap(c => G.grid[k].map(v => ({ ...c, [k]: v })))
+  const md = a => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)]
+  const evalP = (cfg, po, seeds) => {
+    const c = [], d = []
+    for (let k = 1; k <= seeds; k++) {
+      SEED = k
+      const P = { ...BASE, ...G.base, ...cfg, tracks: { ...BASE.tracks, ...(G.base.tracks || {}), ...(cfg.tracks || {}) }, ...po, order: 'random' }
+      const r = stats(P)
+      c.push(r.cagr)
+      d.push(r.mdd)
+    }
+    return { cagr: md(c), mdd: md(d) }
+  }
+  const sel = []
+  let n = 0
+  for (const cfg of combos) {
+    const r = evalP(cfg, PER[1][1], G.seeds || 5)
+    sel.push({ cfg, sel: r })
+    if (++n % 50 === 0) console.error(`${n}/${combos.length}`)
+  }
+  const ok2 = sel.filter(x => x.sel.mdd >= (G.ddMin ?? -30)).sort((a, b) => b.sel.cagr - a.sel.cagr)
+  const top = ok2.slice(0, G.top || 15)
+  const out = []
+  for (const t of [{ cfg: {}, sel: evalP({}, PER[1][1], G.seeds || 5), base: true }, ...top]) {
+    const res = {}
+    PER.forEach(([pn, po]) => { res[pn] = evalP(t.cfg, po, 20) })
+    out.push({ cfg: t.cfg, base: !!t.base, select: t.sel, ...res })
+  }
+  console.log(JSON.stringify({ combos: combos.length, keys, out }, null, 1))
+  process.exit(0)
+}
 if (process.env.WHATIF) {
   // もしもの試算（記録帳の whatif 用）：WHATIF=<[{id, name, cfg}] の JSON ファイル>。でたらめな順番20回の真ん中。10年の最後の資産・年率・一番下げ・期間ごとの年率・やり方ごとの回数
   const list = JSON.parse(readFileSync(process.env.WHATIF, 'utf-8'))
