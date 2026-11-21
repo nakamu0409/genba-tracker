@@ -391,9 +391,11 @@ if (process.env.PKG) {
     ['案A：企業の行動50%・20日の順・200日線より下は半分', { avoid: true, evPosPct: 50, evOrder: 'mom', ma200Cut: true }],
     ['案B：案A＋5R・60日', { avoid: true, evPosPct: 50, evOrder: 'mom', ma200Cut: true, swingR: 5, swingDays: 60 }],
     ['案C：案B の企業の行動を70%', { avoid: true, evPosPct: 70, evOrder: 'mom', ma200Cut: true, swingR: 5, swingDays: 60 }],
-    ['案B＋1日2回まで', { avoid: true, evPosPct: 50, evOrder: 'mom', ma200Cut: true, swingR: 5, swingDays: 60, dayMax: 2 }]
+    ['案B＋1日2回まで', { avoid: true, evPosPct: 50, evOrder: 'mom', ma200Cut: true, swingR: 5, swingDays: 60, dayMax: 2 }],
+    // 前半だけで選んだ形：前半の比べ方で20組中12組以上良くなった変え方を全部（後で崩れたものも含める）。ぶつかるもの（目標なし↔5R・60日、70%↔50%）は前半の差が大きいほう
+    ['前半だけで選んだ形（企業の行動70%・20日の順・200日線・5R・60日・寄指×1.03・続けて出た候補を先に）', { avoid: true, evPosPct: 70, evOrder: 'mom', ma200Cut: true, swingR: 5, swingDays: 60, evLimit: 1.03, streakFirst: true }]
   ]
-  for (const [nm, cfg0] of PK) {
+  for (const [nm, cfg0] of (process.env.PKG === 'wf' ? PK.filter(([n]) => n.startsWith('今（') || n.startsWith('案B：') || n.startsWith('前半だけ')) : PK)) {
     const cfg = process.env.PKG === '3m' ? { ...cfg0, capital: 3e6 } : cfg0
     const out = PER.map(() => ({ c: [], d: [] }))
     for (let k = 1; k <= 20; k++) {
