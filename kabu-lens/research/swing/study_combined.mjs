@@ -323,6 +323,8 @@ function run(P) {
       if (P.streakMin) list = list.filter(s => streakOf(s) >= P.streakMin)
       if (P.avoid) list = list.filter(s => !avoid(stocks[s.code], s.i))
       if (P.maxPrice) list = list.filter(s => stocks[s.code].bars[s.i].c < P.maxPrice)
+      // swKinds：スイングの形をしぼる（['GAP','PULLBACK','BREAKOUT','MOMENTUM'] の一部）
+      if (P.swKinds) list = list.filter(s => P.swKinds.includes(s.kind))
       if (P.lowFirst) list.sort((a, b) => (stocks[a.code].bars[a.i].c < P.lowFirst ? 0 : 1) - (stocks[b.code].bars[b.i].c < P.lowFirst ? 0 : 1))
       // 損切りを遠くする（2×ATR → 2×ATR×stopWiden。終値からの距離を広げる）
       if (P.stopWiden) list = list.map(s => ({ ...s, stop: s.close - (s.close - s.stop) * P.stopWiden }))
