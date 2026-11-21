@@ -2518,6 +2518,15 @@ export function lowExit(next, entry, { tp = 5, sl = 8, exitM = 780 } = {}) {
  * status が skipped・plan の記録は数えない。entry・exit・qty が数でない記録は unknown に入れる（推測で埋めない）
  * 返り値 {cash, capital（現金＋放置していない保有の時価）, invested, frozenValue, since, moves: [{date, id, kind, amount}], unknown: [id]}
  */
+/** 資金の一番高いとき（settings.capitalPeak）から ddStopPct（既定25）%以上下げていれば stop: true（新しい買いを止める） */
+export function drawdownStop(settings = {}, capital = settings.capital) {
+  const peak = Math.max(ok(settings.capitalPeak) ? settings.capitalPeak : 0, ok(capital) ? capital : 0)
+  const lim = ok(settings.ddStopPct) ? settings.ddStopPct : 25
+  if (!(peak > 0) || !ok(capital)) return { stop: false, dd_pct: null, limit: lim }
+  const dd = round((capital / peak - 1) * 100, 1)
+  return { stop: dd <= -lim, dd_pct: dd, limit: lim }
+}
+
 export function cashNow(settings, trades) {
   const base = settings.cashBase ?? settings.cash
   const since = settings.cashBaseAt ?? settings.capitalAt
@@ -2544,7 +2553,12 @@ export function cashNow(settings, trades) {
   const val = t => (ok(t.last) ? t.last : t.entry || 0) * (t.qty || 0)
   const invested = trades.filter(t => t.status === 'open' && !t.frozen).reduce((s, t) => s + val(t), 0)
   const frozenValue = trades.filter(t => t.status === 'open' && t.frozen).reduce((s, t) => s + val(t), 0)
-  return { cash: Math.round(cash), capital: Math.round(cash + invested), invested: Math.round(invested), frozenValue: Math.round(frozenValue), since, base, moves, unknown }
+  const capital = Math.round(cash + invested)
+  // 資金の一番高いときからの下げ（11/21 本人と決定：ddStopPct（既定25）%以上下げたら、新しい買いを止めて見直す）。入金したら capitalPeak にも同じ額を足す
+  const capitalPeak = Math.max(ok(settings.capitalPeak) ? settings.capitalPeak : capital, capital)
+  const drawdown_pct = round((capital / capitalPeak - 1) * 100, 1)
+  const ddStop = drawdownStop(settings, capital)
+  return { cash: Math.round(cash), capital, invested: Math.round(invested), frozenValue: Math.round(frozenValue), capitalPeak, drawdown_pct, dd_stop: ddStop.stop, since, base, moves, unknown }
 }
 
 // ---- 答えが出終わった記録を1日1件にまとめる（記録帳のデータベースは全部で25,000件まで）----------------
@@ -3566,6 +3580,8 @@ export function preTradeCheck(a) {
   if (ok(st.cash) && price > 0) caps.push(['現金', Math.floor(st.cash / price)])
   caps.sort((x, y) => x[1] - y[1])
 
+  const dds = drawdownStop(st)
+  if (dds.stop) blocks.push(`資金の下げの歯止め：資金が一番高いときから ${dds.dd_pct}%（${dds.limit}%以上下げたら新しい買いを止めて見直す。11/21決定）`)
   const held = (a.positions || []).find(x => x.code === a.code)
   if (held) {
     const cur = ok(held.last) ? held.last : price

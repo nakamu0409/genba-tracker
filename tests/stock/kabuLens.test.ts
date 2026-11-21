@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { below200, parseBuybackPdf, crashSignal, worldBrief, parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, paperInputOf, paperInputFromFive, paperReplay, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { below200, parseBuybackPdf, drawdownStop, crashSignal, worldBrief, parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, paperInputOf, paperInputFromFive, paperReplay, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -1375,5 +1375,23 @@ describe('現金と資金の自動計算', () => {
     const era = parseTanshin('2026年12月期 第３四半期決算短信\n（１）連結経営成績（累計）\n 百万円 ％\n ８年12月期第３四半期      13,044  0.7     438 △12.9   536 △10.4        593   69.7\n')
     expect(era.kind).toBe('quarter')
     expect(era.actual).toMatchObject({ sales: 13044, opYoY: -12.9, netYoY: 69.7 })
+  })
+})
+
+describe('資金の下げの歯止め（11/21）', () => {
+  it('一番高いときから25%以上下げたら止める。入金で高いときが更新される前提', () => {
+    expect(drawdownStop({ capitalPeak: 600000 }, 460000).stop).toBe(false)
+    expect(drawdownStop({ capitalPeak: 600000 }, 450000).stop).toBe(true)
+    expect(drawdownStop({ capitalPeak: 600000, ddStopPct: 20 }, 470000).stop).toBe(true)
+    expect(drawdownStop({}, 500000).stop).toBe(false)
+    const c = cashNow({ cash: 100000, cashBase: 100000, cashBaseAt: '2026-11-20', capitalPeak: 200000 }, [])
+    expect(c.capitalPeak).toBe(200000)
+    expect(c.drawdown_pct).toBe(-50)
+    expect(c.dd_stop).toBe(true)
+    expect(cashNow({ cash: 300000, cashBase: 300000, cashBaseAt: '2026-11-20', capitalPeak: 200000 }, []).capitalPeak).toBe(300000)
+  })
+  it('買う前チェックも止める', () => {
+    const r = preTradeCheck({ code: '1111', price: 1000, atr: 20, settings: { capital: 400000, capitalPeak: 600000, riskPct: 1, maxPosPct: 62, cash: 400000 }, positions: [] })
+    expect(r.blocks.some((b: string) => b.includes('資金の下げの歯止め'))).toBe(true)
   })
 })
