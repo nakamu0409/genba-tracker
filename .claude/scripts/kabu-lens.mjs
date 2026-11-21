@@ -1427,9 +1427,32 @@ export function pickEvents(rows, universe = null) {
     if (!kind) continue
     const prev = out.get(r.code)
     if (prev && (prev.kind === 'buyback' || kind === 'split')) continue
-    out.set(r.code, { code: r.code, name: r.name, time: r.time, title: r.title, kind })
+    out.set(r.code, { code: r.code, name: r.name, time: r.time, title: r.title, kind, pdf: r.pdf || null })
   }
   return [...out.values()]
+}
+
+/**
+ * 自社株買いの開示 PDF（1〜2ページ目の pdftotext の文字）から、取得の規模を取り出す（2026-11-21 の検証：取得の割合が発行済株式の2%以上なら翌朝の買いが良い）
+ * pct＝取得しうる株式の総数の、発行済株式総数（自己株式を除く）に対する割合（％。変更の開示は最後＝変更後の値）、days＝取得期間の日数、method＝市場／ToSTNeT／TOB／信託／その他
+ */
+export function parseBuybackPdf(text) {
+  const t = String(text || '').replace(/[０-９．％]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xfee0)).replace(/[ \t\u3000]+/g, ' ')
+  const r = { pct: null, days: null, method: null }
+  const pcts = [...t.matchAll(/割合\s*([0-9]+(?:\.[0-9]+)?)\s*[%％]/g)].map(m => +m[1])
+  if (pcts.length) r.pct = pcts[pcts.length - 1]
+  const per = t.match(/(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日\s*[～〜~から\-－]+\s*(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/)
+  if (per) r.days = Math.round((new Date(+per[4], per[5] - 1, +per[6]) - new Date(+per[1], per[2] - 1, +per[3])) / 864e5)
+  r.method = /公開買付/.test(t) ? 'TOB' : /ToSTNeT|立会外/.test(t) ? 'ToSTNeT' : /信託/.test(t) ? '信託' : /市場買付|市場における|取引所における/.test(t) ? '市場' : 'その他'
+  return r
+}
+
+/** 自社株買いの開示 PDF を読んで parseBuybackPdf の結果を返す。読めなければ { error } */
+export function fetchBuybackPdf(url) {
+  if (!url) return { error: 'PDFの場所が無い' }
+  const r = spawnSync('bash', ['-c', 'curl -sSL --fail --max-time 30 "$1" | pdftotext -layout -l 2 - -', '_', url], { encoding: 'utf-8', maxBuffer: 16 * 1024 * 1024 })
+  if (r.status !== 0 || !r.stdout) return { error: 'PDFを読めませんでした' }
+  return parseBuybackPdf(r.stdout)
 }
 
 /** 自社株買いの良い条件の数（0〜3）。repeat＝1年以内にも自社株買いの決定があった、dev25＝25日線からの位置（%）、time＝発表の時刻 */
@@ -2789,7 +2812,7 @@ export const PAPER_DEFAULTS = {
   dayFrom: 630, dayTo: 780, delay: 20, fillWindow: 30, lowAt: 870, lowEntryM: 890, lowTpPct: 5, lowSlPct: 8, lowExitM: 780,
   swingGapPct: 2, swingMaxDays: 40, surgeMax: 2, surgeTpR: 3, surgeHold: 10,
   chaseMax: 0, chaseTrigPct: 10, chaseFrom: 570, chaseTo: 690, chaseSlPct: 8,
-  evPosPct: null, evStopPct: null, ma200Half: false, evOrder: null, swReserve: null, evTurnCap: null, peadMax: 2, peadHold: 5, peadGapMax: 15, peadGapMin: 0, usBearSwingMax: null,
+  evPosPct: null, evStopPct: null, ma200Half: false, evOrder: null, swReserve: null, evTurnCap: null, bbSizeRule: false, peadMax: 2, peadHold: 5, peadGapMax: 15, peadGapMin: 0, usBearSwingMax: null,
   crashMax: 2, crashHold: 5, crashSlPct: 20, crashPosPct: 5, crashOpenMax: 2, crashMktOnly: true, swingMaxPrice: null,
   tsurareMax: 2, tsurareHold: 5, tsurarePosPct: 10, tsurareGap: -5, tsurareMktGap: -2.5,
   swingTargetR: null,
@@ -2947,6 +2970,8 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], 
   const evList = p.evOrder === 'mom' ? buybacks.slice().sort((a, b) => (b.kind === 'pead') - (a.kind === 'pead') || (stocks[b.code]?.r20 ?? -1e9) - (stocks[a.code]?.r20 ?? -1e9)) : buybacks
   for (const b of evList) {
     const isPead = b.kind === 'pead'
+    // bbSizeRule：自社株買いは、取得の割合2%以上を良い条件の1つに数え、2つ以上のものだけ買う（2026-11-21 本人と決定。まず練習口座で試す）
+    if (p.bbSizeRule && b.kind === 'buyback' && (b.score ?? 0) + (b.pct >= 2 ? 1 : 0) < 2) continue
     if (isPead ? peadCount >= (p.peadMax ?? 2) : bbCount >= (p.bbMax ?? 2)) continue
     if (st.positions.some(x => x.code === b.code)) continue
     const s = stocks[b.code]
@@ -3860,6 +3885,10 @@ async function main() {
           r.repeat = null
         }
         Object.assign(r, buybackScore(r))
+        // 取得の割合（開示 PDF）。本番の買い方はまだ変えない（練習口座で試し中：割合2%以上を良い条件の1つに数え、2つ以上だけ買う）
+        const bp = fetchBuybackPdf(r.pdf)
+        r.size_pct = bp.pct ?? null
+        r.score_with_size = r.score + (bp.pct >= 2 ? 1 : 0)
         r.skip = r.score === 0
         r.expect_pct = r.score >= 2 ? 0.7 : r.score === 1 ? 0.36 : -0.06
         r.sell = '同じ日の引成'
@@ -3960,6 +3989,7 @@ async function main() {
               b.repeat = null
             }
             Object.assign(b, buybackScore(b))
+            b.pct = fetchBuybackPdf(b.pdf).pct ?? null
             b.expect = b.score >= 2 ? 0.7 : b.score === 1 ? 0.36 : -0.06
           }
           buybacks = buybacks.filter(b => b.kind !== 'buyback' || b.score > 0).sort((a, b) => b.expect - a.expect)

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { below200, crashSignal, worldBrief, parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { below200, parseBuybackPdf, crashSignal, worldBrief, parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -1054,6 +1054,20 @@ describe('企業の行動の開示（自社株買い・増配・株式分割）'
     expect(below200(mk([...Array(199).fill(100), 90]))).toBe(true)
     expect(below200(mk([...Array(199).fill(100), 110]))).toBe(false)
     expect(below200(mk([...Array(150).fill(100), 10, 10, ...Array(49).fill(100), 99]))).toBe(true)
+  })
+  it('parseBuybackPdf：取得の割合（変更後）・期間・方法を取り出す', () => {
+    const txt = '（２）取得しうる株式の総数 500 百万株（上限） 610 百万株（上限）\n（発行済株式総数（自己株式を除く）に対する割合 4.22％） に対する割合 5.18％）\n（４）取得期間 2026 年８月５日～2027 年８月４日\n（５）取得方法 市場買付'
+    expect(parseBuybackPdf(txt)).toEqual({ pct: 5.18, days: 364, method: '市場' })
+    expect(parseBuybackPdf('何もない').pct).toBe(null)
+  })
+  it('練習口座：bbSizeRule なら、自社株買いは良い条件＋割合2%以上で2つ以上だけ買う', () => {
+    const day = (o: number, c: number) => [{ m: 540, o, h: Math.max(o, c) + 5, l: Math.min(o, c) - 5, c, v: 1000 }]
+    const stocks = { 1111: { bars: day(1000, 1010), ctx: { prevClose: 1000 } }, 2222: { bars: day(1000, 1010), ctx: { prevClose: 1000 } }, 3333: { bars: day(1000, 1010), ctx: { prevClose: 1000 } } }
+    const bb = [{ code: '1111', kind: 'buyback', score: 1, pct: 1.5 }, { code: '2222', kind: 'buyback', score: 1, pct: 3 }, { code: '3333', kind: 'buyback', score: 2, pct: 0.5 }]
+    const r = paperStep(paperNew({ slipPct: 0, maxPosPct: 10, bbSizeRule: true }), { date: '2026-11-20', stocks, buybacks: bb })
+    expect(r.trades.map(x => x.code).sort()).toEqual(['2222', '3333'])
+    const r0 = paperStep(paperNew({ slipPct: 0, maxPosPct: 10 }), { date: '2026-11-20', stocks, buybacks: bb })
+    expect(r0.trades.length).toBe(3)
   })
   it('練習口座：evTurnCap があれば、企業の行動は売買代金の◯%までしか買わない', () => {
     const day = (o: number, c: number) => [{ m: 540, o, h: Math.max(o, c) + 5, l: Math.min(o, c) - 5, c, v: 1000 }]
