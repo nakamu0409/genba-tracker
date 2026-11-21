@@ -1524,7 +1524,7 @@ section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
 
   var paperState = null, paperTrades = [], paperBf = null, paperAggr = null, paperLive = null, paperEv = null;
   var ACCT_WHAT = { base: "おすすめの形", aggr: "おすすめを強めに", live: "今の本番の決まり", events: "企業の行動だけ" };
-  var TRACK = { day: "デイトレ", swing: "スイング", low: "低位株の強い引け", bb: "自社株買い・増配の翌日", split: "株式分割（5日）", surge: "急騰後の押し目（反発確認）", chase: "低位株の急騰の追いかけ（攻めだけ）", pead: "決算後のドリフト（上方修正+20%・5日）", crash: "急落の反発（5日で−15%・5日持つ）", tsurare: "つられ下げ（全体の窓−2.5%の日に−5%の株・5日）", etfdip: "全体の急落の翌日にTOPIX ETF（20日）" };
+  var TRACK = { day: "デイトレ", swing: "スイング", low: "低位株の強い引け", bb: "自社株買い・増配の翌日", split: "株式分割（5日）", surge: "急騰後の押し目（反発確認）", chase: "低位株の急騰の追いかけ（攻めだけ）", pead: "決算後のドリフト（上方修正+20%・5日）", crash: "急落の反発（5日で−15%・5日持つ）", tsurare: "つられ下げ（全体の窓−2.5%の日に−5%の株・5日）", etfdip: "全体の急落の翌日にTOPIX ETF（20日）", holiday: "連休をまたいでTOPIX ETF（連休前の引け→明けの引け）" };
   var whatifDocs = [];
   var WF_BASIS = { paper: "練習口座の日々", "10y": "10年の検証" };
   var WF_TRACK = { buyback: "自社株買い", divup: "増配", split: "株式分割", swing: "スイング", surge: "急騰後の押し目", crash: "急落の反発", tsurare: "つられ下げ", etf: "全体の急落の翌日のETF" };

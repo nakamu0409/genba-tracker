@@ -2877,7 +2877,33 @@ export const PAPER_DEFAULTS = {
   crashMax: 2, crashHold: 5, crashSlPct: 20, crashPosPct: 5, crashOpenMax: 2, crashMktOnly: true, swingMaxPrice: null,
   tsurareMax: 2, tsurareHold: 5, tsurarePosPct: 10, tsurareGap: -5, tsurareMktGap: -2.5,
   swingTargetR: null,
-  etfDipPct: 3, etfDipHold: 20, etfDipPosPct: 20
+  etfDipPct: 3, etfDipHold: 20, etfDipPosPct: 20,
+  holidayEtfPct: 0
+}
+
+// 東証の休場日（土日以外）。連休明けの ETF（練習口座）で、次の営業日まで何日あくかを知るため。年に1回、JPX の休場日の一覧で足す
+export const TSE_HOLIDAYS = new Set([
+  '2026-11-23', '2026-12-31', '2027-01-01', '2027-01-11', '2027-02-11', '2027-02-23', '2027-03-22', '2027-04-29',
+  '2027-05-03', '2027-05-04', '2027-05-05', '2027-07-19', '2027-08-11', '2027-09-20', '2027-09-23', '2027-10-11', '2027-11-03',
+  '2027-11-23', '2027-12-31'
+])
+/** date の次の東証の営業日（土日と TSE_HOLIDAYS を飛ばす） */
+export function nextTradingDate(date) {
+  const d = new Date(date + 'T00:00:00Z')
+  for (let k = 0; k < 15; k++) {
+    d.setUTCDate(d.getUTCDate() + 1)
+    const s = d.toISOString().slice(0, 10)
+    if (d.getUTCDay() !== 0 && d.getUTCDay() !== 6 && !TSE_HOLIDAYS.has(s)) return s
+  }
+  return null
+}
+/** 連休の前の日か（次の営業日まで4日以上あく。年末年始は除く：11/21 の検証で年末年始明けだけ弱かった） */
+export function isPreHoliday(date) {
+  const n = nextTradingDate(date)
+  if (!n) return false
+  const gap = (new Date(n) - new Date(date)) / 864e5
+  const md = date.slice(5)
+  return gap >= 4 && !(md >= '12-20' || md <= '01-07')
 }
 
 export function paperNew(params = {}) {
@@ -2956,6 +2982,12 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], 
         }
       }
       if (!done) close(pos, bars[bars.length - 1].c * (1 - slip), '翌日の引け')
+      continue
+    }
+    if (pos.track === 'holiday') {
+      // 連休明けの ETF：明けの日の引けで売る
+      pos.held = (pos.held || 0) + 1
+      close(pos, bars[bars.length - 1].c * (1 - slip), '連休明けの引け')
       continue
     }
     if (pos.track === 'crash' || pos.track === 'tsurare' || pos.track === 'etfdip') {
@@ -3279,6 +3311,19 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], 
     pos.last = bars[bars.length - 1].c
     st.positions.push(pos)
     lowCount++
+  }
+  // 4b. 連休の前の日の引けで TOPIX 連動ETF（1306）を買い、連休明けの引けで売る（11/21 本人と決定：練習口座で試す。資金の holidayEtfPct% まで、空いている現金だけ）
+  if (p.holidayEtfPct > 0 && isPreHoliday(date) && !st.positions.some(x => x.code === '1306')) {
+    const etf = stocks['1306']
+    if (etf?.bars?.length) {
+      const entry = etf.bars[etf.bars.length - 1].c * (1 + slip)
+      const qty = Math.floor(Math.min(equityNow() * p.holidayEtfPct / 100, st.cash) / entry / 10) * 10
+      if (qty >= 10) {
+        const pos = open('holiday', '1306', 'TOPIX連動ETF', entry, qty)
+        pos.last = etf.bars[etf.bars.length - 1].c
+        st.positions.push(pos)
+      }
+    }
   }
   // 5. その日の終わりの資産
   st.start ||= date

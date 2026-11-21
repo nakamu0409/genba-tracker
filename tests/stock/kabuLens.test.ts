@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { below200, parseBuybackPdf, drawdownStop, nikkeiFutBrief, pickYutaiEnd, crashSignal, worldBrief, parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, paperInputOf, paperInputFromFive, paperReplay, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { below200, parseBuybackPdf, drawdownStop, nikkeiFutBrief, pickYutaiEnd, isPreHoliday, nextTradingDate, crashSignal, worldBrief, parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, paperInputOf, paperInputFromFive, paperReplay, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -1421,5 +1421,27 @@ describe('優待の廃止（記録だけ・11/21）', () => {
     ]
     expect(pickYutaiEnd(rows).map(r => r.code)).toEqual(['1111', '5555'])
     expect(pickYutaiEnd(rows, ['5555']).map(r => r.kind)).toEqual(['yutai_end'])
+  })
+})
+
+describe('連休明けの ETF（練習口座・11/21）', () => {
+  it('次の営業日まで4日以上あく日だけ（年末年始は除く）', () => {
+    expect(nextTradingDate('2026-11-20')).toBe('2026-11-24')
+    expect(isPreHoliday('2026-11-20')).toBe(true)
+    expect(isPreHoliday('2026-11-19')).toBe(false)
+    expect(isPreHoliday('2027-01-08')).toBe(true)
+    expect(isPreHoliday('2026-12-30')).toBe(false)
+    expect(isPreHoliday('2027-04-30')).toBe(true)
+  })
+  it('連休の前の日の引けで買い、明けの日の引けで売る', () => {
+    const flat = (c: number) => [{ m: 540, o: c, h: c, l: c, c, v: 1000 }]
+    const st0 = paperNew({ capital: 1000000, holidayEtfPct: 30 })
+    const r1 = paperStep(st0, { date: '2027-01-08', stocks: { 1306: { bars: flat(400) } } })
+    expect(r1.opened.some((o: any) => o.track === 'holiday')).toBe(true)
+    const r2 = paperStep(r1.state, { date: '2027-01-12', stocks: { 1306: { bars: flat(404) } } })
+    const t = r2.trades.find((x: any) => x.track === 'holiday')
+    expect(t.reason).toBe('連休明けの引け')
+    expect(t.pnl).toBeGreaterThan(0)
+    expect(paperStep(paperNew({ capital: 1000000 }), { date: '2027-01-08', stocks: { 1306: { bars: flat(400) } } }).opened).toHaveLength(0)
   })
 })
