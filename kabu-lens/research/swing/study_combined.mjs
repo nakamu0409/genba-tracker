@@ -389,6 +389,21 @@ const steps = [
   ['＋相場全体の急落の翌日の ETF（統合版）', { avoid: true, swingR: 5, usBear: true, tracks: { ...BASE.tracks, crash: true, tsurare: true, etf: true } }]
 ]
 const PER = [['10年', {}], ['前半', { end: '2021-11-19' }], ['後半', { start: '2021-11-19', end: '2025-11-14' }], ['最後の確認', { start: '2025-11-14' }]]
+if (process.env.MONTHLY) {
+  // 月ごとの増減（%）を、でたらめな順番20回ぶん出す（運の幅の試算用）：MONTHLY=<cfg の JSON ファイル>
+  const cfg = JSON.parse(readFileSync(process.env.MONTHLY, 'utf-8'))
+  const out = []
+  for (let k = 1; k <= 20; k++) {
+    SEED = k
+    const { hist } = run({ ...BASE, ...cfg, tracks: cfg.tracks || BASE.tracks, order: 'random' })
+    const me = new Map()
+    for (const h of hist) me.set(h.date.slice(0, 7), h.equity)
+    let pe = cfg.capital ?? BASE.capital
+    out.push([...me.entries()].map(([m, e]) => { const r = (e / pe - 1) * 100; pe = e; return [m, Math.round(r * 1000) / 1000] }))
+  }
+  console.log(JSON.stringify(out))
+  process.exit(0)
+}
 if (process.env.GRID) {
   // 組み合わせの探索（過去に合わせすぎないよう、前半だけで選び、後半・最後の確認で確かめる）：GRID=<{base, grid: {key: [値...]}, seeds, top, ddMin}> の JSON ファイル
   const G = JSON.parse(readFileSync(process.env.GRID, 'utf-8'))
