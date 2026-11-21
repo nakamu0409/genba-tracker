@@ -399,6 +399,7 @@ if (process.env.WHATIF) {
     if (w.cfg.tracks) P0.tracks = w.cfg.tracks
     const per = PER.map(() => ({ c: [], d: [] }))
     const eq = []
+    const mon = []
     const byT = {}
     let first = null
     let lastD = null
@@ -409,6 +410,13 @@ if (process.env.WHATIF) {
         if (j === 0) {
           const { hist, trades } = run(P)
           eq.push(hist[hist.length - 1].equity)
+          // 月ごとの増減（%）
+          const me = new Map()
+          for (const h of hist) me.set(h.date.slice(0, 7), h.equity)
+          let pe = P.capital
+          const mr = [...me.values()].map(e => { const r = (e / pe - 1) * 100; pe = e; return r })
+          const ms = [...mr].sort((x, y) => x - y)
+          mon.push({ med: ms[Math.floor(ms.length / 2)], neg: mr.filter(x => x < 0).length / mr.length * 100, worst: ms[0], best: ms[ms.length - 1], p10: ms[Math.floor(ms.length * 0.1)], p90: ms[Math.floor(ms.length * 0.9)], first12: mr.slice(0, 12) })
           first = hist[0].date
           lastD = hist[hist.length - 1].date
           const cnt = {}
@@ -429,7 +437,7 @@ if (process.env.WHATIF) {
       })
     }
     const tracks = Object.fromEntries(Object.entries(byT).map(([k, g]) => { const n = [...g.n].sort((x, y) => x - y)[Math.floor(g.n.length / 2)]; const w = [...g.win].sort((x, y) => x - y)[Math.floor(g.win.length / 2)]; return [k, { trades: n, win_rate_pct: n ? Math.round(w / n * 100) : 0 }] }))
-    out.push({ id: w.id, name: w.name, cfg: w.cfg, summary: { start: first, end: lastD, capital: P0.capital, equity: Math.round(md(eq)), return_pct: Math.round((md(eq) / P0.capital - 1) * 1000) / 10, cagr_pct: Math.round(md(per[0].c) * 10) / 10, max_drawdown_pct: Math.round(md(per[0].d) * 10) / 10, periods: Object.fromEntries(PER.map(([pn], j) => [pn, { cagr_pct: Math.round(md(per[j].c) * 10) / 10, max_drawdown_pct: Math.round(md(per[j].d) * 10) / 10 }])), tracks } })
+    out.push({ id: w.id, name: w.name, cfg: w.cfg, summary: { start: first, end: lastD, capital: P0.capital, equity: Math.round(md(eq)), return_pct: Math.round((md(eq) / P0.capital - 1) * 1000) / 10, cagr_pct: Math.round(md(per[0].c) * 10) / 10, max_drawdown_pct: Math.round(md(per[0].d) * 10) / 10, monthly: Object.fromEntries(['med', 'neg', 'worst', 'best', 'p10', 'p90'].map(k => [k + '_pct', Math.round(md(mon.map(m => m[k])) * 10) / 10])), periods: Object.fromEntries(PER.map(([pn], j) => [pn, { cagr_pct: Math.round(md(per[j].c) * 10) / 10, max_drawdown_pct: Math.round(md(per[j].d) * 10) / 10 }])), tracks } })
   }
   console.log(JSON.stringify(out, null, 1))
   process.exit(0)
