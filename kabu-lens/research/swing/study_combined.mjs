@@ -100,6 +100,14 @@ const recentEv = s => (EVBY[s.code] || []).some(i => i <= s.i && i >= s.i - 20)
 const streakOf = s => STREAK.get(s.code + ':' + s.i) || 1
 // 避ける形を外す前の候補（本番の analyze は 11/20 から外しているので、比べるために外さない候補も作る）
 const SW_OFF = process.env.PAIRED ? byDate(loadAll({ avoidChase: false }).swing) : SW
+// 自社株買いの取得の割合（開示 PDF。research/bb_detail.json。無ければ割合なし）。bbSizeRule：割合2%以上を良い条件の1つに数え、2つ以上だけ買う（11/21 本人と決定）
+let BBD = {}
+try {
+  BBD = JSON.parse(readFileSync(new URL('../bb_detail.json', import.meta.url), 'utf-8'))
+} catch {
+  BBD = {}
+}
+const bbScore = e => (e.score ?? 0) + ((BBD[`${e.code}|${e.date}|${e.time}`]?.pct ?? 0) >= 2 ? 1 : 0)
 const evRank = e => (e.kind === 'split' ? 0 : e.kind === 'buyback' && e.score >= 2 ? 1 : e.kind === 'divup' ? 2 : e.kind === 'buyback' && e.score === 1 ? 3 : 9)
 // 米国の下げ相場
 const gs = JSON.parse(readFileSync(new URL('../world/GSPC.json', import.meta.url), 'utf-8')).chart.result[0]
@@ -211,6 +219,7 @@ function run(P) {
       else evList.sort((a, b) => evRank(a) - evRank(b))
       for (const e of evList) {
         if (buys >= P.dayMax || held.has(e.code)) continue
+        if (P.bbSizeRule && e.kind === 'buyback' && bbScore(e) < 2) continue
         const x = barOf(e.code)
         const lim = P.evLimit ? e.close * P.evLimit : e.limit
         if (!x || x.b.h === x.b.l || x.b.o > lim) continue
@@ -380,6 +389,51 @@ const steps = [
   ['＋相場全体の急落の翌日の ETF（統合版）', { avoid: true, swingR: 5, usBear: true, tracks: { ...BASE.tracks, crash: true, tsurare: true, etf: true } }]
 ]
 const PER = [['10年', {}], ['前半', { end: '2021-11-19' }], ['後半', { start: '2021-11-19', end: '2025-11-14' }], ['最後の確認', { start: '2025-11-14' }]]
+if (process.env.WHATIF) {
+  // もしもの試算（記録帳の whatif 用）：WHATIF=<[{id, name, cfg}] の JSON ファイル>。でたらめな順番20回の真ん中。10年の最後の資産・年率・一番下げ・期間ごとの年率・やり方ごとの回数
+  const list = JSON.parse(readFileSync(process.env.WHATIF, 'utf-8'))
+  const md = a => [...a].sort((x, y) => x - y)[10]
+  const out = []
+  for (const w of list) {
+    const P0 = { ...BASE, ...w.cfg, tracks: { ...BASE.tracks, ...(w.cfg.tracks || {}) } }
+    if (w.cfg.tracks) P0.tracks = w.cfg.tracks
+    const per = PER.map(() => ({ c: [], d: [] }))
+    const eq = []
+    const byT = {}
+    let first = null
+    let lastD = null
+    for (let k = 1; k <= 20; k++) {
+      SEED = k
+      PER.forEach(([, po], j) => {
+        const P = { ...P0, ...po, order: 'random' }
+        if (j === 0) {
+          const { hist, trades } = run(P)
+          eq.push(hist[hist.length - 1].equity)
+          first = hist[0].date
+          lastD = hist[hist.length - 1].date
+          const cnt = {}
+          for (const t of trades) {
+            const g = (cnt[t.track] ||= { n: 0, w: 0 })
+            g.n++
+            if (t.pnl > 0) g.w++
+          }
+          for (const [tk, g] of Object.entries(cnt)) {
+            const b = (byT[tk] ||= { n: [], win: [] })
+            b.n.push(g.n)
+            b.win.push(g.w)
+          }
+        }
+        const r = stats(P)
+        per[j].c.push(r.cagr)
+        per[j].d.push(r.mdd)
+      })
+    }
+    const tracks = Object.fromEntries(Object.entries(byT).map(([k, g]) => { const n = [...g.n].sort((x, y) => x - y)[Math.floor(g.n.length / 2)]; const w = [...g.win].sort((x, y) => x - y)[Math.floor(g.win.length / 2)]; return [k, { trades: n, win_rate_pct: n ? Math.round(w / n * 100) : 0 }] }))
+    out.push({ id: w.id, name: w.name, cfg: w.cfg, summary: { start: first, end: lastD, capital: P0.capital, equity: Math.round(md(eq)), return_pct: Math.round((md(eq) / P0.capital - 1) * 1000) / 10, cagr_pct: Math.round(md(per[0].c) * 10) / 10, max_drawdown_pct: Math.round(md(per[0].d) * 10) / 10, periods: Object.fromEntries(PER.map(([pn], j) => [pn, { cagr_pct: Math.round(md(per[j].c) * 10) / 10, max_drawdown_pct: Math.round(md(per[j].d) * 10) / 10 }])), tracks } })
+  }
+  console.log(JSON.stringify(out, null, 1))
+  process.exit(0)
+}
 if (process.env.PKGY) {
   // 年ごとの騰落（でたらめな順番20回の真ん中）：今 と 案B
   const cfgs = [['今', { avoid: true }], ['案B', { avoid: true, evPosPct: 50, evOrder: 'mom', ma200Cut: true, swingR: 5, swingDays: 60 }], ['案A', { avoid: true, evPosPct: 50, evOrder: 'mom', ma200Cut: true }], ['企業の行動50%だけ', { avoid: true, evPosPct: 50 }], ['50%＋20日の順', { avoid: true, evPosPct: 50, evOrder: 'mom' }], ['50%＋200日線', { avoid: true, evPosPct: 50, ma200Cut: true }]]
