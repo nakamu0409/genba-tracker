@@ -27,3 +27,6 @@ logs
 .claude/*
 !.claude/commands/
 !.claude/scripts/
+
+# 株レンズが受け取ったパケット（銘柄・保有状況がわかるのでコミットしない）
+kabu-lens/packets/
