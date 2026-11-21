@@ -192,6 +192,16 @@ section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
 .pp-card.live .pp-name { color: var(--acc3); } .pp-card.events .pp-name { color: var(--acc4); }
 .pp-card.live .pp-bar i { background: var(--acc3); } .pp-card.events .pp-bar i { background: var(--acc4); }
 .pp-what { font-size: .68rem; color: var(--muted); line-height: 1.5; }
+.wf-list { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); min-width: 0; }
+.wf-card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; display: grid; gap: 6px; min-width: 0; }
+.wf-top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.wf-name { font-weight: 600; font-size: .92rem; overflow-wrap: anywhere; }
+.wf-basis { font-size: .68rem; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; white-space: nowrap; }
+.wf-q { font-size: .78rem; color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }
+.wf-eq { font-size: 1.15rem; font-weight: 600; }
+.wf-row { font-size: .78rem; display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.wf-cmp { font-size: .78rem; padding: 6px 8px; border-radius: 8px; background: color-mix(in srgb, var(--line) 35%, transparent); }
+.wf-tracks { font-size: .72rem; color: var(--muted); line-height: 1.6; overflow-wrap: anywhere; }
 .pp-card.lead::after { content: "リード"; position: absolute; top: -9px; right: 10px; background: var(--accent); color: var(--surface); font-size: .66rem; font-weight: 700; letter-spacing: .08em; padding: 1px 8px; border-radius: 999px; }
 .pp-card.aggr.lead::after { background: var(--warn); }
 .pp-top { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
@@ -572,6 +582,12 @@ section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
     </div>
     <p class="sub" id="paper-bf" hidden></p>
     <div class="panel" id="paper-empty"><div class="empty">今夜（23時すぎ）から始まります。毎晩、その日の分がここに足されます。</div></div>
+  </section>
+  <section aria-labelledby="h-whatif">
+    <div class="sec-head"><h2 id="h-whatif">もしもの試算</h2><span class="count" id="whatif-count"></span></div>
+    <details class="more how"><summary>試算のしかた</summary><p>練習口座の記録とは別に、「決まりを変えていたら、いくらになっていたか」を数えた結果です。練習口座の毎日の入力（その日の5分足・買い候補・企業の行動）を毎晩保存しているので、同じ日々を別の決まりで動かし直せます（11/24の夜から）。もっと長い期間は、10年の検証で同じように数えます。試したいことは会話で頼んでください。ここに足されます。練習口座の記録は変わりません。</p></details>
+    <div class="wf-list" id="whatif-list"></div>
+    <div class="panel" id="whatif-empty"><div class="empty">まだ試算はありません。会話で「◯◯にしていたらいくらになった？」と頼むと、ここに足されます。</div></div>
   </section>
   </div>
   <div class="tab-panel" role="tabpanel" id="panel-signals" aria-labelledby="tab-signals" hidden>
@@ -1509,6 +1525,31 @@ section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
   var paperState = null, paperTrades = [], paperBf = null, paperAggr = null, paperLive = null, paperEv = null;
   var ACCT_WHAT = { base: "おすすめの形", aggr: "おすすめを強めに", live: "今の本番の決まり", events: "企業の行動だけ" };
   var TRACK = { day: "デイトレ", swing: "スイング", low: "低位株の強い引け", bb: "自社株買い・増配の翌日", split: "株式分割（5日）", surge: "急騰後の押し目（反発確認）", chase: "低位株の急騰の追いかけ（攻めだけ）", pead: "決算後のドリフト（上方修正+20%・5日）", crash: "急落の反発（5日で−15%・5日持つ）", tsurare: "つられ下げ（全体の窓−2.5%の日に−5%の株・5日）", etfdip: "全体の急落の翌日にTOPIX ETF（20日）" };
+  var whatifDocs = [];
+  var WF_BASIS = { paper: "練習口座の日々", "10y": "10年の検証" };
+  function renderWhatif() {
+    var list = $("whatif-list"); list.textContent = "";
+    var docs = whatifDocs.slice().sort(function (a, b) { return String(b.createdAt || "").localeCompare(String(a.createdAt || "")); });
+    $("whatif-empty").hidden = docs.length > 0;
+    $("whatif-count").textContent = docs.length ? docs.length + "件" : "";
+    var pc = function (v) { return typeof v !== "number" ? "—" : (v > 0 ? "+" : v < 0 ? "−" : "±") + Math.abs(v).toFixed(1) + "%"; };
+    var tone = function (v) { return v > 0 ? "up" : v < 0 ? "down" : ""; };
+    docs.forEach(function (d) {
+      var sm = d.summary || {}, c = el("article", "wf-card");
+      var top = el("div", "wf-top"); top.appendChild(el("span", "wf-name", d.name || d.id)); top.appendChild(el("span", "wf-basis", WF_BASIS[d.basis] || d.basis || "")); c.appendChild(top);
+      if (d.question) c.appendChild(el("div", "wf-q", d.question));
+      if (typeof sm.equity === "number") c.appendChild(el("div", "wf-eq num " + tone(sm.return_pct), Math.round(sm.capital || 0).toLocaleString("ja-JP") + "円 → " + Math.round(sm.equity).toLocaleString("ja-JP") + "円"));
+      var row = el("div", "wf-row num");
+      [["増減", pc(sm.return_pct)], ["年率", typeof sm.cagr_pct === "number" ? pc(sm.cagr_pct) : null], ["一番下げた", pc(sm.max_drawdown_pct)], ["期間", sm.start ? String(sm.start).replace(/-/g, "/") + (sm.end ? "〜" + String(sm.end).replace(/-/g, "/") : "") + (sm.days ? "（" + sm.days + "日）" : "") : null]].forEach(function (x) { if (x[1]) row.appendChild(el("span", "", x[0] + " " + x[1])); });
+      c.appendChild(row);
+      if (d.compare && typeof d.compare.return_pct === "number") c.appendChild(el("div", "wf-cmp num", "くらべる相手：" + (d.compare.name || "") + " " + pc(d.compare.return_pct) + "（差 " + pc((sm.return_pct || 0) - d.compare.return_pct) + "）"));
+      var tk = sm.tracks ? Object.keys(sm.tracks) : [];
+      if (tk.length) c.appendChild(el("div", "wf-tracks", tk.map(function (k) { var t = sm.tracks[k]; return (TRACK[k] || k) + " " + t.trades + "回・勝率" + t.win_rate_pct + "%"; }).join("／")));
+      if (d.note) c.appendChild(el("div", "wf-q", d.note));
+      if (d.createdAt) c.appendChild(el("div", "wf-q", String(d.createdAt).slice(0, 10).replace(/-/g, "/") + " に試算"));
+      list.appendChild(c);
+    });
+  }
   function renderPaper() {
     var yenS = function (v) { return (v > 0 ? "+" : v < 0 ? "−" : "±") + Math.abs(Math.round(v)).toLocaleString("ja-JP") + "円"; };
     var pc = function (v, d) { return (v > 0 ? "+" : v < 0 ? "−" : "±") + Math.abs(v).toFixed(d === undefined ? 2 : d) + "%"; };
@@ -1818,6 +1859,7 @@ section > div[id$="-body"] { display: grid; gap: 10px; min-width: 0; }
       db.doc("settings/paper_live").onSnapshot(function (snap) { paperLive = snap.exists ? snap.data() : null; renderPaper(); }, function () {});
       db.doc("settings/paper_events").onSnapshot(function (snap) { paperEv = snap.exists ? snap.data() : null; renderPaper(); }, function () {});
       db.doc("settings/paper_backfill").onSnapshot(function (snap) { paperBf = snap.exists ? snap.data() : null; renderPaper(); }, function () {});
+      db.collection("whatif").limit(200).onSnapshot(function (snap) { whatifDocs = snap.docs.map(function (doc) { var o = Object.assign({}, doc.data()); o.id = doc.id; return o; }); renderWhatif(); }, function () {});
       db.collection("paper_trades").limit(1000).onSnapshot(function (snap) { paperTrades = snap.docs.map(function (doc) { var o = Object.assign({}, doc.data()); o.id = doc.id; return o; }); renderPaper(); }, function () {});
       db.doc("settings/intraday_wide_stats").onSnapshot(function (snap) { wideStats = snap.exists ? snap.data() : null; renderWide(); }, function () {});
       db.doc("settings/intraday_stats").onSnapshot(function (snap) { intraStats = snap.exists ? snap.data() : null; renderIntra(); }, function () {});

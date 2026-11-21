@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { below200, parseBuybackPdf, crashSignal, worldBrief, parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { below200, parseBuybackPdf, crashSignal, worldBrief, parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, paperInputOf, paperInputFromFive, paperReplay, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -953,6 +953,26 @@ describe('練習口座（シミュレーション）', () => {
     expect(r2.trades[0].exit).toBe(1150)
     expect(r2.state.positions).toHaveLength(0)
     expect(paperSummary(r2.state, r2.trades).tracks.swing.trades).toBe(1)
+  })
+  it('もしもの試算：保存した入力（five ＋ 5分足以外）から作り直すと、もとの練習口座と同じ結果になり、別の決まりでも動かせる', () => {
+    const cands = [{ code: '1111', name: 'A', date: '2026-11-18', pass: true, close: 1000, stop: 950, target: 1150, score: 80 }]
+    const days = [
+      { date: '2026-11-19', prevDate: '2026-11-18', cands, buybacks: [], usBear: false, stocks: { 1111: { name: 'A', turnover: 5e9, bars: flat(540, 6, 1005, 1010, 990, 1000) } } },
+      { date: '2026-11-20', prevDate: '2026-11-19', cands, buybacks: [], usBear: false, stocks: { 1111: { name: 'A', turnover: 5e9, bars: flat(540, 6, 1100, 1160, 1090, 1150) } } }
+    ]
+    const fives = days.map(d => ({ date: d.date, bars: { 1111: d.stocks[1111].bars.map(b => [b.m, b.o, b.h, b.l, b.c, b.v]) }, paper: paperInputOf(d) }))
+    expect(fives[0].paper.ctx[1111].bars).toBeUndefined()
+    expect(fives[0].paper.ctx[1111].turnover).toBe(5e9)
+    const back = paperInputFromFive(fives[0])
+    expect(back.stocks[1111].bars).toEqual(days[0].stocks[1111].bars)
+    expect(paperInputFromFive({ date: '2026-11-19', bars: {} })).toBeNull()
+    let st = paperNew({ capital: 1000000 })
+    for (const d of days) st = paperStep(st, d).state
+    const r = paperReplay(fives.map(paperInputFromFive).reverse(), { capital: 1000000 })
+    expect(r.summary.equity).toBe(st.history[st.history.length - 1].equity)
+    expect(r.trades).toHaveLength(1)
+    const big = paperReplay(fives.map(paperInputFromFive), { capital: 1000000, riskPct: 3, maxPosPct: 100 })
+    expect(big.summary.equity - 1000000).toBeGreaterThan(r.summary.equity - 1000000)
   })
   it('寄りが候補の終値より2%を超えて高いと買わない', () => {
     const cands = [{ code: '1111', date: '2026-11-18', pass: true, close: 1000, stop: 950, target: 1150, score: 80 }]

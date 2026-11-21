@@ -3229,6 +3229,45 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], 
 }
 
 /** 練習口座の成績のまとめ（全体と、デイトレ・スイング・低位株の別） */
+/**
+ * 練習口座の「もしも」の試算用（2026-11-21 本人と決定。練習口座の記録とは別に保存する）。
+ * paperInputOf：その日の練習口座の入力から、5分足を除いた部分（場中の前提・買い候補・企業の行動・米国の下げ相場か）を取り出す。5分足は five-<日付>.json にある
+ */
+export function paperInputOf({ date, prevDate = null, stocks = {}, cands = [], buybacks = [], usBear = false }) {
+  const ctx = {}
+  for (const [code, s] of Object.entries(stocks)) {
+    const { bars, ...rest } = s
+    ctx[code] = rest
+  }
+  return { date, prevDate, cands, buybacks, usBear, ctx }
+}
+
+/** five（{date, bars: {code: [[分,始,高,安,終,出来高]...]}, paper: paperInputOf の結果}）から paperStep の入力を作り直す。paper が無ければ null */
+export function paperInputFromFive(five) {
+  const pin = five?.paper
+  if (!pin?.date || !five?.bars) return null
+  const stocks = {}
+  for (const [code, c] of Object.entries(pin.ctx || {})) {
+    const raw = five.bars[code]
+    if (!raw?.length) continue
+    stocks[code] = { ...c, bars: raw.map(([m, o, h, l, cl, v]) => ({ m, o, h, l, c: cl, v })) }
+  }
+  return { date: pin.date, stocks, cands: pin.cands || [], buybacks: pin.buybacks || [], usBear: !!pin.usBear }
+}
+
+/** 保存した日々の入力で、別の決まり（params）の練習口座を最初から動かし直す。inputs は日付順でなくてよい */
+export function paperReplay(inputs, params = {}) {
+  let st = paperNew(params)
+  const all = []
+  for (const inp of [...inputs].filter(Boolean).sort((a, b) => (a.date < b.date ? -1 : 1))) {
+    const r = paperStep(st, inp)
+    st = r.state
+    all.push(...r.trades)
+  }
+  const open = st.positions.length
+  return { params: st.params, summary: paperSummary(st, all), history: st.history, trades: all, open }
+}
+
 export function paperSummary(state, trades = []) {
   const p = state.params
   const last = state.history[state.history.length - 1]
@@ -3732,6 +3771,26 @@ async function main() {
     console.log(JSON.stringify(cashNow(st, trades), null, 2))
     return
   }
+  if (args.includes('--paper-replay')) {
+    // 「もしも」の試算：--paper-replay <five-*.json のあるフォルダ> [--params '{"riskPct":5}'] [--base 練習口座の状態.json（その params から始めて --params で上書き）]
+    const i = args.indexOf('--paper-replay')
+    const dir = args[i + 1]
+    let params = {}
+    const bi = args.indexOf('--base')
+    if (bi >= 0) params = { ...(JSON.parse(readFileSync(args[bi + 1], 'utf-8')).params || {}) }
+    const pi2 = args.indexOf('--params')
+    if (pi2 >= 0) params = { ...params, ...JSON.parse(args[pi2 + 1]) }
+    const inputs = []
+    const missing = []
+    for (const f of readdirSync(dir).filter(f => /^five-\d{4}-\d{2}-\d{2}\.json$/.test(f)).sort()) {
+      const inp = paperInputFromFive(JSON.parse(readFileSync(`${dir}/${f}`, 'utf-8')))
+      if (inp) inputs.push(inp)
+      else missing.push(f.slice(5, 15))
+    }
+    const r = paperReplay(inputs, params)
+    console.log(JSON.stringify({ days: inputs.map(x => x.date), missing, params: r.params, summary: r.summary, open: r.open, history: r.history, trades: r.trades }, null, 2))
+    return
+  }
   if (args.includes('--archive-doc')) {
     // --archive-doc <collection> <YYYY-MM-DD> 新しい記録.json [--existing 既にあるまとめ.json] > まとめ.json（{col, date, count, records}。archive に set する中身）
     const i = args.indexOf('--archive-doc')
@@ -3959,6 +4018,9 @@ async function main() {
     const day = await fetchIntradayWide(useList, { date: d, keepLatest: fo >= 0, paper: pi >= 0 })
     // 練習口座：--paper 状態.json（無ければ新しく始める）--paper-cands 買い候補.json（cands の pass。配列）--paper-out 結果.json
     let paper = null
+    let paperCands = []
+    let paperBuybacks = []
+    let paperUsBear = false
     if (pi >= 0 && day.paper) {
       let ps = null
       try {
@@ -4023,6 +4085,9 @@ async function main() {
       } catch {
         usBear = false
       }
+      paperCands = Array.isArray(cands) ? cands : []
+      paperBuybacks = buybacks
+      paperUsBear = usBear
       const r = paperStep(ps, { date: day.paper.date, stocks: day.paper.stocks, cands: Array.isArray(cands) ? cands : [], buybacks, usBear })
       paper = { date: day.paper.date, buybacks, skipped: !!r.skipped, trades: r.trades, opened: r.opened, summary: paperSummary(r.state, r.trades), equity: r.state.history[r.state.history.length - 1] || null }
       const po = args.indexOf('--paper-out')
@@ -4065,8 +4130,11 @@ async function main() {
         paper.others.push({ name: nm, skipped: !!rn.skipped, trades: rn.trades.map(t => ({ ...t, id: nm + '-' + t.id, account: nm })), opened: rn.opened, summary: paperSummary(rn.state, rn.trades), equity: rn.state.history[rn.state.history.length - 1] || null, state_file: on >= 0 ? args[on + 1] : null })
       }
     }
+    // 「もしも」の試算用に、その日の入力（5分足以外）を five にいっしょに入れる（毎晩 five-<日付>.json として記録帳に保存される）
+    const paperIn = paper && day.paper ? paperInputOf({ ...day.paper, cands: paperCands, buybacks: paperBuybacks, usBear: paperUsBear }) : null
     delete day.paper
     let five = null
+    if (fo >= 0 && day.latest && paperIn && paperIn.date === day.latest.date) day.latest.paper = paperIn
     if (fo >= 0 && day.latest) {
       // その日の5分足を保存（{date, bars: {code: [[分, 始, 高, 安, 終, 出来高], ...]}}。分は 9:00=540）
       writeFileSync(args[fo + 1], JSON.stringify(day.latest))
