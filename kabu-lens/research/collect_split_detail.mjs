@@ -1,11 +1,9 @@
 // 株式分割の開示 PDF の1ページ目から、分割の比率を取り出す（2026-11-21）
 // 使い方: node kabu-lens/research/collect_split_detail.mjs   （途中から再開できる。1件ずつ間を空ける。約1〜2時間）
-// 出力: research/split_detail.json（git に入れない）。{ "<code>|<date>|<time>": { id, pct, amountOku, days, method, err } }
+// 出力: research/split_detail.json（git に入れない）。{ "<code>|<date>|<time>": { id, ratio, yutai, div, err } }
 // 取り出すもの：
-//   pct：取得しうる株式の総数の、発行済株式総数（自己株式を除く）に対する割合（％）。変更の開示は「変更後」（いちばん後ろ）の値
-//   amountOku：取得価額の総額（億円）
-//   days：取得期間の長さ（日）
-//   method：市場買付／ToSTNeT／公開買付／信託／その他
+//   ratio：分割の比率（1株につき N 株なら N。「1株を2株に」「1：3」も読む）
+//   yutai：株主優待の変更・新設にふれているか、div：配当（増配・記念配当）にふれているか
 import { readFileSync, writeFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
@@ -23,17 +21,10 @@ const zen = s => s.replace(/[０-９．，％]/g, c => String.fromCharCode(c.cha
 function parse(text) {
   const t = zen(text).replace(/[ \t　]+/g, ' ')
   const r = {}
-  const pcts = [...t.matchAll(/割合\s*([0-9]+(?:\.[0-9]+)?)\s*[%％]/g)].map(m => +m[1])
-  if (pcts.length) r.pct = pcts[pcts.length - 1]
-  const am = [...t.matchAll(/([0-9][0-9,]*(?:\.[0-9]+)?)\s*(兆|億|百万)\s*円/g)]
-  if (am.length) {
-    const [, v, u] = am[am.length - 1]
-    const n = +v.replace(/,/g, '')
-    r.amountOku = u === '兆' ? n * 1e4 : u === '億' ? n : n / 100
-  }
-  const per = t.match(/(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日\s*[～〜~から\-－]+\s*(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/)
-  if (per) r.days = Math.round((new Date(+per[4], per[5] - 1, +per[6]) - new Date(+per[1], per[2] - 1, +per[3])) / 864e5)
-  r.method = /公開買付/.test(t) ? 'TOB' : /ToSTNeT|立会外/.test(t) ? 'ToSTNeT' : /信託/.test(t) ? '信託' : /市場買付|市場における|取引所における/.test(t) ? '市場' : 'その他'
+  const m = t.match(/1\s*株\s*(?:につき|を|に対し)[、,]?\s*([0-9]+(?:\.[0-9]+)?)\s*株/) || t.match(/1\s*[:：]\s*([0-9]+(?:\.[0-9]+)?)\s*の\s*(?:割合|比率)/)
+  if (m) r.ratio = +m[1]
+  r.yutai = /株主優待/.test(t)
+  r.div = /(増配|記念配当|配当予想の修正)/.test(t)
   return r
 }
 const codes = Object.keys(irev).filter(c => Array.isArray(irev[c]) && irev[c].some(r => r && isB(r.title || '')))
@@ -51,7 +42,7 @@ for (const code of codes) {
     const key = `${code}|${w.date}|${w.time}`
     const l = links.find(x => x.date === w.date && x.time === w.time && x.title === w.title) || links.find(x => x.date === w.date && x.time === w.time && isB(x.title))
     if (!l) { out[key] = { err: 'no_link' }; continue }
-    const dir = mkdtempSync(join(tmpdir(), 'bb-'))
+    const dir = mkdtempSync(join(tmpdir(), 'sp-'))
     const pdf = join(dir, 'a.pdf')
     const g = curl(`https://f.irbank.net/pdf/${w.date.replace(/-/g, '')}/${l.id}.pdf`, pdf)
     await sleep(1200)
