@@ -1606,6 +1606,37 @@ export async function fetchWorld() {
 }
 
 /**
+ * 日経平均先物（CME・円建て NIY=F。ほぼ24時間取引）の最新値と、日経平均の最後の終値との差（2026-11-21 本人の希望）。
+ * 夜間・早朝の先物は、翌朝の寄りがどのくらい高く・安く始まりそうかの目安。返り値: {fut, futTime（日本時間）, n225, n225Date, vs_close_pct}
+ */
+export function nikkeiFutBrief(fut, n225) {
+  const last = j => {
+    const r = j?.chart?.result?.[0]
+    if (!r) return null
+    const c = r.indicators?.quote?.[0]?.close || []
+    let k = c.length - 1
+    while (k >= 0 && (c[k] === null || c[k] === undefined)) k--
+    const price = ok(r.meta?.regularMarketPrice) ? r.meta.regularMarketPrice : k >= 0 ? c[k] : null
+    const t = ok(r.meta?.regularMarketTime) ? r.meta.regularMarketTime : k >= 0 ? r.timestamp[k] : null
+    return ok(price) && ok(t) ? { price, t } : null
+  }
+  const f = last(fut)
+  const n = last(n225)
+  if (!f || !n) return null
+  const jst = t => new Date((t + 9 * 3600) * 1000).toISOString().slice(0, 16).replace('T', ' ')
+  return { fut: round(f.price, 0), futTime: jst(f.t), n225: round(n.price, 2), n225Date: jst(n.t).slice(0, 10), vs_close_pct: round((f.price / n.price - 1) * 100, 2) }
+}
+
+export async function fetchNikkeiFut() {
+  const get = async s => JSON.parse(await fetchText(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(s)}?range=5d&interval=15m`))
+  try {
+    return nikkeiFutBrief(await get('NIY=F'), await get('^N225'))
+  } catch {
+    return null
+  }
+}
+
+/**
  * 日本の日付 jpDate の朝に分かっている海外の動き（jpDate より前の日付の最後の足）と、検証にもとづく目安。
  * wd: fetchWorld の結果。返り値: {asOf, spx, sox, vix, vix5, jpy, tnx, spx20, usBear, notes: [文]}
  */
@@ -3745,7 +3776,10 @@ async function main() {
   if (args.includes('--world')) {
     // --world [YYYY-MM-DD]：その日の朝に分かっている海外の動きと目安（省略で今日）
     const d = args[args.indexOf('--world') + 1]
-    console.log(JSON.stringify(worldBrief(await fetchWorld(), /^\d{4}-\d{2}-\d{2}$/.test(d || '') ? d : undefined), null, 2))
+    const wb = worldBrief(await fetchWorld(), /^\d{4}-\d{2}-\d{2}$/.test(d || '') ? d : undefined)
+    // 日経平均先物（CME・円建て）の今の値と、日経平均の最後の終値との差（日付を指定したときは今の値なので付けない）
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d || '')) wb.nkFut = await fetchNikkeiFut()
+    console.log(JSON.stringify(wb, null, 2))
     return
   }
   if (args.includes('--tanshin')) {

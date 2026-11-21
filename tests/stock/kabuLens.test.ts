@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { below200, parseBuybackPdf, drawdownStop, crashSignal, worldBrief, parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, paperInputOf, paperInputFromFive, paperReplay, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { below200, parseBuybackPdf, drawdownStop, nikkeiFutBrief, crashSignal, worldBrief, parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, paperInputOf, paperInputFromFive, paperReplay, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -1393,5 +1393,18 @@ describe('資金の下げの歯止め（11/21）', () => {
   it('買う前チェックも止める', () => {
     const r = preTradeCheck({ code: '1111', price: 1000, atr: 20, settings: { capital: 400000, capitalPeak: 600000, riskPct: 1, maxPosPct: 62, cash: 400000 }, positions: [] })
     expect(r.blocks.some((b: string) => b.includes('資金の下げの歯止め'))).toBe(true)
+  })
+})
+
+describe('日経平均先物（11/21）', () => {
+  it('先物の最新値と日経平均の終値の差', () => {
+    const fut = { chart: { result: [{ meta: { regularMarketPrice: 54555, regularMarketTime: 1795211991 }, timestamp: [1795211100], indicators: { quote: [{ close: [54555] }] } }] } }
+    const n = { chart: { result: [{ meta: { regularMarketPrice: 56436.65, regularMarketTime: 1795157103 }, timestamp: [1795156200], indicators: { quote: [{ close: [56436.6484375] }] } }] } }
+    const r = nikkeiFutBrief(fut, n)
+    expect(r.fut).toBe(54555)
+    expect(r.vs_close_pct).toBe(-3.33)
+    expect(r.n225Date).toBe('2026-11-20')
+    expect(r.futTime.startsWith('2026-11-21 06:')).toBe(true)
+    expect(nikkeiFutBrief(null, n)).toBeNull()
   })
 })
