@@ -431,3 +431,4 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 - 11/21 夜：増配の幅（今回÷前回の予想）で翌日の寄指の成績を分けた（swing/study_div_size.mjs、開示PDF 2,400件）。3つの期間そろって良い組はなく、件数も少ない。増配は幅で選ばない（決まりは変えない）。
 - **11/22 本人と決定（本番）：小さめの会社の大きい自社株買いを先に買う**。取得の割合2%以上・20日平均の売買代金3億円未満の自社株買い（`isSmallHotBuyback`）を `--buyback` の rows の一番上に置く（`small_hot: true`、`turnover_avg` を出す）。夜の点検の指示文（手順5b・3a・注文票の見出し）を直した（ops/prompt-night.md はまだ古い。直すときは get_trigger で今の指示文を読む）。練習口座の本番どおり（paper_live）は params.evOrder = 'bbsmall'。ruleVersion 2026-11-22。10年の口座全体の年率は前半23.8→23.8／後半28.7→29.1／直近44.6→46.6（前半は同じ）。
 - 11/22：海外の公開スキル（claude-trading-skills・day-trader-skill）の合図を10年で確かめた（swing/study_ext_ideas.mjs）。モメンタムバースト（+4%・出来高増）、売り疲れのハンマー、売り抜けの日（ディストリビューション・デー）の数で絞る、のどれも3つの期間そろって良くならない。採らない。
+- 11/22：寄り付きの値幅の上抜け（オープニングレンジ・ブレイクアウト）を1時間足2年・5分足60日で確かめた（day/study_orb.mjs）。どの形も全体比 −0.2% 前後（すべりの分だけ負け・上乗せゼロ）、勝率3割台。採らない。
