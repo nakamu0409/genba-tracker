@@ -429,3 +429,4 @@ node .claude/scripts/kabu-lens.mjs --evaluate signals.json   # 買い候補の�
 5. **放置中の保有の見直し**：週の振り返り（金曜）が、放置中の含み損益と資金に対する割合を出し、「①このまま ②期限を決める ③売る線を決め直す」を本人に問いかける（売れ・持てとは言わない）。
 6. **月の成績表**（trig_01Dj6uSrSS43YeCJqm8XEtzt、毎月1日 10:47、ops/prompt-monthly.md）：本番・練習口座・全部の合図の先月の分。collection "monthly" に累計の写しを残し、次の月との差で「その月の分」を出す。
 - 11/21 夜：増配の幅（今回÷前回の予想）で翌日の寄指の成績を分けた（swing/study_div_size.mjs、開示PDF 2,400件）。3つの期間そろって良い組はなく、件数も少ない。増配は幅で選ばない（決まりは変えない）。
+- **11/22 本人と決定（本番）：小さめの会社の大きい自社株買いを先に買う**。取得の割合2%以上・20日平均の売買代金3億円未満の自社株買い（`isSmallHotBuyback`）を `--buyback` の rows の一番上に置く（`small_hot: true`、`turnover_avg` を出す）。夜の点検の指示文（手順5b・3a・注文票の見出し）を直した（ops/prompt-night.md はまだ古い。直すときは get_trigger で今の指示文を読む）。練習口座の本番どおり（paper_live）は params.evOrder = 'bbsmall'。ruleVersion 2026-11-22。10年の口座全体の年率は前半23.8→23.8／後半28.7→29.1／直近44.6→46.6（前半は同じ）。

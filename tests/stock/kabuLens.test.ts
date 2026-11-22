@@ -1445,3 +1445,15 @@ describe('連休明けの ETF（練習口座・11/21）', () => {
     expect(paperStep(paperNew({ capital: 1000000 }), { date: '2027-01-08', stocks: { 1306: { bars: flat(400) } } }).opened).toHaveLength(0)
   })
 })
+
+describe('isSmallHotBuyback', () => {
+  it('取得の割合2%以上・売買代金3億円未満だけ true', async () => {
+    const { isSmallHotBuyback } = await import('../../.claude/scripts/kabu-lens.mjs')
+    expect(isSmallHotBuyback(2.5, 1e8)).toBe(true)
+    expect(isSmallHotBuyback(2, 2.99e8)).toBe(true)
+    expect(isSmallHotBuyback(1.9, 1e8)).toBe(false)
+    expect(isSmallHotBuyback(3, 3e8)).toBe(false)
+    expect(isSmallHotBuyback(null, 1e8)).toBe(false)
+    expect(isSmallHotBuyback(3, null)).toBe(false)
+  })
+})

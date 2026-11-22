@@ -1433,6 +1433,14 @@ export function pickEvents(rows, universe = null) {
 }
 
 /**
+ * 小さめの会社の大きい自社株買いか（取得の割合2%以上・20日平均の売買代金3億円未満）。
+ * 2026-11-21 の検証で3つの期間とも翌日の寄指の成績が +1.0〜1.5%。同じ日に企業の行動がいくつも出たら先に買う（11/22 本人と決定）
+ */
+export function isSmallHotBuyback(pct, turnoverAvg) {
+  return Number(pct) >= 2 && Number.isFinite(turnoverAvg) && turnoverAvg > 0 && turnoverAvg < 3e8
+}
+
+/**
  * 株主優待の廃止・中止・休止（2026-11-21 本人と決定：記録だけ。本番では買わない）。15:00以降・決算と別の日・universe の銘柄。
  * 10年の検証で、翌朝は平均 −2.7% 安く始まり、その日のうちに +1.1% 戻る傾向（前半・後半とも。件数は約20ずつ）。30件ほどたまったら本当に効くか判断する
  */
@@ -3060,7 +3068,11 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], 
   let bbCount = 0
   let peadCount = 0
   // evOrder 'mom'：企業の行動は、発表までの20日の騰落の大きい順に買う（2026-11-21 の口座全体の検証で、4つの期間すべて年率が上がった）
-  const evList = p.evOrder === 'mom' ? buybacks.slice().sort((a, b) => (b.kind === 'pead') - (a.kind === 'pead') || (stocks[b.code]?.r20 ?? -1e9) - (stocks[a.code]?.r20 ?? -1e9)) : buybacks
+  // evOrder 'bbsmall'：取得の割合2%以上で、20日平均の売買代金が3億円未満の自社株買いを先に買う（2026-11-22 本人と決定。本番の注文票と同じ並べ方）
+  const bbHot = b => b.kind === 'buyback' && (b.pct ?? 0) >= 2 && (stocks[b.code]?.turnover ?? Infinity) < 3e8 ? 0 : 1
+  const evList = p.evOrder === 'mom' ? buybacks.slice().sort((a, b) => (b.kind === 'pead') - (a.kind === 'pead') || (stocks[b.code]?.r20 ?? -1e9) - (stocks[a.code]?.r20 ?? -1e9))
+    : p.evOrder === 'bbsmall' ? buybacks.slice().sort((a, b) => bbHot(a) - bbHot(b))
+      : buybacks
   for (const b of evList) {
     const isPead = b.kind === 'pead'
     // bbSizeRule：自社株買いは、取得の割合2%以上を良い条件の1つに数え、2つ以上のものだけ買う（2026-11-21 本人と決定。まず練習口座で試す）
@@ -4045,6 +4057,8 @@ async function main() {
         r.close_date = last.date
         r.close = last.c
         r.limit = tickFloor(last.c * 1.02)
+        const b20 = y.bars.slice(-20)
+        r.turnover_avg = b20.length ? Math.round(b20.reduce((a, b) => a + b.c * b.v, 0) / b20.length) : null
         const c25 = y.bars.slice(-25).map(b => b.c)
         r.dev25 = c25.length === 25 ? round((last.c / (c25.reduce((a, b) => a + b, 0) / 25) - 1) * 100, 1) : null
       } catch (e) {
@@ -4069,6 +4083,9 @@ async function main() {
         if (r.skip) r.why = [...(r.why || []), r.size_pct === null ? '取得の割合は読めず' : `取得の割合 ${r.size_pct}%（2%未満）`]
         else if (bp.pct >= 2) r.why = [...(r.why || []), `取得の割合 ${bp.pct}%（2%以上）`]
         r.expect_pct = r.score_with_size >= 2 ? 0.7 : r.score_with_size === 1 ? 0.36 : -0.06
+        // 2026-11-22 本人と決定（本番）：取得の割合2%以上で、20日平均の売買代金が3億円未満の自社株買いは、注文票の一番上に置く（同じ日にいくつも出たら先に買う）
+        r.small_hot = !r.skip && isSmallHotBuyback(r.size_pct, r.turnover_avg)
+        if (r.small_hot) r.why = [...(r.why || []), '小さめの会社の大きい自社株買い（先に買う）']
         r.sell = '同じ日の引成'
       } else if (r.kind === 'yutai_end') {
         r.skip = true
@@ -4086,8 +4103,8 @@ async function main() {
         r.sell = '5営業日後の引成'
       }
     }
-    rows.sort((a, b) => (b.skip ? -1 : b.expect_pct) - (a.skip ? -1 : a.expect_pct))
-    console.log(JSON.stringify({ date: td.date, total_disclosures: td.total, error: td.error || null, rule: '翌営業日に寄指（limit 以下なら寄りで買う）。kind: buyback＝自社株買い（同じ日の引成で売る。良い条件＋取得の割合2%以上で2つ以上だけ買い、ほかは skip）、divup＝増配（同じ日の引成）、split＝株式分割（5営業日後の引成）、yutai_end＝株主優待の廃止（記録だけ。skip。11/21〜）。決算と同じ日の発表・立会外の取得は除く。expect_pct＝10年の検証での1回の平均（全体比の%）。大きい順', rows }, null, 2))
+    rows.sort((a, b) => (a.skip - b.skip) || (!!b.small_hot - !!a.small_hot) || (b.skip ? -1 : b.expect_pct) - (a.skip ? -1 : a.expect_pct))
+    console.log(JSON.stringify({ date: td.date, total_disclosures: td.total, error: td.error || null, rule: '翌営業日に寄指（limit 以下なら寄りで買う）。kind: buyback＝自社株買い（同じ日の引成で売る。良い条件＋取得の割合2%以上で2つ以上だけ買い、ほかは skip）、divup＝増配（同じ日の引成）、split＝株式分割（5営業日後の引成）、yutai_end＝株主優待の廃止（記録だけ。skip。11/21〜）。決算と同じ日の発表・立会外の取得は除く。expect_pct＝10年の検証での1回の平均（全体比の%）。small_hot（取得の割合2%以上・20日平均の売買代金3億円未満の自社株買い）を一番上に、あとは expect_pct の大きい順', rows }, null, 2))
     return
   }
   if (args.includes('--scan-now')) {
