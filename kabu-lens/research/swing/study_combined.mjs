@@ -123,6 +123,20 @@ const usBearOn = d => {
   }
   return a >= 20 && spx[a].c / spx[a - 20].c - 1 <= -0.05
 }
+// 半導体（SOX）の20日の騰落（前の米国の日まで）。soxCut：これ以下（%）の日は新しいスイングを soxMax 件まで（2026-11-23 本人の希望で試す）
+const sx = JSON.parse(readFileSync(new URL('../world/SOX.json', import.meta.url), 'utf-8')).chart.result[0]
+const soxS = sx.timestamp.map((t, i) => ({ date: new Date((t - 5 * 3600) * 1000).toISOString().slice(0, 10), c: sx.indicators.quote[0].close[i] })).filter(x => x.c != null)
+const sox20 = d => {
+  let a = -1
+  for (let lo = 0, hi = soxS.length - 1; lo <= hi;) {
+    const m = (lo + hi) >> 1
+    if (soxS[m].date < d) {
+      a = m
+      lo = m + 1
+    } else hi = m - 1
+  }
+  return a >= 20 ? (soxS[a].c / soxS[a - 20].c - 1) * 100 : 0
+}
 // 避ける形（スイングの候補の合図の日 i で判定）
 function avoid(st, i) {
   const B = st.bars
@@ -328,7 +342,7 @@ function run(P) {
       if (P.lowFirst) list.sort((a, b) => (stocks[a.code].bars[a.i].c < P.lowFirst ? 0 : 1) - (stocks[b.code].bars[b.i].c < P.lowFirst ? 0 : 1))
       // 損切りを遠くする（2×ATR → 2×ATR×stopWiden。終値からの距離を広げる）
       if (P.stopWiden) list = list.map(s => ({ ...s, stop: s.close - (s.close - s.stop) * P.stopWiden }))
-      const max = P.usBear && usBearOn(d) ? 1 : 99
+      const max = P.usBear && usBearOn(d) ? 1 : P.soxCut !== undefined && sox20(d) <= P.soxCut ? (P.soxMax ?? 0) : 99
       addRisky('swing', list, max, P.swingR ?? 3, P.swingDays ?? 40, 2)
     }
     // 6. 値動きで決着
