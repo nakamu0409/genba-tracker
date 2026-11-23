@@ -8,7 +8,7 @@
 import { loadAll, mean, fmt, SPLIT_DATE } from './lib_signals.mjs'
 const A = SPLIT_DATE, BB = '2025-11-14'
 const per = d => (d < A ? 0 : d < BB ? 1 : 2)
-const D = loadAll({ withSwing: false, evMinTurn: 3e7 })
+const D = loadAll({ withSwing: false, evMinTurn: 3e7, withSmall: true })
 const { stocks, bench } = D
 const bi = new Map(bench.map((b, i) => [b.date, i]))
 let BBD = {}

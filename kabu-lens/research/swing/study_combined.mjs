@@ -25,6 +25,12 @@ const byDate = arr => {
   }
   return m
 }
+// SMALL=1：売買代金の小さい会社（3,000万〜1億円）の企業の行動も読む。使うかどうかは cfg.smallMin（この売買代金以上）・cfg.smallKinds（['divup'] など）
+if (process.env.SMALL) {
+  const D2 = loadAll({ withSwing: false, withSmall: true, evMinTurn: 3e7 })
+  for (const [c, st] of Object.entries(D2.stocks)) if (!stocks[c]) stocks[c] = st
+  for (const e of D2.events) if (D2.stocks[e.code].turn[e.i] < 1e8) D.events.push({ ...e, small: true })
+}
 const EV = byDate(D.events)
 const SU = byDate(D.surge)
 const SW = byDate(D.swing)
@@ -226,7 +232,7 @@ function run(P) {
     if (P.tracks.events) {
       const LB = P.evLook ?? 20
       const r20 = e => { const B = stocks[e.code].bars; return e.i >= LB ? B[e.i].c / B[e.i - LB].c : 1 }
-      const evList = (EV.get(pd) || []).filter(x => P.evAll || evRank(x) < 9)
+      const evList = (EV.get(pd) || []).filter(x => (!x.small || (P.smallMin && stocks[x.code].turn[x.i] >= P.smallMin && (!P.smallKinds || P.smallKinds.includes(x.kind)))) && (P.evAll || evRank(x) < 9))
       if (P.evOrder === 'mom') evList.sort((a, b) => r20(b) - r20(a))
       else if (P.evOrder === 'rev') evList.sort((a, b) => r20(a) - r20(b))
       else if (P.evOrder === 'rankmom') evList.sort((a, b) => evRank(a) - evRank(b) || r20(b) - r20(a))

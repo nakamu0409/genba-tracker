@@ -6,12 +6,15 @@
 // 結果（2026-11-23、wide.json の1,403社・10年で119件）：翌朝の寄りは D1 の終値から平均 −1.09／−0.49／−1.84%（真ん中 −1.39／−0.14／−1.35%）。
 //   割引が2%なら寄りで売って得になるのは71%・平均+1.0%、2.5%なら81%・+1.6%、3%なら87%・+2.1%。5日持つと得は減る（寄りで売るのが良い）。
 //   注意：割引の%は PDF にしか無い（ここでは仮定）。人気の分売は抽選で買えないことがある。1人あたりの上限株数がある。件数が少ない（小さい会社を足してもう一度）
+// 結果2（2026-11-23、小さい会社を足して3,588社・696件）：翌朝の寄りは平均 −1.14／−1.13／−1.09%（3つの期間でほぼ同じ＝安定）。
+//   割引2%：得になる 62／60／67%・平均 +0.87／+0.89／+0.92%。2.5%：71／71／72%・+1.39／+1.40／+1.44%。3%：84／82／87%・+1.91／+1.93／+1.97%。
+//   ほとんど（646件）が売買代金3億円未満の会社。5日持つと得は減る（直近は5日で −1.28%）→ 寄りで売る。割引2.5%以上なら申し込む価値が高い
 import { readFileSync } from 'node:fs'
 import { loadAll, mean, median, fmt, SPLIT_DATE } from './lib_signals.mjs'
 const A = SPLIT_DATE, BB = '2025-11-14'
 const per = d => (d < A ? 0 : d < BB ? 1 : 2)
 const ir = JSON.parse(readFileSync(new URL('../irevents2.json', import.meta.url), 'utf-8'))
-const D = loadAll({ withSwing: false })
+const D = loadAll({ withSwing: false, withSmall: true })
 const { stocks, bench } = D
 const bi = new Map(bench.map((b, i) => [b.date, i]))
 const G = { open: [], close: [], d5: [], ex5: [], openSmall: [], openBig: [] }
@@ -52,4 +55,12 @@ const all = G.open.map(x => x.v).sort((a, b) => a - b)
 for (const disc of [1.5, 2, 2.5, 3]) {
   const win = all.filter(v => v > -disc).length / all.length * 100
   console.log(`  割引 ${disc}% のとき：寄りで売って得になる割合 ${win.toFixed(0)}%・平均の損益 ${fmt(mean(all.map(v => (1 + v / 100) / (1 - disc / 100) * 100 - 100)))}%`)
+}
+// 期間ごと（割引2%・2.5%・3%）
+for (const disc of [2, 2.5, 3]) {
+  const line = [0, 1, 2].map(p => {
+    const z = G.open.filter(x => x.p === p).map(x => x.v)
+    return `${(z.filter(v => v > -disc).length / z.length * 100).toFixed(0)}%・${fmt(mean(z.map(v => (1 + v / 100) / (1 - disc / 100) * 100 - 100)))}%`
+  }).join('  ／  ')
+  console.log(`  割引 ${disc}%（前半／後半／直近）：${line}`)
 }

@@ -6,8 +6,11 @@ import { analyze, surgePullback, tickFloor } from '../../../.claude/scripts/kabu
 
 export const SLIP = 0.001
 
-export function loadAll({ withSwing = true, avoidChase = true, evMinTurn = 1e8 } = {}) {
+export function loadAll({ withSwing = true, avoidChase = true, evMinTurn = 1e8, withSmall = false } = {}) {
   const wide = JSON.parse(readFileSync(new URL('../wide.json', import.meta.url), 'utf-8'))
+  // withSmall：売買代金の小さい会社（fetch_small.mjs で集めた wide_small.json・irevents2.json）も足す。元の銘柄はそのまま
+  const small = withSmall ? JSON.parse(readFileSync(new URL('../wide_small.json', import.meta.url), 'utf-8')) : {}
+  for (const [c, w] of Object.entries(small)) if (!wide[c] && w?.d?.length) wide[c] = w
   // ベンチマークに桁のおかしい日がある（2026-03-30・31 が約1/10）。前の正しい日から±30%を超える日は除く
   const benchRaw = JSON.parse(readFileSync(new URL('./bench1306.json', import.meta.url), 'utf-8'))
   const bench = []
@@ -18,6 +21,10 @@ export function loadAll({ withSwing = true, avoidChase = true, evMinTurn = 1e8 }
   }
   const irev = JSON.parse(readFileSync(new URL('../irevents.json', import.meta.url), 'utf-8'))
   const irh = JSON.parse(readFileSync(new URL('../irhist.json', import.meta.url), 'utf-8'))
+  if (withSmall) {
+    const ir2 = JSON.parse(readFileSync(new URL('../irevents2.json', import.meta.url), 'utf-8'))
+    for (const [c, l] of Object.entries(ir2)) if (!irev[c] && Array.isArray(l)) irev[c] = l
+  }
   const stocks = {}
   for (const [code, w] of Object.entries(wide)) {
     const bars = (w?.d || []).map(([date, o, h, l, c, v]) => ({ date, o, h, l, c, v })).filter(b => b.o > 0 && b.h > 0 && b.l > 0 && b.c > 0)
