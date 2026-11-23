@@ -7,7 +7,8 @@ import { spawn } from 'node:child_process'
 const R = p => JSON.parse(readFileSync(new URL(p, import.meta.url), 'utf-8'))
 const UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36'
 const curl = (url, t = 30) => new Promise(res => {
-  const p = spawn('curl', ['-sS', '-L', '--fail', '--max-time', String(t), '-A', UA, url])
+  // Yahoo は長い User-Agent だと 429 を返すので短いものにする
+  const p = spawn('curl', ['-sS', '-L', '--fail', '--max-time', String(t), '-A', /yahoo/.test(url) ? 'Mozilla/5.0' : UA, url])
   const ch = []
   p.stdout.on('data', d => ch.push(d))
   p.on('close', st => res(st === 0 ? Buffer.concat(ch).toString('utf-8') : null))
@@ -18,7 +19,7 @@ const wide = R('./wide.json')
 if (mode === 'daily') {
   const file = new URL('./wide_small.json', import.meta.url)
   const out = existsSync(file) ? JSON.parse(readFileSync(file, 'utf-8')) : {}
-  const todo = master.last.filter(x => ['プライム', 'スタンダード', 'グロース'].includes(x.MktNm)).map(x => [x.Code.slice(0, 4), x.CoName, x.MktNm]).filter(([c]) => !(c in wide) && !(c in out))
+  const todo = master.last.filter(x => ['プライム', 'スタンダード', 'グロース'].includes(x.MktNm)).map(x => [x.Code.slice(0, 4), x.CoName, x.MktNm]).filter(([c]) => !(c in wide) && !out[c])
   const rd = x => Math.round(x * 10) / 10
   let n = 0
   const worker = async () => {
@@ -39,7 +40,7 @@ if (mode === 'daily') {
       if (++n % 100 === 0) { writeFileSync(file, JSON.stringify(out)); console.error('daily', n, 'left', todo.length) }
     }
   }
-  await Promise.all(Array.from({ length: 6 }, worker))
+  await Promise.all(Array.from({ length: 4 }, worker))
   writeFileSync(file, JSON.stringify(out))
   console.log('ok', Object.values(out).filter(Boolean).length, '/', Object.keys(out).length)
 } else if (mode === 'ir') {
