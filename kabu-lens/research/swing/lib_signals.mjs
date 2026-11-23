@@ -6,7 +6,7 @@ import { analyze, surgePullback, tickFloor } from '../../../.claude/scripts/kabu
 
 export const SLIP = 0.001
 
-export function loadAll({ withSwing = true, avoidChase = true } = {}) {
+export function loadAll({ withSwing = true, avoidChase = true, evMinTurn = 1e8 } = {}) {
   const wide = JSON.parse(readFileSync(new URL('../wide.json', import.meta.url), 'utf-8'))
   // ベンチマークに桁のおかしい日がある（2026-03-30・31 が約1/10）。前の正しい日から±30%を超える日は除く
   const benchRaw = JSON.parse(readFileSync(new URL('./bench1306.json', import.meta.url), 'utf-8'))
@@ -33,7 +33,7 @@ export function loadAll({ withSwing = true, avoidChase = true } = {}) {
   }
   const regime = benchRegime(bench)
   const out = { stocks, bench, regime }
-  out.events = eventSignals(stocks, irev, irh)
+  out.events = eventSignals(stocks, irev, irh, evMinTurn)
   out.surge = surgeSignals(stocks)
   if (withSwing) out.swing = swingSignals(stocks, bench, avoidChase)
   return out
@@ -84,7 +84,7 @@ function swingSignals(stocks, bench, avoidChase = true) {
 }
 
 /** 企業の行動（15:00以降・決算と別の日・売買代金1億円以上）。date＝発表の日（翌日の寄指で買う） */
-function eventSignals(stocks, irev, irh) {
+function eventSignals(stocks, irev, irh, minTurn = 1e8) {
   const isB = t => /自己株式/.test(t) && /取得/.test(t) && /(決定|事項)/.test(t) && !/(取得状況|結果|終了|完了|経過|ToSTNeT|立会外)/.test(t)
   const isDiv = t => /増配/.test(t) && !/(減配|無配|下方)/.test(t)
   const isSplit = t => /株式分割/.test(t) && !/(結果|延期|中止)/.test(t)
@@ -101,7 +101,7 @@ function eventSignals(stocks, irev, irh) {
       if (!kind) continue
       if (kd.has(r.date) || list.some(x => x.date === r.date && /決算/.test(x.title))) continue
       const i = st.idx.get(r.date)
-      if (i === undefined || i < 60 || st.turn[i] < 1e8) continue
+      if (i === undefined || i < 60 || st.turn[i] < minTurn) continue
       const key = kind + i
       if (seen.has(key)) continue
       seen.add(key)
