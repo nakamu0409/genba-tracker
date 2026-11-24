@@ -227,6 +227,7 @@ function run(P) {
     }
     const openRisk = () => pos.filter(p => p.track === 'swing' || p.track === 'surge').reduce((s, p) => s + Math.max(0, p.last - p.stop) * p.qty, 0)
     let buys = 0
+    let dayUse = 0 // その日の寄りに企業の行動へ使ったお金（同じ日の引けで戻る）
     const held = new Set(pos.map(p => p.code))
     const close = (p, price, reason) => {
       cash += p.qty * price
@@ -322,6 +323,7 @@ function run(P) {
         buys++
         held.add(e.code)
         cash -= qty * o
+        if (e.kind !== 'split') dayUse += qty * o
         if (e.kind === 'split') pos.push({ track: 'split', code: e.code, entryDate: d, entry: o, qty, stop: o * 0.92, target: Infinity, maxDays: 5, held: 0, last: o })
         else if (P.evStop && x.b.l <= o * (1 - P.evStop / 100)) close({ track: e.kind, code: e.code, entry: o, qty }, o * (1 - P.evStop / 100) * (1 - SL), '損切り')
         else close({ track: e.kind, code: e.code, entry: o, qty }, x.b.c, '大引け')
@@ -446,7 +448,7 @@ function run(P) {
       }
     }
     const equity = cash + pos.reduce((s, p) => s + p.qty * p.last, 0) + (kd !== undefined ? etfU * bench[kd].c : 0)
-    hist.push({ date: d, equity, cash })
+    hist.push({ date: d, equity, cash, use: (pos.reduce((a, p) => a + p.qty * p.last, 0) + dayUse) / equity })
     equityPrev = equity
     peakEq = Math.max(peakEq, equity)
   }
@@ -555,6 +557,7 @@ if (process.env.WHATIF) {
     const mon = []
     const yr = {}
     const idle = []
+    const used = []
     const byT = {}
     let first = null
     let lastD = null
@@ -579,6 +582,7 @@ if (process.env.WHATIF) {
           for (const [y, e] of ye) { (yr[y] ||= []).push((e / py - 1) * 100); py = e }
           // 使っていない現金の割合（毎日の 現金 ÷ 資産 の平均%）
           idle.push(hist.reduce((a, h) => a + h.cash / h.equity, 0) / hist.length * 100)
+          used.push(hist.reduce((a, h) => a + Math.min(1, h.use), 0) / hist.length * 100)
           first = hist[0].date
           lastD = hist[hist.length - 1].date
           const cnt = {}
@@ -599,7 +603,7 @@ if (process.env.WHATIF) {
       })
     }
     const tracks = Object.fromEntries(Object.entries(byT).map(([k, g]) => { const n = [...g.n].sort((x, y) => x - y)[Math.floor(g.n.length / 2)]; const w = [...g.win].sort((x, y) => x - y)[Math.floor(g.win.length / 2)]; return [k, { trades: n, win_rate_pct: n ? Math.round(w / n * 100) : 0 }] }))
-    out.push({ id: w.id, name: w.name, cfg: w.cfg, summary: { start: first, end: lastD, capital: P0.capital, equity: Math.round(md(eq)), return_pct: Math.round((md(eq) / P0.capital - 1) * 1000) / 10, cagr_pct: Math.round(md(per[0].c) * 10) / 10, max_drawdown_pct: Math.round(md(per[0].d) * 10) / 10, monthly: Object.fromEntries(['med', 'neg', 'worst', 'best', 'p10', 'p90'].map(k => [k + '_pct', Math.round(md(mon.map(m => m[k])) * 10) / 10])), periods: Object.fromEntries(PER.map(([pn], j) => [pn, { cagr_pct: Math.round(md(per[j].c) * 10) / 10, max_drawdown_pct: Math.round(md(per[j].d) * 10) / 10 }])), idle_cash_pct: Math.round(md(idle) * 10) / 10, yearly_pct: Object.fromEntries(Object.entries(yr).map(([y, a]) => [y, Math.round(md(a) * 10) / 10])), tracks } })
+    out.push({ id: w.id, name: w.name, cfg: w.cfg, summary: { start: first, end: lastD, capital: P0.capital, equity: Math.round(md(eq)), return_pct: Math.round((md(eq) / P0.capital - 1) * 1000) / 10, cagr_pct: Math.round(md(per[0].c) * 10) / 10, max_drawdown_pct: Math.round(md(per[0].d) * 10) / 10, monthly: Object.fromEntries(['med', 'neg', 'worst', 'best', 'p10', 'p90'].map(k => [k + '_pct', Math.round(md(mon.map(m => m[k])) * 10) / 10])), periods: Object.fromEntries(PER.map(([pn], j) => [pn, { cagr_pct: Math.round(md(per[j].c) * 10) / 10, max_drawdown_pct: Math.round(md(per[j].d) * 10) / 10 }])), idle_cash_pct: Math.round(md(idle) * 10) / 10, used_day_pct: Math.round(md(used) * 10) / 10, yearly_pct: Object.fromEntries(Object.entries(yr).map(([y, a]) => [y, Math.round(md(a) * 10) / 10])), tracks } })
   }
   console.log(JSON.stringify(out, null, 1))
   process.exit(0)
