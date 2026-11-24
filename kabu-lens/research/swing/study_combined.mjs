@@ -268,10 +268,12 @@ function run(P) {
         // evTurnCap：1銘柄の金額を、前の日までの20日平均の売買代金の evTurnCap% までにする（寄りで値段を押し上げないため）
         const cap = P.evTurnCap ? stocks[e.code].turn[e.i] * P.evTurnCap / 100 : Infinity
         // swSellForEv：企業の行動を買う現金が足りない日は、スイングの株を寄りで売って現金を作る（'weak'＝含み益の小さい順／'old'＝長く持っている順）。swSellOnlyZero なら100株も買えないときだけ。swSellMaxGain なら含み益がその%未満のスイングだけ売る
-        if (P.swSellForEv) {
+        const evHot = e.kind === 'buyback' && (BBD[`${e.code}|${e.date}|${e.time}`]?.pct ?? 0) >= 2 && stocks[e.code].turn[e.i] < 3e8
+        // swSellFor：'hot'＝小さめの会社の大きい自社株買いのときだけ／'buyback'＝自社株買いのときだけ。swSellMinHeld：その日数以上持ったスイングだけ売る
+        if (P.swSellForEv && (!P.swSellFor || (P.swSellFor === 'hot' ? evHot : e.kind === P.swSellFor))) {
           const want = Math.min(P.evPosPct ? equityPrev * P.evPosPct / 100 : maxPos, cap)
           if (cash < want && (!P.swSellOnlyZero || Math.floor(Math.min(want, cash) / o / 100) < 1)) {
-            const sw = pos.filter(q => q.track === 'swing' && q.entryDate !== d && barOf(q.code) && (P.swSellMaxGain === undefined || (q.last / q.entry - 1) * 100 < P.swSellMaxGain))
+            const sw = pos.filter(q => q.track === 'swing' && q.entryDate !== d && barOf(q.code) && (P.swSellMaxGain === undefined || (q.last / q.entry - 1) * 100 < P.swSellMaxGain) && (!P.swSellMinHeld || q.held >= P.swSellMinHeld))
             sw.sort((a, b) => P.swSellForEv === 'old' ? b.held - a.held : (a.last / a.entry) - (b.last / b.entry))
             for (const q of sw) {
               if (cash >= want) break
