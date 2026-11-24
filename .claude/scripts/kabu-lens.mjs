@@ -1433,6 +1433,17 @@ export function pickEvents(rows, universe = null) {
 }
 
 /**
+ * 企業の行動を小さい会社まで広げる（2026-11-24 本人と決定）：いつもの銘柄（universe-wide。20日平均の売買代金がおよそ1億円以上）に無い会社でも、
+ * 自社株買い・増配で、20日平均の売買代金が smallMin（既定5,000万円）以上なら残す。株式分割・優待の廃止は今までどおり universe の銘柄だけ。
+ * 10年の口座全体の検証で、資金の大きさを4段階に変えても、前半・後半・直近の3つとも年率が上がった
+ */
+export function keepEventRow(r, inUniverse, smallMin = 5e7) {
+  if (inUniverse) return true
+  if (!smallMin) return false
+  return (r.kind === 'buyback' || r.kind === 'divup') && Number(r.turnover_avg) >= smallMin
+}
+
+/**
  * 小さめの会社の大きい自社株買いか（取得の割合2%以上・20日平均の売買代金3億円未満）。
  * 2026-11-21 の検証で3つの期間とも翌日の寄指の成績が +1.0〜1.5%。同じ日に企業の行動がいくつも出たら先に買う（11/22 本人と決定）
  */
@@ -4085,8 +4096,12 @@ async function main() {
     const d = /^\d{8}$/.test(args[i + 1] || '') ? args[i + 1] : null
     const ui = args.indexOf('--universe')
     const uni = ui >= 0 ? JSON.parse(readFileSync(args[ui + 1], 'utf-8')).map(x => x.code) : null
+    // --small-min：universe に無い会社の自社株買い・増配も、20日平均の売買代金がこの額以上なら出す（既定 5,000万円。0 で今までどおり universe だけ）
+    const smi = args.indexOf('--small-min')
+    const smallMin = uni ? (smi >= 0 ? Number(args[smi + 1]) : 5e7) : 0
+    const uniSet = uni ? new Set(uni) : null
     const td = await fetchTdnet(d)
-    const rows = pickEvents(td.rows, uni)
+    let rows = pickEvents(td.rows, smallMin ? null : uni).filter(r => !uniSet || uniSet.has(r.code) || ((r.kind === 'buyback' || r.kind === 'divup') && isTseCode(r.code)))
     // 優待の廃止は記録だけ（skip。注文票には出さない）。同じ銘柄が企業の行動にもあれば足さない
     for (const y of pickYutaiEnd(td.rows, uni)) if (!rows.some(x => x.code === y.code)) rows.push(y)
     for (const r of rows) {
@@ -4142,6 +4157,9 @@ async function main() {
         r.sell = '5営業日後の引成'
       }
     }
+    // 小さい会社まで（11/24 本人と決定）：universe に無い会社は、自社株買い・増配で20日平均の売買代金が smallMin 以上のものだけ残す
+    rows = rows.filter(r => keepEventRow(r, !uniSet || uniSet.has(r.code), smallMin))
+    for (const r of rows) if (uniSet && !uniSet.has(r.code)) { r.small_company = Number(r.turnover_avg) < 1e8; r.why = [...(r.why || []), r.small_company ? '小さい会社（売買代金5,000万〜1億円。11/24から買う）' : 'いつもの銘柄の一覧に無い会社（11/24から買う）'] }
     rows.sort((a, b) => (a.skip - b.skip) || (!!b.small_hot - !!a.small_hot) || (b.skip ? -1 : b.expect_pct) - (a.skip ? -1 : a.expect_pct))
     console.log(JSON.stringify({ date: td.date, total_disclosures: td.total, error: td.error || null, rule: '翌営業日に寄指（limit 以下なら寄りで買う）。kind: buyback＝自社株買い（同じ日の引成で売る。良い条件＋取得の割合2%以上で2つ以上だけ買い、ほかは skip）、divup＝増配（同じ日の引成）、split＝株式分割（5営業日後の引成）、yutai_end＝株主優待の廃止（記録だけ。skip。11/21〜）。決算と同じ日の発表・立会外の取得は除く。expect_pct＝10年の検証での1回の平均（全体比の%）。small_hot（取得の割合2%以上・20日平均の売買代金3億円未満の自社株買い）を一番上に、あとは expect_pct の大きい順', rows }, null, 2))
     return
