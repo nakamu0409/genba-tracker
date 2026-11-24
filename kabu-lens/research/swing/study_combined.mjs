@@ -13,6 +13,21 @@ import { loadAll, SLIP, mean, fmt } from './lib_signals.mjs'
 
 const D = loadAll()
 const { stocks, bench } = D
+// 信用倍率（supply_margin.json）：銘柄ごとに「その日に分かっている信用倍率」を引く（売り残0は null）。使う時だけ読む
+let MARGIN = null
+const marginAt = (code, date) => {
+  if (!MARGIN) {
+    MARGIN = {}
+    const raw = JSON.parse(readFileSync(new URL('../supply_margin.json', import.meta.url), 'utf-8'))
+    const bd = bench.map(b => b.date)
+    const shift = (dt, n) => { const k = bd.findIndex(x => x >= dt); return k < 0 || k + n >= bd.length ? '9999' : bd[k + n] }
+    for (const [c, rows] of Object.entries(raw)) MARGIN[c] = rows.map(([dt, , sell, buy]) => ({ k: shift(dt, 3), r: sell > 0 ? buy / sell : null })).sort((a, b) => (a.k < b.k ? -1 : 1))
+  }
+  const arr = MARGIN[code]; if (!arr) return null
+  let lo = 0, hi = arr.length - 1, ans = null
+  while (lo <= hi) { const m = (lo + hi) >> 1; if (arr[m].k <= date) { ans = arr[m].r; lo = m + 1 } else hi = m - 1 }
+  return ans
+}
 // 機関の空売り残高（supply_short.json）：銘柄ごとに「その日に分かっている合計%」を引く。使う時だけ読む
 let SHORT = null
 const shortAt = (code, date) => {
@@ -437,6 +452,8 @@ function run(P) {
       if (P.swCodes) { const set = (P._swSet ||= new Set(P.swCodes)); list = list.filter(s => set.has(s.code)) }
       // shortMax：機関の空売り残高（報告の合計%、計算日の2営業日あとから分かる）が shortMax% 以上の株はスイングで買わない（../supply_short.json が要る）
       if (P.shortMax) list = list.filter(s => shortAt(s.code, d) < P.shortMax)
+      // marginMin：信用倍率（買い残÷売り残、金曜の値を3営業日あとから使う）が marginMin 以下の株はスイングで買わない（売り残0・データ無しは買う。../supply_margin.json が要る）
+      if (P.marginMin) list = list.filter(s => { const r = marginAt(s.code, d); return r === null || r > P.marginMin })
       if (P.lowFirst) list.sort((a, b) => (stocks[a.code].bars[a.i].c < P.lowFirst ? 0 : 1) - (stocks[b.code].bars[b.i].c < P.lowFirst ? 0 : 1))
       // 損切りを遠くする（2×ATR → 2×ATR×stopWiden。終値からの距離を広げる）
       if (P.stopWiden) list = list.map(s => ({ ...s, stop: s.close - (s.close - s.stop) * P.stopWiden }))
