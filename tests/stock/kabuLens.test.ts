@@ -541,10 +541,11 @@ describe('買う前チェック', () => {
   it('maxOpenRiskMult があれば、銘柄数ではなく損の合計で上限を決める', () => {
     const s2 = { ...settings, maxOpenRiskMult: 3, cash: 1000000, maxPosPct: 100 } // 1回の損の上限 8,000円 → 合計 24,000円
     // 損の小さい保有が4つ（合計 4,000円）なら、銘柄数が多くても買える
-    const small = [1, 2, 3, 4].map(n => ({ code: '100' + n, entry: 100, last: 110, qty: 100, stop: 100, style: 'swing' }))
+    // 11/24〜：買値から損切りまでで数える。損切りを買値まで上げた株は0、上がっていても買値より下の損切りは（買値 − 損切り）
+    const small = [1, 2, 3, 4].map(n => ({ code: '100' + n, entry: 100, last: 110, qty: 100, stop: n === 4 ? 90 : 100, style: 'swing' }))
     const r1 = preTradeCheck({ ...base, settings: s2, positions: small })
     expect(r1.blocks).toEqual([])
-    expect(r1.open_risk).toMatchObject({ open: 4000, budget: 24000, room: 20000 })
+    expect(r1.open_risk).toMatchObject({ open: 1000, budget: 24000, room: 23000 })
     // 損切りの無い保有は上限いっぱい（8,000円）とみる。3つで 24,000円 → 残りなしで止める
     const nostop = [1, 2, 3].map(n => ({ code: '200' + n, entry: 100, last: 100, qty: 100 }))
     const r2 = preTradeCheck({ ...base, settings: s2, positions: nostop })

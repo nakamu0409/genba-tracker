@@ -3762,9 +3762,10 @@ export function preTradeCheck(a) {
   if (ok(st.maxOpenRiskMult) && ok(lossLimit)) {
     // 銘柄数ではなく「持っている株が全部損切りに当たったときの損の合計」で上限を決める（2026-11-19 本人と決定）
     const openRisk = carry.reduce((sum, x) => {
-      const cur = ok(x.last) ? x.last : x.entry
-      if (!ok(x.stop) || !ok(cur) || !ok(x.qty)) return sum + lossLimit // 損切りが無い保有は、上限いっぱいの損とみる
-      return sum + Math.max(0, cur - x.stop) * x.qty
+      // 2026-11-24 本人と決定：「買値から損切りまで」で数える（損切りを買値より上に上げた株は0。10年の口座全体の検証で3つの期間とも年率が上がった）
+      const base = ok(x.entry) ? x.entry : x.last
+      if (!ok(x.stop) || !ok(base) || !ok(x.qty)) return sum + lossLimit // 損切りが無い保有は、上限いっぱいの損とみる
+      return sum + Math.max(0, base - x.stop) * x.qty
     }, 0)
     const budget = lossLimit * st.maxOpenRiskMult
     const room = Math.max(0, budget - openRisk)
