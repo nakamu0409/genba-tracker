@@ -13,6 +13,25 @@ import { loadAll, SLIP, mean, fmt } from './lib_signals.mjs'
 
 const D = loadAll()
 const { stocks, bench } = D
+// 機関の空売り残高（supply_short.json）：銘柄ごとに「その日に分かっている合計%」を引く。使う時だけ読む
+let SHORT = null
+const shortAt = (code, date) => {
+  if (!SHORT) {
+    SHORT = {}
+    const raw = JSON.parse(readFileSync(new URL('../supply_short.json', import.meta.url), 'utf-8'))
+    const bd = bench.map(b => b.date)
+    const shift = (dt, n) => { const k = bd.findIndex(x => x >= dt); return k < 0 || k + n >= bd.length ? '9999' : bd[k + n] }
+    for (const [c, rows] of Object.entries(raw)) {
+      const cur = new Map(); const out = []
+      for (const [dt, who, pct] of rows.slice().sort((a, b) => (a[0] < b[0] ? -1 : 1))) { cur.set(who, pct ?? 0); out.push({ k: shift(dt, 2), tot: [...cur.values()].reduce((a, b) => a + b, 0) }) }
+      out.sort((a, b) => (a.k < b.k ? -1 : 1)); SHORT[c] = out
+    }
+  }
+  const arr = SHORT[code]; if (!arr) return 0
+  let lo = 0, hi = arr.length - 1, ans = 0
+  while (lo <= hi) { const m = (lo + hi) >> 1; if (arr[m].k <= date) { ans = arr[m].tot; lo = m + 1 } else hi = m - 1 }
+  return ans
+}
 const dates = bench.map(b => b.date).filter(d => d >= '2017-01-04')
 const prevOf = new Map()
 for (let i = 1; i < bench.length; i++) prevOf.set(bench[i].date, bench[i - 1].date)
@@ -416,6 +435,8 @@ function run(P) {
       if (P.swKinds) list = list.filter(s => P.swKinds.includes(s.kind))
       // swCodes：スイングを見る銘柄をしぼる（本番の夜の点検が見ている約170銘柄だけ、など）
       if (P.swCodes) { const set = (P._swSet ||= new Set(P.swCodes)); list = list.filter(s => set.has(s.code)) }
+      // shortMax：機関の空売り残高（報告の合計%、計算日の2営業日あとから分かる）が shortMax% 以上の株はスイングで買わない（../supply_short.json が要る）
+      if (P.shortMax) list = list.filter(s => shortAt(s.code, d) < P.shortMax)
       if (P.lowFirst) list.sort((a, b) => (stocks[a.code].bars[a.i].c < P.lowFirst ? 0 : 1) - (stocks[b.code].bars[b.i].c < P.lowFirst ? 0 : 1))
       // 損切りを遠くする（2×ATR → 2×ATR×stopWiden。終値からの距離を広げる）
       if (P.stopWiden) list = list.map(s => ({ ...s, stop: s.close - (s.close - s.stop) * P.stopWiden }))
