@@ -252,10 +252,17 @@ function run(P) {
         const cap = P.evTurnCap ? stocks[e.code].turn[e.i] * P.evTurnCap / 100 : Infinity
         need += Math.min(P.evPosPct ? equityPrev * P.evPosPct / 100 : maxPos, cap)
       }
-      for (const sg of (SW.get(pd) || []).slice(0, 3)) {
-        const c0 = stocks[sg.code].bars[sg.i].c
+      // スイングは夜の注文票と同じく、損の合計の空きがある分だけ（避ける株・持っている株は除く）
+      let room0 = riskOne * P.maxOpenRiskMult - openRisk()
+      for (const sg of (SW.get(pd) || [])) {
+        if (room0 <= 0) break
+        if (pos.some(q => q.code === sg.code) || (P.avoid && avoid(stocks[sg.code], sg.i))) continue
+        const c0 = stocks[sg.code].bars[sg.i].c * 1.02
         const rps = c0 - sg.stop
-        if (rps > 0) need += Math.min(riskOne / rps * c0, maxPos)
+        if (!(rps > 0)) continue
+        const r = Math.min(riskOne, room0)
+        need += Math.min(r / rps * c0, maxPos)
+        room0 -= r
       }
       need = P.parkSellAll ? Infinity : Math.max(0, need - cash)
       if (kp !== undefined && need > 0) {
@@ -432,7 +439,8 @@ function run(P) {
     const kd = bi.get(d)
     if (P.parkEtf && kd !== undefined) {
       const amt = cash - equityPrev * (P.parkBuffer ?? 0) / 100
-      if (amt > 0) {
+      // parkStep：置く額が資金の parkStep% を超えるときだけ買う（細かい売り買いを減らす）
+      if (amt > equityPrev * (P.parkStep ?? 0) / 100 && amt > 0) {
         etfU += amt / (bench[kd].c * (1 + SL))
         cash -= amt
       }
