@@ -225,7 +225,8 @@ function run(P) {
       const k = st.idx.get(d)
       return k === undefined ? null : { b: st.bars[k], k, st }
     }
-    const openRisk = () => pos.filter(p => p.track === 'swing' || p.track === 'surge').reduce((s, p) => s + Math.max(0, p.last - p.stop) * p.qty, 0)
+    // riskFromEntry：損の合計を「今の値段から損切りまで」ではなく「買値から損切りまで」で数える（損切りを買値より上に上げた株は0）
+    const openRisk = () => pos.filter(p => p.track === 'swing' || p.track === 'surge').reduce((s, p) => s + Math.max(0, (P.riskFromEntry ? p.entry : p.last) - p.stop) * p.qty, 0)
     let buys = 0
     let dayUse = 0 // その日の寄りに企業の行動へ使ったお金（同じ日の引けで戻る）
     const held = new Set(pos.map(p => p.code))
