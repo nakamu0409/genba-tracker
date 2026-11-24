@@ -202,6 +202,8 @@ function swingDaysFor(P, d) {
 function run(P) {
   SL = SLIP * (P.slipMult ?? 1)
   let cash = P.capital
+  // parkEtf：使っていない現金を毎日の引けで TOPIX 連動ETF に置き、翌朝の買い（企業の行動・スイング）に要る分だけ前の夜のPTSで売る（前の日の終値から parkCost%（既定0.2%）不利）。parkBuffer：資金の何%は現金のまま残すか
+  let etfU = 0
   let pos = []
   const trades = []
   const hist = []
@@ -241,6 +243,27 @@ function run(P) {
       held.add(code)
       pos.push({ track, code, entryDate: d, entry: o, qty, stop: sl ? o * (1 - sl / 100) : 0, target: Infinity, maxDays: holdDays, held: 0, last: o })
       return true
+    }
+    if (P.parkEtf && etfU > 0) {
+      const kp = bi.get(pd)
+      let need = 0
+      for (const e of (EV.get(pd) || [])) {
+        if (!P.evAll && evRank(e) >= 9) continue
+        const cap = P.evTurnCap ? stocks[e.code].turn[e.i] * P.evTurnCap / 100 : Infinity
+        need += Math.min(P.evPosPct ? equityPrev * P.evPosPct / 100 : maxPos, cap)
+      }
+      for (const sg of (SW.get(pd) || []).slice(0, 3)) {
+        const c0 = stocks[sg.code].bars[sg.i].c
+        const rps = c0 - sg.stop
+        if (rps > 0) need += Math.min(riskOne / rps * c0, maxPos)
+      }
+      need = P.parkSellAll ? Infinity : Math.max(0, need - cash)
+      if (kp !== undefined && need > 0) {
+        const px = bench[kp].c * (1 - (P.parkCost ?? 0.2) / 100)
+        const u = Math.min(etfU, need / px)
+        cash += u * px
+        etfU -= u
+      }
     }
     // 1. 企業の行動
     if (P.tracks.events) {
@@ -406,7 +429,15 @@ function run(P) {
       }
     }
     pos = keep
-    const equity = cash + pos.reduce((s, p) => s + p.qty * p.last, 0)
+    const kd = bi.get(d)
+    if (P.parkEtf && kd !== undefined) {
+      const amt = cash - equityPrev * (P.parkBuffer ?? 0) / 100
+      if (amt > 0) {
+        etfU += amt / (bench[kd].c * (1 + SL))
+        cash -= amt
+      }
+    }
+    const equity = cash + pos.reduce((s, p) => s + p.qty * p.last, 0) + (kd !== undefined ? etfU * bench[kd].c : 0)
     hist.push({ date: d, equity })
     equityPrev = equity
     peakEq = Math.max(peakEq, equity)
