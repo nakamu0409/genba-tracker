@@ -181,12 +181,26 @@ for (const st of Object.values(stocks)) {
   }
 }
 let SEED = 1
+// 厳しい条件の試算：slipMult（すべりを何倍にするか）・evMiss／swMiss（企業の行動・スイングの買いを何%の確率で買い損ねるか）
+let SL = SLIP
 const rnd = str => {
   let h = 2166136261 ^ SEED
   for (let k = 0; k < str.length; k++) h = Math.imul(h ^ str.charCodeAt(k), 16777619)
   return ((h >>> 0) % 100000) / 100000
 }
+// スイングの最長日数：swingDays（固定）／swingDaysByYear（年ごと。{"2018": 20, ...}）／swingDaysRegime（TOPIX の状態で切り替え {"by": "above75"|"slope25Up"|"ret20pos", "yes": 40, "no": 20}。前の営業日の状態）
+function swingDaysFor(P, d) {
+  if (P.swingDaysByYear && P.swingDaysByYear[d.slice(0, 4)] !== undefined) return P.swingDaysByYear[d.slice(0, 4)]
+  if (P.swingDaysRegime) {
+    const g = D.regime.get(prevOf.get(d))
+    const R = P.swingDaysRegime
+    const ok = !g ? true : R.by === 'ret20pos' ? (g.ret20 ?? 0) > 0 : !!g[R.by]
+    return ok ? R.yes : R.no
+  }
+  return P.swingDays ?? 40
+}
 function run(P) {
+  SL = SLIP * (P.slipMult ?? 1)
   let cash = P.capital
   let pos = []
   const trades = []
@@ -219,7 +233,7 @@ function run(P) {
     const fixed = (track, code, pct, holdDays, sl) => {
       const x = barOf(code)
       if (!x || x.b.h === x.b.l) return false
-      const o = x.b.o * (1 + SLIP)
+      const o = x.b.o * (1 + SL)
       const unit = code === 'ETF' ? 1 : 100
       const qty = Math.floor(Math.min(equityPrev * pct / 100, cash) / o / unit) * unit
       if (qty < unit) return false
@@ -245,6 +259,7 @@ function run(P) {
       for (const e of evList) {
         if (buys >= P.dayMax || held.has(e.code)) continue
         if (P.bbSizeRule && e.kind === 'buyback' && bbScore(e) < 2) continue
+        if (P.evMiss && rnd(`m|${e.code}|${d}`) < P.evMiss / 100) continue
         const x = barOf(e.code)
         const lim = P.evLimit ? e.close * P.evLimit : e.limit
         if (!x || x.b.h === x.b.l || x.b.o > lim) continue
@@ -258,7 +273,7 @@ function run(P) {
         held.add(e.code)
         cash -= qty * o
         if (e.kind === 'split') pos.push({ track: 'split', code: e.code, entryDate: d, entry: o, qty, stop: o * 0.92, target: Infinity, maxDays: 5, held: 0, last: o })
-        else if (P.evStop && x.b.l <= o * (1 - P.evStop / 100)) close({ track: e.kind, code: e.code, entry: o, qty }, o * (1 - P.evStop / 100) * (1 - SLIP), '損切り')
+        else if (P.evStop && x.b.l <= o * (1 - P.evStop / 100)) close({ track: e.kind, code: e.code, entry: o, qty }, o * (1 - P.evStop / 100) * (1 - SL), '損切り')
         else close({ track: e.kind, code: e.code, entry: o, qty }, x.b.c, '大引け')
       }
     }
@@ -295,7 +310,8 @@ function run(P) {
         const x = barOf(s.code)
         if (!x || x.b.h === x.b.l) continue
         if (gapMax !== null && x.b.o > s.close * (1 + gapMax / 100)) continue
-        const entry = x.b.o * (1 + SLIP)
+        if (P.swMiss && track === 'swing' && rnd(`w|${s.code}|${d}`) < P.swMiss / 100) continue
+        const entry = x.b.o * (1 + SL)
         const rps = entry - s.stop
         if (!(rps > 0)) continue
         const room = riskOne * P.maxOpenRiskMult - openRisk()
@@ -349,7 +365,7 @@ function run(P) {
       // 損切りを遠くする（2×ATR → 2×ATR×stopWiden。終値からの距離を広げる）
       if (P.stopWiden) list = list.map(s => ({ ...s, stop: s.close - (s.close - s.stop) * P.stopWiden }))
       const max = P.usBear && usBearOn(d) ? 1 : P.soxCut !== undefined && sox20(d) <= P.soxCut ? (P.soxMax ?? 0) : 99
-      addRisky('swing', list, max, P.swingR ?? 3, P.swingDays ?? 40, 2)
+      addRisky('swing', list, max, P.swingR ?? 3, swingDaysFor(P, d), 2)
     }
     // 6. 値動きで決着
     const keep = []
@@ -363,7 +379,7 @@ function run(P) {
       p.held++
       const first = p.entryDate === d
       let done = false
-      if (p.stop && !first && b.o <= p.stop) { close(p, b.o * (1 - SLIP), '損切り（寄り）'); done = true } else if (p.stop && b.l <= p.stop) { close(p, p.stop * (1 - SLIP), '損切り'); done = true } else if (!first && b.o >= p.target) { close(p, b.o, '目標（寄り）'); done = true } else if (b.h >= p.target) { close(p, p.target, '目標'); done = true } else if (p.held >= p.maxDays) { close(p, b.c * (1 - SLIP), '期間切れ'); done = true }
+      if (p.stop && !first && b.o <= p.stop) { close(p, b.o * (1 - SL), '損切り（寄り）'); done = true } else if (p.stop && b.l <= p.stop) { close(p, p.stop * (1 - SL), '損切り'); done = true } else if (!first && b.o >= p.target) { close(p, b.o, '目標（寄り）'); done = true } else if (b.h >= p.target) { close(p, p.target, '目標'); done = true } else if (p.held >= p.maxDays) { close(p, b.c * (1 - SL), '期間切れ'); done = true }
       if (!done) {
         p.last = b.c
         keep.push(p)
@@ -478,6 +494,7 @@ if (process.env.WHATIF) {
     const per = PER.map(() => ({ c: [], d: [] }))
     const eq = []
     const mon = []
+    const yr = {}
     const byT = {}
     let first = null
     let lastD = null
@@ -495,6 +512,11 @@ if (process.env.WHATIF) {
           const mr = [...me.values()].map(e => { const r = (e / pe - 1) * 100; pe = e; return r })
           const ms = [...mr].sort((x, y) => x - y)
           mon.push({ med: ms[Math.floor(ms.length / 2)], neg: mr.filter(x => x < 0).length / mr.length * 100, worst: ms[0], best: ms[ms.length - 1], p10: ms[Math.floor(ms.length * 0.1)], p90: ms[Math.floor(ms.length * 0.9)], first12: mr.slice(0, 12) })
+          // 年ごとの増減（%）
+          let py = P.capital
+          const ye = new Map()
+          for (const h of hist) ye.set(h.date.slice(0, 4), h.equity)
+          for (const [y, e] of ye) { (yr[y] ||= []).push((e / py - 1) * 100); py = e }
           first = hist[0].date
           lastD = hist[hist.length - 1].date
           const cnt = {}
@@ -515,7 +537,7 @@ if (process.env.WHATIF) {
       })
     }
     const tracks = Object.fromEntries(Object.entries(byT).map(([k, g]) => { const n = [...g.n].sort((x, y) => x - y)[Math.floor(g.n.length / 2)]; const w = [...g.win].sort((x, y) => x - y)[Math.floor(g.win.length / 2)]; return [k, { trades: n, win_rate_pct: n ? Math.round(w / n * 100) : 0 }] }))
-    out.push({ id: w.id, name: w.name, cfg: w.cfg, summary: { start: first, end: lastD, capital: P0.capital, equity: Math.round(md(eq)), return_pct: Math.round((md(eq) / P0.capital - 1) * 1000) / 10, cagr_pct: Math.round(md(per[0].c) * 10) / 10, max_drawdown_pct: Math.round(md(per[0].d) * 10) / 10, monthly: Object.fromEntries(['med', 'neg', 'worst', 'best', 'p10', 'p90'].map(k => [k + '_pct', Math.round(md(mon.map(m => m[k])) * 10) / 10])), periods: Object.fromEntries(PER.map(([pn], j) => [pn, { cagr_pct: Math.round(md(per[j].c) * 10) / 10, max_drawdown_pct: Math.round(md(per[j].d) * 10) / 10 }])), tracks } })
+    out.push({ id: w.id, name: w.name, cfg: w.cfg, summary: { start: first, end: lastD, capital: P0.capital, equity: Math.round(md(eq)), return_pct: Math.round((md(eq) / P0.capital - 1) * 1000) / 10, cagr_pct: Math.round(md(per[0].c) * 10) / 10, max_drawdown_pct: Math.round(md(per[0].d) * 10) / 10, monthly: Object.fromEntries(['med', 'neg', 'worst', 'best', 'p10', 'p90'].map(k => [k + '_pct', Math.round(md(mon.map(m => m[k])) * 10) / 10])), periods: Object.fromEntries(PER.map(([pn], j) => [pn, { cagr_pct: Math.round(md(per[j].c) * 10) / 10, max_drawdown_pct: Math.round(md(per[j].d) * 10) / 10 }])), yearly_pct: Object.fromEntries(Object.entries(yr).map(([y, a]) => [y, Math.round(md(a) * 10) / 10])), tracks } })
   }
   console.log(JSON.stringify(out, null, 1))
   process.exit(0)

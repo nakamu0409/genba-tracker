@@ -4248,8 +4248,9 @@ async function main() {
         paper.second = { skipped: !!r2.skipped, trades: r2.trades.map(t => ({ ...t, id: 'aggr-' + t.id, account: 'aggr' })), opened: r2.opened, summary: paperSummary(r2.state, r2.trades), equity: r2.state.history[r2.state.history.length - 1] || null, state_file: o2 >= 0 ? args[o2 + 1] : null }
       }
       // 3つ目・4つ目の口座（11/21 本人と決定：本番どおり・企業の行動だけ）：--paper3 状態.json --paper3-out 新しい状態.json --paper3-name live（--paper4 も同じ）
+      // 5つ目（11/24 本人と決定：本番どおりでスイングを最長20日にした live20。今の相場で40日と比べる）：--paper5 も同じ形
       paper.others = []
-      for (const n of ['3', '4']) {
+      for (const n of ['3', '4', '5']) {
         const pn = args.indexOf(`--paper${n}`)
         if (pn < 0) continue
         let sn = null
