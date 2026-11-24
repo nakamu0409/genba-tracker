@@ -2783,6 +2783,19 @@ export function crashSignal(daily) {
   return { r5: round(now, 1), first, hit: now <= -15 && first && daily[n].c >= 300 }
 }
 
+/** 練習口座用に、1銘柄の date の日の5分足と、その前の日までの日足から作る場中の前提を取る（いつもの銘柄に無い企業の行動の銘柄を足すため。11/24） */
+export async function fetchPaperStock(code, name, date) {
+  const [five, d] = await Promise.all([
+    fetchJson(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(code)}.T?range=5d&interval=5m`),
+    fetchYahoo(`${code}.T`, '6mo')
+  ])
+  const bars = splitFiveMin(five)[date]
+  if (!bars?.length) return null
+  const past = d.bars.filter(b => b.date < date)
+  const turnover = past.slice(-20).reduce((s, b) => s + b.c * b.v, 0) / 20
+  return { name: name || d.name, bars, ctx: intradayContext(past), turnover, r20: past.length >= 21 ? round((past[past.length - 1].c / past[past.length - 21].c - 1) * 100, 2) : null }
+}
+
 export async function fetchIntradayWide(list, { date = null, parallel = 8, keepLatest = false, paper = false } = {}) {
   const items = []
   const latest = {}
@@ -4236,7 +4249,19 @@ async function main() {
       if (args.includes('--paper-buyback') && day.paper.prevDate) {
         try {
           const td = await fetchTdnet(day.paper.prevDate.replace(/-/g, ''))
-          buybacks = pickEvents(td.rows, list.map(x => x.code))
+          // 11/24〜：いつもの銘柄に無い会社の自社株買い・増配も、5分足を取りに行き、売買代金5,000万円以上なら数える（本番と同じ）
+          const inUni = new Set(list.map(x => x.code))
+          buybacks = pickEvents(td.rows, null).filter(b => inUni.has(b.code) || ((b.kind === 'buyback' || b.kind === 'divup') && isTseCode(b.code)))
+          for (const b of buybacks) {
+            if (inUni.has(b.code) || day.paper.stocks[b.code]) continue
+            try {
+              const ps = await fetchPaperStock(b.code, b.name, day.paper.date)
+              if (ps && keepEventRow({ kind: b.kind, turnover_avg: ps.turnover }, false)) day.paper.stocks[b.code] = ps
+            } catch {
+              // 取れなければ数えない
+            }
+          }
+          buybacks = buybacks.filter(b => inUni.has(b.code) || day.paper.stocks[b.code])
           for (const b of buybacks) {
             if (b.kind !== 'buyback') {
               b.expect = b.kind === 'divup' ? 0.48 : 0.85
