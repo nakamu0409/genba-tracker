@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { below200, parseBuybackPdf, drawdownStop, nikkeiFutBrief, pickYutaiEnd, isPreHoliday, nextTradingDate, crashSignal, worldBrief, parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, paperSummary, paperInputOf, paperInputFromFive, paperReplay, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { below200, parseBuybackPdf, drawdownStop, nikkeiFutBrief, pickYutaiEnd, isPreHoliday, nextTradingDate, crashSignal, worldBrief, parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, pickSwingToSell, paperSummary, paperInputOf, paperInputFromFive, paperReplay, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -953,6 +953,20 @@ describe('練習口座（シミュレーション）', () => {
     expect(r2.trades[0].exit).toBe(1150)
     expect(r2.state.positions).toHaveLength(0)
     expect(paperSummary(r2.state, r2.trades).tracks.swing.trades).toBe(1)
+  })
+  it('自社株買いの現金が足りない夜は、含み益の一番小さいスイングを前の夜のPTSで売る（swSellForEv）', () => {
+    const P = [{ track: 'swing', code: 'A', entry: 1000, last: 1100, qty: 100 }, { track: 'swing', code: 'B', entry: 500, last: 480, qty: 100 }, { track: 'buyback', code: 'C', entry: 100, last: 90, qty: 100 }, { track: 'swing', code: 'D', entry: 100, last: 50, qty: 100, frozen: true }]
+    expect(pickSwingToSell(P, 100000, 90000)).toEqual([]) // 足りていれば売らない
+    expect(pickSwingToSell(P, 10000, 50000).map(x => x.code)).toEqual(['B']) // 含み損の B から。凍結・スイング以外は売らない
+    expect(pickSwingToSell(P, 10000, 100000).map(x => x.code)).toEqual(['B', 'A'])
+    const st = paperNew({ capital: 300000, swSellForEv: true, bbSizeRule: false, evPosPct: 50, maxPosPct: 50 })
+    st.cash = 50000
+    st.positions = [{ track: 'swing', code: '2222', name: 'S', entryDate: '2026-11-10', entry: 1000, qty: 200, last: 990, held: 5, stop: 900, target: 1300 }]
+    const r = paperStep(st, { date: '2026-11-20', stocks: { 1111: { name: 'A', turnover: 5e9, bars: flat(540, 6, 1000, 1010, 995, 1005), ctx: { prevClose: 1000 } }, 2222: { name: 'S', bars: flat(540, 6, 1200, 1300, 1190, 1290) } }, buybacks: [{ code: '1111', name: 'A', kind: 'buyback', score: 2 }] })
+    const sold = r.trades.find(t => t.code === '2222')
+    expect(sold.reason).toMatch(/PTS/)
+    expect(sold.exit).toBe(Math.round(990 * 0.997 * 10) / 10) // 前の日の終値から0.3%不利。今日の目標到達は数えない
+    expect(r.opened.some(x => x.code === '1111')).toBe(true)
   })
   it('もしもの試算：保存した入力（five ＋ 5分足以外）から作り直すと、もとの練習口座と同じ結果になり、別の決まりでも動かせる', () => {
     const cands = [{ code: '1111', name: 'A', date: '2026-11-18', pass: true, close: 1000, stop: 950, target: 1150, score: 80 }]

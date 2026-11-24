@@ -2881,7 +2881,7 @@ export const PAPER_DEFAULTS = {
   dayFrom: 630, dayTo: 780, delay: 20, fillWindow: 30, lowAt: 870, lowEntryM: 890, lowTpPct: 5, lowSlPct: 8, lowExitM: 780,
   swingGapPct: 2, swingMaxDays: 40, surgeMax: 2, surgeTpR: 3, surgeHold: 10,
   chaseMax: 0, chaseTrigPct: 10, chaseFrom: 570, chaseTo: 690, chaseSlPct: 8,
-  evPosPct: null, evStopPct: null, ma200Half: false, evOrder: null, swReserve: null, evTurnCap: null, bbSizeRule: false, peadMax: 2, peadHold: 5, peadGapMax: 15, peadGapMin: 0, usBearSwingMax: null,
+  evPosPct: null, evStopPct: null, ma200Half: false, evOrder: null, swReserve: null, evTurnCap: null, bbSizeRule: false, peadMax: 2, peadHold: 5, peadGapMax: 15, peadGapMin: 0, usBearSwingMax: null, swSellForEv: false, swSellPtsCost: 0.3,
   crashMax: 2, crashHold: 5, crashSlPct: 20, crashPosPct: 5, crashOpenMax: 2, crashMktOnly: true, swingMaxPrice: null,
   tsurareMax: 2, tsurareHold: 5, tsurarePosPct: 10, tsurareGap: -5, tsurareMktGap: -2.5,
   swingTargetR: null,
@@ -2927,6 +2927,23 @@ const ohlcOf = bars => ({ o: bars[0].o, h: Math.max(...bars.map(b => b.h)), l: M
  *   buybacks: 前の営業日の15:00以降に発表された自社株買い [{code, name}]（pickBuybacks）}
  * 返り値: {state, trades: その日に決着した売買, opened: その日に買った売買}
  */
+/**
+ * 自社株買いの現金が足りない夜に売るスイングを選ぶ（2026-11-24 本人と決定。10年の口座全体の検証で、前の夜のPTSで含み益の一番小さいスイングを売って回すと3つの期間とも良くなった）。
+ * positions: [{track, code, entry, last, qty, frozen}]。need: 翌朝の自社株買いに要る現金。cash: 今の現金。含み益（last ÷ entry）の小さい順に、cash が need に届くまで選ぶ
+ */
+export function pickSwingToSell(positions, cash, need) {
+  if (!(need > cash)) return []
+  const sw = positions.filter(x => x.track === 'swing' && !x.frozen && x.entry > 0 && x.last > 0 && x.qty > 0).sort((a, b) => a.last / a.entry - b.last / b.entry)
+  const out = []
+  let c = cash
+  for (const x of sw) {
+    if (c >= need) break
+    out.push(x)
+    c += x.last * x.qty
+  }
+  return out
+}
+
 export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], usBear = false }) {
   const st = JSON.parse(JSON.stringify(prev))
   const p = st.params
@@ -2954,6 +2971,28 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], 
     st.cash -= pos.qty * pos.entry
     opened.push({ ...pos })
     return pos
+  }
+  // 0. swSellForEv（2026-11-24 本人と決定）：今朝の自社株買いに要る現金が足りなければ、前の夜のPTSで含み益の一番小さいスイングを売っておく（前の日の終値＝last から swSellPtsCost%（既定0.3%）不利）。売ったお金は企業の行動のために取っておく（evReserve）
+  let evReserve = 0
+  if (p.swSellForEv) {
+    const posPct0 = p.evPosPct ? p.evPosPct : p.maxPosPct
+    let need = 0
+    let n0 = 0
+    for (const b of buybacks) {
+      if (b.kind !== 'buyback' || n0 >= (p.bbMax ?? 2)) continue
+      if (p.bbSizeRule && (b.score ?? 0) + (b.pct >= 2 ? 1 : 0) < 2) continue
+      if (st.positions.some(x => x.code === b.code)) continue
+      const s0 = stocks[b.code]
+      const turnCap0 = p.evTurnCap && s0?.turnover > 0 ? s0.turnover * p.evTurnCap / 100 : Infinity
+      need += Math.min(equity0 * posPct0 / 100, turnCap0)
+      n0++
+    }
+    const sell = pickSwingToSell(st.positions, st.cash, need)
+    for (const x of sell) close(x, x.last * (1 - (p.swSellPtsCost ?? 0.3) / 100), '企業の行動のために前の夜のPTSで売る')
+    if (sell.length) {
+      st.positions = st.positions.filter(x => !sell.includes(x))
+      evReserve = need
+    }
   }
   const keep = []
   // 1. 持っている株の決着（低位株の強い引けは今日の13時まで、スイングは今日の日足で）
@@ -3049,7 +3088,7 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], 
     const entry = x.o * (1 + slip)
     // ma200Half：TOPIX 連動ETF（1306）が200日線より下の間は、スイングの1回の損の上限を半分にする（2026-11-21 の口座全体の検証で、年率も上がり一番下げたときも浅くなった）
     // swReserve：スイングは、現金が資金の swReserve% を下回るところまでは使わない（企業の行動のために残す。2026-11-21 の口座全体の検証で、企業の行動70%なら年率が上がった）
-    const usable = p.swReserve ? Math.max(0, st.cash - equity0 * p.swReserve / 100) : st.cash
+    const usable = Math.max(0, (p.swReserve ? Math.max(0, st.cash - equity0 * p.swReserve / 100) : st.cash) - evReserve)
     const qty = sizeOf(entry, c.stop, usable, p.ma200Half && stocks['1306']?.below200 ? 0.5 : 1)
     if (qty < 100) continue
     // swingTargetR があれば、目標を「買値 + 損切り幅 × swingTargetR」に置き直す（0 なら目標なし。2026-11-20 の見直しで、3R より遠いほうが良かった）
