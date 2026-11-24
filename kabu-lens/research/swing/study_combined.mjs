@@ -278,7 +278,11 @@ function run(P) {
             for (const q of sw) {
               if (cash >= want) break
               const xb = barOf(q.code).b
-              close(q, xb.o * (1 - SL), '企業の行動のために売る')
+              // swSellAt 'pts'：本番では寄りの前に寄指を出すので、売ったお金はその前に要る。前の夜のPTSで売るとみて、前の日の終値から swSellPtsCost%（既定0.3%）不利に売る
+              const st0 = stocks[q.code]
+              const pk = st0.idx.get(pd)
+              const px = P.swSellAt === 'pts' && pk !== undefined ? st0.bars[pk].c * (1 - (P.swSellPtsCost ?? 0.3) / 100) : xb.o * (1 - SL)
+              close(q, px, '企業の行動のために売る')
               pos = pos.filter(z => z !== q)
             }
           }
