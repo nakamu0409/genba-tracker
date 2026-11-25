@@ -3137,7 +3137,7 @@ export function pickSwingToSell(positions, cash, need) {
  * 範囲＝検証の平均 ± 1.96 × ばらつき ÷ √件数（95%）。件数が10未満は「まだ少ない」
  */
 export const EXPECT = {
-  buyback_s2: { label: '自社株買い（良い条件2つ以上）', mu: 0.68, sd: 2.68, fill: 0.41, unit: '%' },
+  buyback_s2: { label: '自社株買い（良い条件2つ以上）', mu: 0.6, sd: 2.7, fill: 0.53, unit: '%' }, // 11/25〜 寄指は終値×1.03（10年：買えた1回 +0.55〜0.6%・買える割合53%）
   buyback_s1: { label: '自社株買い（良い条件1つ。買わない）', mu: 0.35, sd: 3.03, fill: 0.5, unit: '%' },
   divup: { label: '増配', mu: 0.37, sd: 3.44, fill: 0.51, unit: '%' },
   split: { label: '株式分割（5日）', mu: 0.85, sd: 7.0, fill: 0.375, unit: '%', hold: true },
@@ -3187,7 +3187,7 @@ export function orderPlan({ cash: cn, settings = {}, trades = [], events = [], s
   const riskOf = new Map((cn.positions_risk || []).map(x => [x.id, x.risk || 0]))
   // 企業の行動（3a）
   const evRows = (events || []).filter(r => !r.skip && !held.has(String(r.code)) && !/訂正/.test(r.title || ''))
-  for (const r of evRows) if (r.close_date && r.close_date !== today) stale.push(`企業の行動 ${r.name}（${r.code}）の終値が ${r.close_date} の分（今日の分でない）。寄指の値段は今日の終値×1.02で出し直す`)
+  for (const r of evRows) if (r.close_date && r.close_date !== today) stale.push(`企業の行動 ${r.name}（${r.code}）の終値が ${r.close_date} の分（今日の分でない）。寄指の値段は今日の終値で出し直す（自社株買い×1.03、ほかは×1.02）`)
   const evCap = r => Math.min(posCap, ok(r.turnover_avg) ? r.turnover_avg * 0.015 : posCap)
   // 自社株買いの現金が足りなければ、含み益の小さいスイングを今夜のPTSで売る（3a'）
   const need = evRows.filter(r => r.kind === 'buyback').reduce((a, r) => a + evCap(r), 0)
@@ -3419,7 +3419,8 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], 
     const s = stocks[b.code]
     const bars = s?.bars
     if (!bars?.length || bars[0].m > 545 || !(s.ctx?.prevClose > 0)) continue
-    const limit = tickFloor(s.ctx.prevClose * (1 + (isPead ? (p.peadGapMax ?? 15) : (p.bbGapPct ?? 2)) / 100))
+    // bbOnlyGapPct（11/25）：自社株買いだけ寄指の上限を変える（本番は3）
+    const limit = tickFloor(s.ctx.prevClose * (1 + (isPead ? (p.peadGapMax ?? 15) : b.kind === 'buyback' && p.bbOnlyGapPct ? p.bbOnlyGapPct : (p.bbGapPct ?? 2)) / 100))
     const o = bars[0].o
     if (!(o > 0) || o > limit || bars.every(x => x.h === x.l)) continue
     if (isPead && p.peadGapMin !== null && o < s.ctx.prevClose * (1 + (p.peadGapMin ?? 0) / 100)) continue
@@ -4439,7 +4440,8 @@ async function main() {
         const last = y.bars[y.bars.length - 1]
         r.close_date = last.date
         r.close = last.c
-        r.limit = tickFloor(last.c * 1.02)
+        // 11/25 本人と決定：自社株買いだけ寄指を終値×1.03まで（10年の口座全体で前半・後半が上、年ごとプラス8/10年。12/15 に見直す）。増配・株式分割は×1.02のまま
+        r.limit = tickFloor(last.c * (r.kind === 'buyback' ? 1.03 : 1.02))
         const b20 = y.bars.slice(-20)
         r.turnover_avg = b20.length ? Math.round(b20.reduce((a, b) => a + b.c * b.v, 0) / b20.length) : null
         const c25 = y.bars.slice(-25).map(b => b.c)
@@ -4490,7 +4492,7 @@ async function main() {
     rows = rows.filter(r => keepEventRow(r, !uniSet || uniSet.has(r.code), smallMin))
     for (const r of rows) if (uniSet && !uniSet.has(r.code)) { r.small_company = Number(r.turnover_avg) < 1e8; r.why = [...(r.why || []), r.small_company ? '小さい会社（売買代金5,000万〜1億円。11/24から買う）' : 'いつもの銘柄の一覧に無い会社（11/24から買う）'] }
     rows.sort((a, b) => (a.skip - b.skip) || (!!b.small_hot - !!a.small_hot) || (b.skip ? -1 : b.expect_pct) - (a.skip ? -1 : a.expect_pct))
-    console.log(JSON.stringify({ date: td.date, total_disclosures: td.total, error: td.error || null, rule: '翌営業日に寄指（limit 以下なら寄りで買う）。kind: buyback＝自社株買い（同じ日の引成で売る。良い条件＋取得の割合2%以上で2つ以上だけ買い、ほかは skip）、divup＝増配（同じ日の引成）、split＝株式分割（5営業日後の引成）、yutai_end＝株主優待の廃止（記録だけ。skip。11/21〜）。決算と同じ日の発表・立会外の取得は除く。expect_pct＝10年の検証での1回の平均（全体比の%）。small_hot（取得の割合2%以上・20日平均の売買代金3億円未満の自社株買い）を一番上に、あとは expect_pct の大きい順', rows }, null, 2))
+    console.log(JSON.stringify({ date: td.date, total_disclosures: td.total, error: td.error || null, rule: '翌営業日に寄指（limit 以下なら寄りで買う。limit は自社株買い＝終値×1.03（11/25〜）、増配・株式分割＝終値×1.02）。kind: buyback＝自社株買い（同じ日の引成で売る。良い条件＋取得の割合2%以上で2つ以上だけ買い、ほかは skip）、divup＝増配（同じ日の引成）、split＝株式分割（5営業日後の引成）、yutai_end＝株主優待の廃止（記録だけ。skip。11/21〜）。決算と同じ日の発表・立会外の取得は除く。expect_pct＝10年の検証での1回の平均（全体比の%）。small_hot（取得の割合2%以上・20日平均の売買代金3億円未満の自社株買い）を一番上に、あとは expect_pct の大きい順', rows }, null, 2))
     return
   }
   if (args.includes('--scan-now')) {
