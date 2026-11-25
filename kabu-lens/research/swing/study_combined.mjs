@@ -251,8 +251,12 @@ function run(P) {
   const hist = []
   let equityPrev = P.capital
   let peakEq = P.capital
+  let lastYm = null
   for (const d of dates.filter(x => (!P.start || x >= P.start) && (!P.end || x < P.end))) {
     const pd = prevOf.get(d)
+    // monthlyAdd（11/25 本人の予定：毎月入金する）：月が変わった最初の営業日の朝に、現金へ monthlyAdd 円を足す（資金・一番高いときも同じだけ増やす）
+    if (P.monthlyAdd && lastYm && d.slice(0, 7) !== lastYm) { cash += P.monthlyAdd; equityPrev += P.monthlyAdd; peakEq += P.monthlyAdd }
+    lastYm = d.slice(0, 7)
     // ddCut：口座が最高値から ddCut% 以上下がっている間は、スイングなどの1回の損の上限を ddMult 倍にする
     const inDD = (P.ddCut && equityPrev < peakEq * (1 - P.ddCut / 100)) || (P.ma200Cut && belowMA(pd, P.maDays ?? 200))
     const vixHi = P.vixBoost && (VIXOF.get(d) ?? 0) >= (P.vixAt ?? 30)
