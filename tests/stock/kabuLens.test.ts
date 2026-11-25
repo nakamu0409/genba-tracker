@@ -1535,3 +1535,22 @@ describe('訂正の開示は企業の行動に数えない（11/25）', () => {
     expect(isSplitTitle('（訂正）株式分割に関するお知らせ')).toBe(false)
   })
 })
+
+describe('cashNow の損の合計（11/25）', () => {
+  it('買値から損切りまで。損切りを買値より上げた株は0、放置とデイトレは数えない', () => {
+    const st = { cash: 100000, cashBase: 100000, cashBaseAt: '2026-11-20', capitalAt: '2026-11-20', riskPct: 0.5, maxPosPct: 62, maxOpenRiskMult: 3 }
+    const trades = [
+      { id: 'a', status: 'open', style: 'swing', date: '2026-11-01', entry: 1000, stop: 1020, qty: 100, last: 1100 },
+      { id: 'b', status: 'open', style: 'swing', date: '2026-11-01', entry: 500, stop: 470, qty: 100, last: 490 },
+      { id: 'c', status: 'open', style: 'swing', date: '2026-11-01', entry: 300, qty: 200, last: 100, frozen: true },
+      { id: 'd', status: 'open', style: 'day', date: '2026-11-01', entry: 500, stop: 400, qty: 100, last: 500 }
+    ]
+    const r = cashNow(st, trades)
+    expect(r.positions_risk.find(x => x.id === 'a').risk).toBe(0)
+    expect(r.positions_risk.find(x => x.id === 'b').risk).toBe(3000)
+    expect(r.positions_risk.some(x => x.id === 'c' || x.id === 'd')).toBe(false)
+    expect(r.open_risk).toBe(3000)
+    expect(r.risk_one).toBe(Math.round(r.capital * 0.005))
+    expect(r.risk_room).toBe(Math.round(r.risk_one * 3) - 3000)
+  })
+})

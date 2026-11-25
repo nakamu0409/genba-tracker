@@ -2625,7 +2625,18 @@ export function cashNow(settings, trades) {
   const capitalPeak = Math.max(ok(settings.capitalPeak) ? settings.capitalPeak : capital, capital)
   const drawdown_pct = round((capital / capitalPeak - 1) * 100, 1)
   const ddStop = drawdownStop(settings, capital)
-  return { cash: Math.round(cash), capital, invested: Math.round(invested), frozenValue: Math.round(frozenValue), capitalPeak, drawdown_pct, dd_stop: ddStop.stop, since, base, moves, unknown }
+  // 1回の損の上限・1銘柄の上限・損の合計（11/25：夜の点検が自分で計算すると古い数え方（今の値段から）になったので、ここで出す）
+  // 損の合計＝持ち越す保有（style が day でない・frozen でない）の（買値 − 損切り）× 株数（0未満は0。損切りが無い保有は1回の上限いっぱい。11/24 本人と決定）
+  const risk_one = ok(settings.riskPct) ? Math.round(capital * settings.riskPct / 100) : null
+  const pos_cap = ok(settings.maxPosPct) ? Math.round(capital * settings.maxPosPct / 100) : null
+  const risk_cap = ok(risk_one) && ok(settings.maxOpenRiskMult) ? Math.round(risk_one * settings.maxOpenRiskMult) : null
+  const positions_risk = trades.filter(t => t.status === 'open' && !t.frozen && t.style !== 'day').map(t => {
+    const r = ok(t.stop) && ok(t.entry) ? Math.max(0, (t.entry - t.stop) * (t.qty || 0)) : risk_one
+    return { id: t.id, name: t.name, code: t.code, risk: ok(r) ? Math.round(r) : null, over: ok(r) && ok(risk_one) ? r > risk_one : null, no_stop: !ok(t.stop) }
+  })
+  const open_risk = positions_risk.some(x => !ok(x.risk)) ? null : positions_risk.reduce((a, x) => a + x.risk, 0)
+  const risk_room = ok(risk_cap) && ok(open_risk) ? risk_cap - open_risk : null
+  return { cash: Math.round(cash), capital, invested: Math.round(invested), frozenValue: Math.round(frozenValue), capitalPeak, drawdown_pct, dd_stop: ddStop.stop, since, base, moves, unknown, risk_one, pos_cap, risk_cap, open_risk, risk_room, positions_risk }
 }
 
 // ---- 答えが出終わった記録を1日1件にまとめる（記録帳のデータベースは全部で25,000件まで）----------------
