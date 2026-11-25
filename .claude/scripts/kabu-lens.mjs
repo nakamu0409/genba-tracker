@@ -3175,7 +3175,7 @@ export function expectCheck(nextday, cands) {
   return out
 }
 
-export function orderPlan({ cash: cn, settings = {}, trades = [], events = [], scan = null, earnings = {}, today }) {
+export function orderPlan({ cash: cn, settings = {}, trades = [], events = [], scan = null, earnings = {}, today, bunbai = null }) {
   const stale = []
   const maxBuys = ok(settings.dayTradeMax) ? settings.dayTradeMax : 5
   const lot = x => Math.floor(x / 100) * 100
@@ -3185,6 +3185,17 @@ export function orderPlan({ cash: cn, settings = {}, trades = [], events = [], s
   const posCap = cn.pos_cap
   const held = new Set(trades.filter(t => t.status === 'open' || t.status === 'plan').map(t => String(t.code)))
   const riskOf = new Map((cn.positions_risk || []).map(x => [x.id, x.risk || 0]))
+  // 立会外分売（11/25 本人と決定。12/15 に見直す）：申込受付中の行を、申込単位（ふつう100株）で、現金があれば申し込む。前の晩に現金を押さえるので一番先に引く。当日の引成で売る（10年の口座全体の検証で寄りより引けが少し良い）
+  const bnOrders = []
+  const bnDropped = []
+  for (const r of bunbai?.open || []) {
+    if (held.has(String(r.code))) { bnDropped.push({ code: r.code, name: r.name, why: '持っている銘柄' }); continue }
+    const qty = r.unit > 0 ? r.unit : 100
+    if (!(r.price > 0) || cash < r.price * qty) { bnDropped.push({ code: r.code, name: r.name, why: '現金が足りない' }); continue }
+    cash -= r.price * qty
+    bnOrders.push({ code: r.code, name: r.name, price: r.price, prev: r.prev, disc: r.disc, qty, date: r.date, cost: Math.round(r.price * qty) })
+  }
+  if (bunbai?.error) stale.push(`立会外分売を確認できず（${bunbai.error}）`)
   // 企業の行動（3a）
   const evRows = (events || []).filter(r => !r.skip && !held.has(String(r.code)) && !/訂正/.test(r.title || ''))
   for (const r of evRows) if (r.close_date && r.close_date !== today) stale.push(`企業の行動 ${r.name}（${r.code}）の終値が ${r.close_date} の分（今日の分でない）。寄指の値段は今日の終値で出し直す（自社株買い×1.03、ほかは×1.02）`)
@@ -3239,7 +3250,7 @@ export function orderPlan({ cash: cn, settings = {}, trades = [], events = [], s
     swOrders.push({ code: r.code, name: r.name, kind: r.kind, score: r.score, qty, limit, stop: r.stop, target: r.target, loss_max: Math.round(rps * qty), earnings: e?.date || null, earnings_estimated: e?.estimated ?? null, earnings_note: days != null && days >= 2 && days <= 3 ? `${e.date.slice(5).replace('-', '/')}決算（またいで持つ）` : null })
   }
   const swNote = swRows.length === 0 ? 'スイングの候補なし' : swOrders.length ? null : tooBig === swRows.length - blocked.length ? 'どれも100株で1回の損の上限を超える' : room <= 0 ? '損の合計の空きが無い' : '現金・空きが足りない'
-  return { today, stale, cash_start: cn.cash, room_start: cn.risk_room, risk_one: riskOne, pos_cap: posCap, pts_sells: sells, events: evOrders, events_dropped: evDropped, events_skipped: evSkipped, swing: swOrders, swing_candidates: swRows.length, swing_blocked_earnings: blocked, swing_ref: swOrders.length ? null : ref, swing_note: swNote, room_left: Math.round(room), cash_left: Math.round(cash) }
+  return { today, stale, cash_start: cn.cash, room_start: cn.risk_room, risk_one: riskOne, pos_cap: posCap, bunbai: bnOrders, bunbai_dropped: bnDropped, pts_sells: sells, events: evOrders, events_dropped: evDropped, events_skipped: evSkipped, swing: swOrders, swing_candidates: swRows.length, swing_blocked_earnings: blocked, swing_ref: swOrders.length ? null : ref, swing_note: swNote, room_left: Math.round(room), cash_left: Math.round(cash) }
 }
 
 export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], usBear = false }) {
@@ -4197,7 +4208,7 @@ async function main() {
         await sleep(300)
       }
     }
-    const plan = orderPlan({ cash: cn, settings: dataOf(rd(get('--settings'))) || {}, trades, events: bb?.rows || [], scan, earnings, today })
+    const plan = orderPlan({ cash: cn, settings: dataOf(rd(get('--settings'))) || {}, trades, events: bb?.rows || [], scan, earnings, today, bunbai: rd(get('--bunbai')) })
     plan.errors = errs
     console.log(JSON.stringify(plan, null, 2))
     return

@@ -1625,3 +1625,14 @@ describe('parseBunbaiPage（立会外分売。11/25）', () => {
     expect(r.upcoming).toEqual([{ code: '3024', name: 'クリエイト', from: '2026-12-01', to: '2026-12-03', unit: 100, max: 2000 }])
   })
 })
+
+describe('orderPlan の立会外分売（11/25）', () => {
+  it('現金があれば申込単位で入れ、先に現金を引く', () => {
+    const cn = { cash: 300000, risk_one: 3000, pos_cap: 370000, risk_room: 6000, positions_risk: [] }
+    const bunbai = { open: [{ code: '3024', name: 'テスト', price: 1000, prev: 1030, disc: 2.91, unit: 100, max: 2000, date: '2026-12-01' }, { code: '9999', name: '高い', price: 5000, prev: 5100, disc: 1.96, unit: 100, max: 100, date: '2026-12-01' }] }
+    const r = orderPlan({ cash: cn, settings: {}, trades: [], events: [], scan: null, earnings: {}, today: '2026-11-30', bunbai })
+    expect(r.bunbai.map(x => [x.code, x.qty])).toEqual([['3024', 100]])
+    expect(r.bunbai_dropped.map(x => x.code)).toEqual(['9999'])
+    expect(r.cash_left).toBe(200000)
+  })
+})
