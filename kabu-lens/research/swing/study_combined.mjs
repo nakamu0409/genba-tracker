@@ -261,7 +261,8 @@ function run(P) {
     // ddCut：口座が最高値から ddCut% 以上下がっている間は、スイングなどの1回の損の上限を ddMult 倍にする
     const inDD = (P.ddCut && equityPrev < peakEq * (1 - P.ddCut / 100)) || (P.ma200Cut && belowMA(pd, P.maDays ?? 200))
     const vixHi = P.vixBoost && (VIXOF.get(d) ?? 0) >= (P.vixAt ?? 30)
-    const riskOne = equityPrev * P.riskPct / 100 * (inDD ? (P.ddMult ?? 0.5) : 1) * (vixHi ? P.vixBoost : 1)
+    // riskFloor（11/25 本人の案：資金が小さいうちは1回の損の上限を一律◯円に）：資金×riskPct% が riskFloor 円より小さい間は riskFloor 円にする
+    const riskOne = Math.max(equityPrev * P.riskPct / 100, P.riskFloor || 0) * (inDD ? (P.ddMult ?? 0.5) : 1) * (vixHi ? P.vixBoost : 1)
     const maxPos = equityPrev * P.maxPosPct / 100
     const barOf = code => {
       if (code === 'ETF') {
