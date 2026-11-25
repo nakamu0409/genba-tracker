@@ -390,6 +390,36 @@ function run(P) {
     // 5. 急騰の押し目・スイング
     const addRisky = (track, list, max, rMult, maxDays, gapMax) => {
       let n = 0
+      // swLimit（11/25 本人の希望：その株の節目まで待って指値で買う）：'ma20'＝20日線・'dip2'＝終値×0.98・'dip1'＝終値×0.99 の指値（終値×1.02 より低いときだけ）。その日1日だけの注文。
+      //   本番と同じく、先に「全部約定しても空き・現金に収まる」ように注文を決めてから、安値が指値に届いたものだけ約定する（届かなければ買わない）
+      if (P.swLimit && track === 'swing') {
+        let room = riskOne * P.maxOpenRiskMult - openRisk()
+        let usable = cash
+        for (const s of list) {
+          if (buys >= P.dayMax || n >= max) break
+          if (held.has(s.code)) continue
+          const st = stocks[s.code], B = st.bars
+          let L = s.close * 1.02
+          if (P.swLimit === 'ma20') { let m = 0; for (let k = s.i - 19; k <= s.i; k++) m += B[k].c; L = Math.min(L, m / 20) }
+          else if (P.swLimit === 'dip2') L = s.close * 0.98
+          else if (P.swLimit === 'dip1') L = s.close * 0.99
+          if (!(L > s.stop)) continue
+          const rps = L * (1 + SL) - s.stop
+          const qty = Math.floor(Math.min(riskOne / rps, maxPos / L, usable / L, Math.max(0, room) / rps) / 100) * 100
+          if (qty < 100) continue
+          buys++
+          n++
+          room -= rps * qty
+          usable -= L * qty
+          const x = barOf(s.code)
+          if (!x || x.b.h === x.b.l || x.b.l > L) continue
+          const entry = Math.min(x.b.o, L) * (1 + SL)
+          held.add(s.code)
+          cash -= qty * entry
+          pos.push({ track, code: s.code, entryDate: d, entry, qty, stop: s.stop, target: rMult ? entry + rMult * (entry - s.stop) : Infinity, maxDays, held: 0, last: entry })
+        }
+        return
+      }
       for (const s of list) {
         if (buys >= P.dayMax || n >= max) break
         if (held.has(s.code)) continue
