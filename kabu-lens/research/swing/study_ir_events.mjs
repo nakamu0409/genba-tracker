@@ -12,6 +12,8 @@
 //  alliance（業務提携・資本提携）：引け後 寄り→引け −0.05／−0.08／−0.16%、5日 −0.08／−0.35／+0.05%。場中も −0.22／−0.34／−0.39% → 採らない
 //  order（受注）：引け後 寄り→引け +0.25／+0.51／+0.33%（137／84／30回。3つともプラス）、5日 +0.65／+1.33／−2.47%（直近が逆）。寄指で買えるのは5〜7割 → 1日で売る形は企業の行動（増配 +0.37%）と同じくらい。口座全体で確かめる候補
 //  midplan（中期経営計画）：引け後 寄り→引け +0.20／−0.38／−0.51%、5日 +0.34／−0.48／−0.88% → 採らない
+//  uprev（上方修正。題名に「上方修正」とあるものだけ。irhist_all.json、10年で約300件・2020年より前は少ない）：引け後の発表は翌朝の窓が +5.3／+4.5／+3.0% で、寄指（+2%）で買えるのは3〜5割。買えた日は 寄り→引け −0.21／+0.34／+0.17%、5日 −2.02／−0.54／−0.14% → 採らない。
+//    寄指をやめて寄りで必ず買う（NOLIM=1）と 引け後は 5日 −3.25／−1.08／−0.09% でもっと悪い。場中（決算と同じ日）だけ 寄り→引け +0.79／+1.58／+1.42%、5日 +4.95／+3.25／+2.95%（7／26／22回）と3つともプラス → 数が少ない。件数がたまってから口座全体で確かめる候補
 //  tob（買われる側の賛同）：引け後 11／5／4回と少ない（TOB のあと上場をやめた会社は手元の日足に無いことが多い）→ 判断できない
 import { readFileSync, existsSync } from 'node:fs'
 import { loadAll, mean, fmt, SPLIT_DATE } from './lib_signals.mjs'
@@ -23,12 +25,15 @@ const KINDS = {
   alliance: t => /(業務提携|資本提携)/.test(t) && !/(解消|訂正|終了)/.test(t),
   order: t => /受注/.test(t) && !/(訂正|損失|取消)/.test(t),
   midplan: t => /中期経営計画/.test(t) && !/(訂正|取り下げ|撤回)/.test(t),
+  uprev: t => /上方修正/.test(t) && !/訂正/.test(t),
   tob: t => /当社株式.*公開買付/.test(t) && /(賛同|意見表明)/.test(t) && !/(結果|訂正|撤回)/.test(t)
 }
 const want = process.argv.slice(2).length ? process.argv.slice(2) : ['yutai', 'divpolicy']
 const src = {}
 for (const f of ['../irevents.json', '../irevents2.json', '../irevents_more.json']) for (const [c, v] of Object.entries(R(f))) for (const r of v || []) (src[c] ||= []).push(r)
 const H = R(process.env.IRH_ALL ? '../irhist_all.json' : '../irhist.json')
+// uprev（11/25）：上方修正は決算の開示の一覧（irhist_all.json）にしか無いので、そこからも足す
+if (want.includes('uprev')) for (const [c, v] of Object.entries(H)) for (const r of v || []) (src[c] ||= []).push(r)
 const kessanDay = new Set(); for (const [c, v] of Object.entries(H)) for (const r of v || []) if (['1Q', '2Q', '3Q', '通期'].includes(r.kind)) kessanDay.add(c + '|' + r.date)
 const { stocks, bench } = loadAll({ withSwing: false, withSmall: true })
 const bi = new Map(bench.map((b, i) => [b.date, i]))
@@ -49,7 +54,7 @@ for (const k of want) {
       const k0 = bi.get(x.date); if (k0 === undefined) continue
       const p = per(r.date), tag = (after ? '引け後' : '場中') + (kessanDay.has(key) ? '・決算と同じ日' : '')
       push(tag + '・寄りの窓%', p, (x.o / prev.c - 1) * 100)
-      const filled = x.o <= prev.c * 1.02
+      const filled = process.env.NOLIM ? true : x.o <= prev.c * 1.02
       push(tag + '・買えた割合%', p, filled ? 100 : 0)
       if (!filled) continue
       push(tag + '・A 寄り→引け', p, (x.c / x.o - 1) * 100 - (bench[k0].c / bench[k0].o - 1) * 100)
