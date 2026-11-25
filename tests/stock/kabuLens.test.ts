@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { orderPlan, swingEntryVariants, eventExitVariants, liveStudyDay, mergeLiveStudy, below200, parseBuybackPdf, drawdownStop, nikkeiFutBrief, pickYutaiEnd, isPreHoliday, nextTradingDate, crashSignal, worldBrief, parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, pickSwingToSell, keepEventRow, paperSummary, paperInputOf, paperInputFromFive, paperReplay, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { expectCheck, orderPlan, swingEntryVariants, eventExitVariants, liveStudyDay, mergeLiveStudy, below200, parseBuybackPdf, drawdownStop, nikkeiFutBrief, pickYutaiEnd, isPreHoliday, nextTradingDate, crashSignal, worldBrief, parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, pickSwingToSell, keepEventRow, paperSummary, paperInputOf, paperInputFromFive, paperReplay, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -1596,5 +1596,19 @@ describe('orderPlan（夜の注文票の計算。11/25）', () => {
     expect(r.pts_sells.map(x => x.code)).toEqual(['7777', '8888'])
     expect(r.pts_sells[0].price).toBe(940)
     expect(r.events[0].qty).toBe(200) // 現金 5万＋9.5万＋11万＝25.5万 → 200株
+  })
+})
+
+describe('expectCheck（本番が検証の範囲に入っているか。11/25）', () => {
+  it('件数が少ないとき・範囲内・下に外れ', () => {
+    const nd = { groups: { buyback_s2: { n: 50, filled: 20, sumExOC: 14 }, divup: { n: 5, filled: 3, sumExOC: 1 }, split: { n: 40, filled: 15, nHold: 15, sumExHold: -150 } } }
+    const r = expectCheck(nd, { pass_mtm: { count: 100, avg_r: -0.5 } })
+    const by = Object.fromEntries(r.map(x => [x.key, x]))
+    expect(by.buyback_s2.status).toBe('範囲内')
+    expect(by.buyback_s2.fill_status).toBe('範囲内')
+    expect(by.divup.status).toMatch('まだ少ない')
+    expect(by.split.status).toMatch('下に外れ')
+    expect(by.swing.status).toMatch('下に外れ')
+    expect(by.buyback_s1.status).toBe('まだ無い')
   })
 })

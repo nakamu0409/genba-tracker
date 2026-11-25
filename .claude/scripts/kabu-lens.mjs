@@ -2150,6 +2150,8 @@ export function signalsReport(records) {
     open: records.filter(r => ['PENDING', 'OPEN'].includes(r.status)).length,
     all: agg(done),
     by_pass: by(r => (r.pass ? '通過' : '見送り')),
+    // 11/25：決着した分だけだと、早く決着する損切りが先に数えられて初めのうちは悪く見える。持っている途中（OPEN）の分も今の値段で数えたもの
+    pass_mtm: (() => { const l = records.filter(r => r.pass && (['TARGET', 'STOPPED', 'TIME_EXIT'].includes(r.status) ? ok(r.r) : r.status === 'OPEN' && ok(r.entry) && ok(r.stop) && ok(r.last) && r.entry > r.stop)).map(r => ({ r: ok(r.r) && r.status !== 'OPEN' ? r.r : (r.last - r.entry) / (r.entry - r.stop) })); return agg(l) })(),
     by_kind: by(r => `${r.pass ? '通過' : '見送り'}・${r.kind}`),
     by_reason: by(r => (r.pass ? '通過' : `見送り・${r.reason}`)),
     by_score: by(r => band(r.score, [55, 70, 85], ['55未満', '55〜70', '70〜85', '85以上'])),
@@ -3083,6 +3085,50 @@ export function pickSwingToSell(positions, cash, need) {
  * events: --buyback の rows。scan: --scan-wide の出力（date, rows）。earnings: {code: {date, estimated}}（無い銘柄は未確認）。today: 'YYYY-MM-DD'
  * 返り値の数をそのまま注文票に書く
  */
+/**
+ * 本番・練習の成績が、10年の検証から考えられる範囲に入っているか（11/25 本人と決定。土曜の精度点検で使う）
+ * nextday: settings/nextday_stats（企業の行動の翌日の答え合わせの累計）。cands: settings/cands_stats（約1,150銘柄の候補。pass_mtm）
+ * 範囲＝検証の平均 ± 1.96 × ばらつき ÷ √件数（95%）。件数が10未満は「まだ少ない」
+ */
+export const EXPECT = {
+  buyback_s2: { label: '自社株買い（良い条件2つ以上）', mu: 0.68, sd: 2.68, fill: 0.41, unit: '%' },
+  buyback_s1: { label: '自社株買い（良い条件1つ。買わない）', mu: 0.35, sd: 3.03, fill: 0.5, unit: '%' },
+  divup: { label: '増配', mu: 0.37, sd: 3.44, fill: 0.51, unit: '%' },
+  split: { label: '株式分割（5日）', mu: 0.85, sd: 7.0, fill: 0.375, unit: '%', hold: true },
+  swing: { label: 'スイングの候補（通過・途中の値段を含む）', mu: 0.11, sd: 1.78, unit: 'R' }
+}
+export function expectCheck(nextday, cands) {
+  const out = []
+  const judge = (key, n, mean, fillN, fillK) => {
+    const e = EXPECT[key]
+    const row = { key, label: e.label, n, mean: ok(mean) ? round(mean, 2) : null, expect: e.mu, unit: e.unit }
+    if (n < 10) row.status = 'まだ少ない（10件未満）'
+    else {
+      const h = 1.96 * e.sd / Math.sqrt(n)
+      row.range = [round(e.mu - h, 2), round(e.mu + h, 2)]
+      row.status = mean < e.mu - h ? '下に外れ（検証より悪い。原因を調べる）' : mean > e.mu + h ? '上に外れ（検証より良い）' : '範囲内'
+    }
+    if (e.fill && fillN >= 10) {
+      const h = 1.96 * Math.sqrt(e.fill * (1 - e.fill) / fillN)
+      const f = fillK / fillN
+      row.fill = round(f * 100, 0)
+      row.fill_expect = round(e.fill * 100, 0)
+      row.fill_status = f < e.fill - h ? '約定が少ない' : f > e.fill + h ? '約定が多い' : '範囲内'
+    }
+    out.push(row)
+  }
+  const g = nextday?.groups || {}
+  for (const key of ['buyback_s2', 'buyback_s1', 'divup', 'split']) {
+    const x = g[key]
+    if (!x) { out.push({ key, label: EXPECT[key].label, n: 0, status: 'まだ無い' }); continue }
+    if (EXPECT[key].hold) judge(key, x.nHold || 0, x.nHold ? x.sumExHold / x.nHold : null, x.n, x.filled)
+    else judge(key, x.filled || 0, x.filled ? x.sumExOC / x.filled : null, x.n, x.filled)
+  }
+  const m = cands?.pass_mtm
+  judge('swing', m?.count || 0, m?.avg_r ?? null, 0, 0)
+  return out
+}
+
 export function orderPlan({ cash: cn, settings = {}, trades = [], events = [], scan = null, earnings = {}, today }) {
   const stale = []
   const maxBuys = ok(settings.dayTradeMax) ? settings.dayTradeMax : 5
@@ -4070,6 +4116,13 @@ async function main() {
   const save = !args.includes('--no-save')
   const evalAt = args.indexOf('--evaluate')
   if (evalAt >= 0) return evaluateFile(args[evalAt + 1])
+  if (args.includes('--expect-check')) {
+    // --expect-check nextday_stats.json cands_stats.json（記録帳の settings の data）
+    const i = args.indexOf('--expect-check')
+    const rd = f => { try { const j = JSON.parse(readFileSync(f, 'utf-8')); return j?.data ?? j } catch { return null } }
+    console.log(JSON.stringify({ note: '範囲＝10年の検証の平均 ± 1.96×ばらつき÷√件数。外れていても1回で決めず、続くかを見る', rows: expectCheck(rd(args[i + 1]), rd(args[i + 2])) }, null, 2))
+    return
+  }
   if (args.includes('--order-plan')) {
     // --order-plan --cash cash.json --trades <trades のフォルダ> --settings main.json --events bb.json --scan scanw.json [--today YYYY-MM-DD]（上位20のスイング候補の決算日はここで取る）
     const get = k => (args.indexOf(k) >= 0 ? args[args.indexOf(k) + 1] : null)

@@ -9,6 +9,7 @@
 最初に bash の `TZ=Asia/Tokyo date` で日本時間の日付を確認する。
 
 ## 読むもの
+最初に Artifact ツールで action "read"、url は記録帳、paths ["kabu-lens.mjs"] を実行し、保存先を得る（11/25〜。検証の範囲の計算に使う）。
 トレード記録帳 <記録帳のURL> のデータベースを ArtifactData で読む（ツール一覧に無ければ ToolSearch で `select:ArtifactData`）。collection "settings" の次の doc（無いものは「まだ記録なし」）：
 - intraday_wide_stats：場中の判定の毎晩の自動記録。days（数えた日）、groups（組ごとに n、sumExC＝大引けまでの全体比の合計、sumExN＝翌日の大引けまで、winC）。平均は sum ÷ n。
 - cands_stats：スイングの候補（約1,150銘柄）。all・by_pass・by_kind（count、avg_r、win_rate_pct）。
@@ -37,15 +38,17 @@
 - 企業の行動（本番の決まり）：nextday_stats の buyback_s2・divup・split それぞれ、filled が 30 以上なら平均の向きが検証と同じか（プラスなら「検証どおり」）、filled ÷ n（買えた割合）が 0.3〜0.7 の間か。filled が 100 以上で平均がマイナスなら「本番の決まりがずれている。見直しを本人と相談」とはっきり書く。buyback_s2 が buyback_s1・s0 より良いか（良い条件の数え方が本番でも効いているか）も1行。30 未満なら「まだ少ない」。
 - 2週続けて「ずれ」の組があれば、「外す候補」としてはっきり書く（実際に外すかは本人と話して決める）。
 
+- 検証の範囲（11/25 本人と決定。数字の判定はスクリプトに任せる）：nextday_stats と cands_stats の data をそれぞれ /tmp/nd.json・/tmp/cs.json に書き、`node <kabu-lens.mjs の保存先> --expect-check /tmp/nd.json /tmp/cs.json > /tmp/exp.json`。rows の各組（自社株買い・増配・株式分割・スイングの候補）の status（範囲内／下に外れ／上に外れ／まだ少ない）・range（10年の検証から考えられる95%の範囲）・fill_status（寄指で買えた割合）をそのまま使う。スイングは pass_mtm（持っている途中の候補も今の値段で数えたもの。決着した分だけだと早く決着する損切りが先に数えられ、初めのうちは悪く見える）を使う。accuracy_last の expect と比べ、「下に外れ」が2週続いた組は「検証とずれている。原因を調べる（次の会話で頼んでください）」とはっきり書く。
+
 ## 記録
-collection "settings" の doc_id "accuracy_last" に set：date、days（場中の記録の日数）、groups（組ごとに n・本番の大引けまで・翌日まで・判定）、swing（形ごとの count・avg_r・判定）、events（企業の行動の組ごとの filled・平均・判定）、drift（ずれの組の名前の配列）、createdAt。書いてよいのはこれだけ。
+collection "settings" の doc_id "accuracy_last" に set：date、days（場中の記録の日数）、groups（組ごとに n・本番の大引けまで・翌日まで・判定）、swing（形ごとの count・avg_r・判定）、events（企業の行動の組ごとの filled・平均・判定）、drift（ずれの組の名前の配列）、expect（--expect-check の rows）、createdAt。書いてよいのはこれだけ。
 
 ## 通知（PushNotification。10〜16行。同じ内容の全文を最後の返答にも書く）
 1. 1行目：「合図の精度点検（◯/◯）」と、いちばん大事な一文（例：「絞り込み後の買い場は本番でも絞り込む前より良い」「◯◯が2週続けて検証と逆。外す候補」）。
 2. 場中：記録の日数と回数、TAKE と TAKE_RAW の本番の数字、検証どおり・ずれ・まだ少ない の組の名前。
 3. スイング：決着した回数と、通過・見送りの平均R、any_day との比較（30件未満なら「まだ少ない」）。
 4. 買う前チェックとランキングの答え合わせ（各1行。件数が少なければそう書く）。
-4a. 企業の行動（本番の決まり。1〜2行）：組ごとの買えた数・平均・判定。
+4a. 企業の行動とスイングの候補（本番の決まり。1〜3行）：組ごとの件数・平均と、--expect-check の status・範囲・買えた割合。
 4b. 練習口座（1〜2行）：4つの資産と始めからの%、一番下げたとき、本番どおりと基本の差、やり方ごとの回数・損益の目立つもの。
 5. 外す候補・確かめ直したほうがよい組（あれば）。「次の会話で、5分足をためたデータで確かめ直しを頼んでください」と添える。
 6. 最後に「合図の上乗せは小さい。損切りと株数で守る」。
