@@ -8,6 +8,7 @@
 //  yutai（優待の新設）：引け後の発表は翌朝の窓が +4.8／+5.8／+3.5% と大きく、寄指で買えるのは3〜5割。買えた日は 寄り→引け −0.76／−1.18／+0.26%、5日 −0.29／−1.39／−0.22%。場中の発表も −0.93／−0.39／−0.10% → 上げは寄りで終わっている（採らない）
 //  divpolicy（累進配当・配当方針）：引け後（決算と別の日）寄り→引け −0.05／−0.11／+0.36%、5日 −0.39／−0.96／+0.24% → 採らない。
 //    ただし「決算と同じ日の引け後に配当方針も出した会社」は 寄り→引け +1.60／+0.14／+1.32%、5日 +2.40／+1.45／+1.51%（10／31／13回。約700銘柄しか決算の日が分からない）。数が少ないので、決算の日を全部の銘柄でそろえてから確かめ直す候補
+//    全銘柄の決算の日（IRH_ALL=1・irhist_all.json）で数え直すと、引け後・決算と同じ日：寄り→引け +1.38／+0.09／+1.77%、5日 +1.94／+0.05／+3.34%（24／59／24回）→ 後半がほぼ0で3つの期間がそろわない（採らない）
 //  alliance（業務提携・資本提携）：引け後 寄り→引け −0.05／−0.08／−0.16%、5日 −0.08／−0.35／+0.05%。場中も −0.22／−0.34／−0.39% → 採らない
 //  order（受注）：引け後 寄り→引け +0.25／+0.51／+0.33%（137／84／30回。3つともプラス）、5日 +0.65／+1.33／−2.47%（直近が逆）。寄指で買えるのは5〜7割 → 1日で売る形は企業の行動（増配 +0.37%）と同じくらい。口座全体で確かめる候補
 //  midplan（中期経営計画）：引け後 寄り→引け +0.20／−0.38／−0.51%、5日 +0.34／−0.48／−0.88% → 採らない
@@ -27,7 +28,7 @@ const KINDS = {
 const want = process.argv.slice(2).length ? process.argv.slice(2) : ['yutai', 'divpolicy']
 const src = {}
 for (const f of ['../irevents.json', '../irevents2.json', '../irevents_more.json']) for (const [c, v] of Object.entries(R(f))) for (const r of v || []) (src[c] ||= []).push(r)
-const H = R('../irhist.json')
+const H = R(process.env.IRH_ALL ? '../irhist_all.json' : '../irhist.json')
 const kessanDay = new Set(); for (const [c, v] of Object.entries(H)) for (const r of v || []) if (['1Q', '2Q', '3Q', '通期'].includes(r.kind)) kessanDay.add(c + '|' + r.date)
 const { stocks, bench } = loadAll({ withSwing: false, withSmall: true })
 const bi = new Map(bench.map((b, i) => [b.date, i]))
