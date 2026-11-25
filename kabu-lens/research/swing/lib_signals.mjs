@@ -92,9 +92,9 @@ function swingSignals(stocks, bench, avoidChase = true) {
 
 /** 企業の行動（15:00以降・決算と別の日・売買代金1億円以上）。date＝発表の日（翌日の寄指で買う） */
 function eventSignals(stocks, irev, irh, minTurn = 1e8) {
-  const isB = t => /自己株式/.test(t) && /取得/.test(t) && /(決定|事項)/.test(t) && !/(取得状況|結果|終了|完了|経過|ToSTNeT|立会外)/.test(t)
-  const isDiv = t => /増配/.test(t) && !/(減配|無配|下方)/.test(t)
-  const isSplit = t => /株式分割/.test(t) && !/(結果|延期|中止)/.test(t)
+  const isB = t => /自己株式/.test(t) && /取得/.test(t) && /(決定|事項)/.test(t) && !/(取得状況|結果|終了|完了|経過|ToSTNeT|立会外|訂正)/.test(t)
+  const isDiv = t => /増配/.test(t) && !/(減配|無配|下方|訂正)/.test(t)
+  const isSplit = t => /株式分割/.test(t) && !/(結果|延期|中止|訂正)/.test(t)
   const out = []
   for (const [code, list] of Object.entries(irev)) {
     const st = stocks[code]

@@ -1526,3 +1526,12 @@ describe('今ためているデータで確かめること（11/25〜）', () =>
     expect(mergeLiveStudy(st, d).swing.n).toBe(1)
   })
 })
+
+describe('訂正の開示は企業の行動に数えない（11/25）', () => {
+  it('訂正', () => {
+    expect(isBuybackTitle('（訂正）「自己株式取得に係る事項の決定に関するお知らせ」の一部訂正について')).toBe(false)
+    expect(isBuybackTitle('自己株式取得に係る事項の決定に関するお知らせ')).toBe(true)
+    expect(isDividendUpTitle('（訂正）剰余金の配当（増配）に関するお知らせ')).toBe(false)
+    expect(isSplitTitle('（訂正）株式分割に関するお知らせ')).toBe(false)
+  })
+})

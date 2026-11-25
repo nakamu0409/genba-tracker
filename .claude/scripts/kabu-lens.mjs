@@ -1370,9 +1370,10 @@ export function parseTdnetList(html) {
 // 決算と別の日に、15:00以降に出た自社株買いの決定 → 翌営業日の寄りで買い、その日の大引けで売る。
 // 寄指（前日の終値×1.02 以下）で買える日は10年で平均+0.43%（734回）。立会外（ToSTNeT）での取得は除く。
 // さらに「久しぶり（1年以内に自社株買いが無い）」「15:00〜15:29の発表」「25日線の下」の良い条件が2つ以上で +0.70〜0.78%、0なら −0.06%
+// 11/25：訂正の開示（「（訂正）〜の一部訂正について」）は新しい発表ではないので数えない（10年で18回、寄指→引けの全体比 +0.08／−0.44／+0.21% とほかより悪い）
 export function isBuybackTitle(t) {
   const s = String(t || '')
-  return /自己株式/.test(s) && /取得/.test(s) && /(決定|事項)/.test(s) && !/(取得状況|結果|終了|完了|経過|ToSTNeT|立会外)/.test(s)
+  return /自己株式/.test(s) && /取得/.test(s) && /(決定|事項)/.test(s) && !/(取得状況|結果|終了|完了|経過|ToSTNeT|立会外|訂正)/.test(s)
 }
 
 /** 東証の呼値（ふつうの銘柄）で、x 以下の一番近い値段にそろえる */
@@ -1403,13 +1404,13 @@ export function pickBuybacks(rows, universe = null) {
 /** 増配の開示（表題に「増配」があるもの。減配・無配・下方は除く） */
 export function isDividendUpTitle(t) {
   const s = String(t || '')
-  return /増配/.test(s) && !/(減配|無配|下方)/.test(s)
+  return /増配/.test(s) && !/(減配|無配|下方|訂正)/.test(s)
 }
 
 /** 株式分割の開示（結果・延期・中止の報告は除く） */
 export function isSplitTitle(t) {
   const s = String(t || '')
-  return /株式分割/.test(s) && !/(結果|延期|中止)/.test(s)
+  return /株式分割/.test(s) && !/(結果|延期|中止|訂正)/.test(s)
 }
 
 /**
