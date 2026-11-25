@@ -452,14 +452,16 @@ function run(P) {
         if (!x || x.b.h === x.b.l) continue
         if (gapMax !== null && x.b.o > s.close * (1 + gapMax / 100)) continue
         if (P.swMiss && track === 'swing' && rnd(`w|${s.code}|${d}`) < P.swMiss / 100) continue
-        const entry = x.b.o * (1 + SL)
+        // swUnit（11/25 本人の希望：今の資金で買えない日が続くので、かぶミニ＝1株単位で買えたら）：スイングの株数の単位。swCost＝売り買いの余分なコスト%（かぶミニの場中の売りのスプレッドなど。買値に足して数える）
+        const entry = x.b.o * (1 + SL) * (track === 'swing' && P.swCost ? 1 + P.swCost / 100 : 1)
         const rps = entry - s.stop
         if (!(rps > 0)) continue
         const room = riskOne * P.maxOpenRiskMult - openRisk()
         // swReserve：スイングなどは、現金が資金の swReserve% を下回るところまでは使わない（企業の行動のために残す）
         const usable = P.swReserve ? Math.max(0, cash - equityPrev * P.swReserve / 100) : cash
-        const qty = Math.floor(Math.min(riskOne / rps, maxPos / entry, usable / entry, Math.max(0, room) / rps) / 100) * 100
-        if (qty < 100) continue
+        const unit = track === 'swing' && P.swUnit ? P.swUnit : 100
+        const qty = Math.floor(Math.min(riskOne / rps, maxPos / entry, usable / entry, Math.max(0, room) / rps) / unit) * unit
+        if (qty < unit) continue
         buys++
         n++
         held.add(s.code)
