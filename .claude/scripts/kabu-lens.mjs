@@ -1418,16 +1418,22 @@ export function isSplitTitle(t) {
  * kind: buyback（自社株買い）・divup（増配）は翌日の寄りで買い引けで売る。split（株式分割）は翌日の寄りで買い5営業日後の引けで売る
  * （research/swing/README.md：寄指で買える日の10年の成績。増配 1日目 全体比+0.48%、株式分割 5日 +0.85%・20日 +1.41%）
  */
+/** 受注の開示（11/25 本人と決定：引け後の発表を翌朝の寄指（終値×1.02）で買い、同じ日の引成で売る。10年で寄り→引けの全体比 +0.25／+0.51／+0.33%） */
+export function isOrderTitle(t) {
+  const s = String(t || '')
+  return /受注/.test(s) && !/(訂正|損失|取消)/.test(s)
+}
+
 export function pickEvents(rows, universe = null) {
   const set = universe ? new Set(universe) : null
   const kessan = new Set(rows.filter(r => /決算短信|決算発表|四半期決算/.test(r.title)).map(r => r.code))
   const out = new Map()
   for (const r of rows) {
     if (r.time < '15:00' || kessan.has(r.code) || (set && !set.has(r.code))) continue
-    const kind = isBuybackTitle(r.title) ? 'buyback' : isDividendUpTitle(r.title) ? 'divup' : isSplitTitle(r.title) ? 'split' : null
+    const kind = isBuybackTitle(r.title) ? 'buyback' : isDividendUpTitle(r.title) ? 'divup' : isSplitTitle(r.title) ? 'split' : isOrderTitle(r.title) ? 'order' : null
     if (!kind) continue
     const prev = out.get(r.code)
-    if (prev && (prev.kind === 'buyback' || kind === 'split')) continue
+    if (prev && (prev.kind === 'buyback' || kind === 'split' || (kind === 'order' && prev.kind !== 'order'))) continue
     out.set(r.code, { code: r.code, name: r.name, time: r.time, title: r.title, kind, pdf: r.pdf || null })
   }
   return [...out.values()]
@@ -3422,6 +3428,8 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], 
     : p.evOrder === 'bbsmall' ? buybacks.slice().sort((a, b) => bbHot(a) - bbHot(b))
       : buybacks
   for (const b of evList) {
+    // 受注（11/25〜）は params.orders の口座だけ（本番どおりの口座）
+    if (b.kind === 'order' && !p.orders) continue
     const isPead = b.kind === 'pead'
     // bbSizeRule：自社株買いは、取得の割合2%以上を良い条件の1つに数え、2つ以上のものだけ買う（2026-11-21 本人と決定。まず練習口座で試す）
     if (p.bbSizeRule && b.kind === 'buyback' && (b.score ?? 0) + (b.pct >= 2 ? 1 : 0) < 2) continue
@@ -4493,6 +4501,11 @@ async function main() {
         r.skip = false
         r.expect_pct = 0.48
         r.sell = '同じ日の引成'
+      } else if (r.kind === 'order') {
+        // 受注（11/25 本人と決定）：いつもの銘柄（売買代金1億円以上）だけ。検証どおり寄指は終値×1.02
+        r.skip = false
+        r.expect_pct = 0.36
+        r.sell = '同じ日の引成'
       } else {
         r.skip = false
         r.expect_pct = 0.85
@@ -4503,7 +4516,7 @@ async function main() {
     rows = rows.filter(r => keepEventRow(r, !uniSet || uniSet.has(r.code), smallMin))
     for (const r of rows) if (uniSet && !uniSet.has(r.code)) { r.small_company = Number(r.turnover_avg) < 1e8; r.why = [...(r.why || []), r.small_company ? '小さい会社（売買代金5,000万〜1億円。11/24から買う）' : 'いつもの銘柄の一覧に無い会社（11/24から買う）'] }
     rows.sort((a, b) => (a.skip - b.skip) || (!!b.small_hot - !!a.small_hot) || (b.skip ? -1 : b.expect_pct) - (a.skip ? -1 : a.expect_pct))
-    console.log(JSON.stringify({ date: td.date, total_disclosures: td.total, error: td.error || null, rule: '翌営業日に寄指（limit 以下なら寄りで買う。limit は自社株買い＝終値×1.03（11/25〜）、増配・株式分割＝終値×1.02）。kind: buyback＝自社株買い（同じ日の引成で売る。良い条件＋取得の割合2%以上で2つ以上だけ買い、ほかは skip）、divup＝増配（同じ日の引成）、split＝株式分割（5営業日後の引成）、yutai_end＝株主優待の廃止（記録だけ。skip。11/21〜）。決算と同じ日の発表・立会外の取得は除く。expect_pct＝10年の検証での1回の平均（全体比の%）。small_hot（取得の割合2%以上・20日平均の売買代金3億円未満の自社株買い）を一番上に、あとは expect_pct の大きい順', rows }, null, 2))
+    console.log(JSON.stringify({ date: td.date, total_disclosures: td.total, error: td.error || null, rule: '翌営業日に寄指（limit 以下なら寄りで買う。limit は自社株買い＝終値×1.03（11/25〜）、増配・株式分割・受注＝終値×1.02）。order＝受注（11/25〜。同じ日の引成。いつもの銘柄だけ）。kind: buyback＝自社株買い（同じ日の引成で売る。良い条件＋取得の割合2%以上で2つ以上だけ買い、ほかは skip）、divup＝増配（同じ日の引成）、split＝株式分割（5営業日後の引成）、yutai_end＝株主優待の廃止（記録だけ。skip。11/21〜）。決算と同じ日の発表・立会外の取得は除く。expect_pct＝10年の検証での1回の平均（全体比の%）。small_hot（取得の割合2%以上・20日平均の売買代金3億円未満の自社株買い）を一番上に、あとは expect_pct の大きい順', rows }, null, 2))
     return
   }
   if (args.includes('--scan-now')) {
@@ -4593,7 +4606,7 @@ async function main() {
           buybacks = buybacks.filter(b => inUni.has(b.code) || day.paper.stocks[b.code])
           for (const b of buybacks) {
             if (b.kind !== 'buyback') {
-              b.expect = b.kind === 'divup' ? 0.48 : 0.85
+              b.expect = b.kind === 'divup' ? 0.48 : b.kind === 'order' ? 0.36 : 0.85
               continue
             }
             const ctx = day.paper.stocks[b.code]?.ctx
