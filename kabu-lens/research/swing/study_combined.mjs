@@ -165,6 +165,14 @@ const usBearOn = d => {
 }
 // 半導体（SOX）の20日の騰落（前の米国の日まで）。soxCut：これ以下（%）の日は新しいスイングを soxMax 件まで（2026-11-23 本人の希望で試す）
 const sx = JSON.parse(readFileSync(new URL('../world/SOX.json', import.meta.url), 'utf-8')).chart.result[0]
+// 立会外分売の実績（楽天証券の公開している過去の実績。2016-04〜）：日付 → [{code, price, o, c}]
+const BUNBAI = new Map()
+for (const line of readFileSync(new URL('../bunbai/rakuten.csv', import.meta.url), 'utf-8').trim().split('\n').slice(1)) {
+  const [code, date, , price, , o, , , c] = line.split(',')
+  if (!(+price > 0 && +o > 0 && +c > 0)) continue
+  if (!BUNBAI.has(date)) BUNBAI.set(date, [])
+  BUNBAI.get(date).push({ code, price: +price, o: +o, c: +c })
+}
 const soxS = sx.timestamp.map((t, i) => ({ date: new Date((t - 5 * 3600) * 1000).toISOString().slice(0, 10), c: sx.indicators.quote[0].close[i] })).filter(x => x.c != null)
 const sox20 = d => {
   let a = -1
@@ -308,6 +316,20 @@ function run(P) {
         etfU -= u
       }
     }
+    // 0b. 立会外分売（11/25 試算）：楽天の実績（../bunbai/rakuten.csv。分売価格と実施日の四本値）。前の夜に申し込んで現金を押さえ、当日の寄り前に分売価格で買い、
+    //   寄り（bunbaiSell 'open'、既定）か引け（'close'）で売る。1回の株数 bunbaiQty（既定100。楽天は1人の上限が100株のことが多い）、当選の割合 bunbaiWin%（既定100）。現金が足りなければ申し込まない
+    const bnHold = []
+    if (P.bunbai) {
+      for (const r of BUNBAI.get(d) || []) {
+        if (held.has(r.code)) continue
+        if (rnd(`bn|${r.code}|${d}`) >= (P.bunbaiWin ?? 100) / 100) continue
+        const qty = P.bunbaiQty ?? 100
+        if (cash < r.price * qty) continue
+        cash -= r.price * qty
+        bnHold.push({ r, qty })
+      }
+    }
+    const bnSell = when => { if ((P.bunbaiSell || 'open') !== when) return; for (const { r, qty } of bnHold) close({ track: 'bunbai', code: r.code, entry: r.price, qty }, (when === 'open' ? r.o : r.c) * (1 - SL), when === 'open' ? '寄り' : '大引け') }
     // 1. 企業の行動
     if (P.tracks.events) {
       const LB = P.evLook ?? 20
@@ -364,6 +386,7 @@ function run(P) {
         else close({ track: e.kind, code: e.code, entry: o, qty }, x.b.c, '大引け')
       }
     }
+    bnSell('open')
     // 2. 相場全体の急落の翌日の ETF
     if (P.tracks.etf && !held.has('ETF')) {
       const k = bi.get(pd)
@@ -490,6 +513,7 @@ function run(P) {
       const max = P.usBear && usBearOn(d) ? 1 : P.soxCut !== undefined && sox20(d) <= P.soxCut ? (P.soxMax ?? 0) : 99
       addRisky('swing', list, max, P.swingR ?? 3, swingDaysFor(P, d), 2)
     }
+    bnSell('close')
     // 6. 値動きで決着
     const keep = []
     for (const p of pos) {
