@@ -6,7 +6,7 @@ import { analyze, surgePullback, tickFloor } from '../../../.claude/scripts/kabu
 
 export const SLIP = 0.001
 
-export function loadAll({ withSwing = true, avoidChase = true, evMinTurn = 1e8, withSmall = false } = {}) {
+export function loadAll({ withSwing = true, avoidChase = true, evMinTurn = 1e8, withSmall = false, withOrders = false } = {}) {
   const wide = JSON.parse(readFileSync(new URL('../wide.json', import.meta.url), 'utf-8'))
   // withSmall：売買代金の小さい会社（fetch_small.mjs で集めた wide_small.json・irevents2.json）も足す。元の銘柄はそのまま
   const small = withSmall ? JSON.parse(readFileSync(new URL('../wide_small.json', import.meta.url), 'utf-8')) : {}
@@ -21,6 +21,11 @@ export function loadAll({ withSwing = true, avoidChase = true, evMinTurn = 1e8, 
   }
   const irev = JSON.parse(readFileSync(new URL('../irevents.json', import.meta.url), 'utf-8'))
   const irh = JSON.parse(readFileSync(new URL('../irhist.json', import.meta.url), 'utf-8'))
+  // withOrders（11/25）：受注の開示（fetch_irevents_more.mjs の irevents_more.json）も企業の行動（kind: 'order'）として読む
+  if (withOrders) {
+    const ir3 = JSON.parse(readFileSync(new URL('../irevents_more.json', import.meta.url), 'utf-8'))
+    for (const [c, l] of Object.entries(ir3)) if (Array.isArray(l)) irev[c] = [...(irev[c] || []), ...l.filter(r => /受注/.test(r.title) && !/(訂正|損失|取消)/.test(r.title))]
+  }
   if (withSmall) {
     const ir2 = JSON.parse(readFileSync(new URL('../irevents2.json', import.meta.url), 'utf-8'))
     for (const [c, l] of Object.entries(ir2)) if (!irev[c] && Array.isArray(l)) irev[c] = l
@@ -95,6 +100,7 @@ function eventSignals(stocks, irev, irh, minTurn = 1e8) {
   const isB = t => /自己株式/.test(t) && /取得/.test(t) && /(決定|事項)/.test(t) && !/(取得状況|結果|終了|完了|経過|ToSTNeT|立会外|訂正)/.test(t)
   const isDiv = t => /増配/.test(t) && !/(減配|無配|下方|訂正)/.test(t)
   const isSplit = t => /株式分割/.test(t) && !/(結果|延期|中止|訂正)/.test(t)
+  const isOrder = t => /受注/.test(t) && !/(訂正|損失|取消)/.test(t)
   const out = []
   for (const [code, list] of Object.entries(irev)) {
     const st = stocks[code]
@@ -104,7 +110,7 @@ function eventSignals(stocks, irev, irh, minTurn = 1e8) {
     const seen = new Set()
     for (const r of list) {
       if (r.time < '15:00') continue
-      const kind = isB(r.title) ? 'buyback' : isDiv(r.title) ? 'divup' : isSplit(r.title) ? 'split' : null
+      const kind = isB(r.title) ? 'buyback' : isDiv(r.title) ? 'divup' : isSplit(r.title) ? 'split' : isOrder(r.title) ? 'order' : null
       if (!kind) continue
       if (kd.has(r.date) || list.some(x => x.date === r.date && /決算/.test(x.title))) continue
       const i = st.idx.get(r.date)

@@ -11,7 +11,7 @@
 import { readFileSync } from 'node:fs'
 import { loadAll, SLIP, mean, fmt } from './lib_signals.mjs'
 
-const D = loadAll()
+const D = loadAll({ withOrders: !!process.env.ORDERS })
 const { stocks, bench } = D
 // 信用倍率（supply_margin.json）：銘柄ごとに「その日に分かっている信用倍率」を引く（売り残0は null）。使う時だけ読む
 let MARGIN = null
@@ -61,7 +61,7 @@ const byDate = arr => {
 }
 // SMALL=1：売買代金の小さい会社（3,000万〜1億円）の企業の行動も読む。使うかどうかは cfg.smallMin（この売買代金以上）・cfg.smallKinds（['divup'] など）
 if (process.env.SMALL) {
-  const D2 = loadAll({ withSwing: false, withSmall: true, evMinTurn: 3e7 })
+  const D2 = loadAll({ withSwing: false, withSmall: true, evMinTurn: 3e7, withOrders: !!process.env.ORDERS })
   for (const [c, st] of Object.entries(D2.stocks)) if (!stocks[c]) stocks[c] = st
   for (const e of D2.events) if (D2.stocks[e.code].turn[e.i] < 1e8) D.events.push({ ...e, small: true })
 }
@@ -148,7 +148,8 @@ try {
   BBD = {}
 }
 const bbScore = e => (e.score ?? 0) + ((BBD[`${e.code}|${e.date}|${e.time}`]?.pct ?? 0) >= 2 ? 1 : 0)
-const evRank = e => (e.kind === 'split' ? 0 : e.kind === 'buyback' && e.score >= 2 ? 1 : e.kind === 'divup' ? 2 : e.kind === 'buyback' && e.score === 1 ? 3 : 9)
+// order（受注。ORDERS=1 のときだけ読まれる。11/25 試算）は増配の次。cfg.orders が無ければ外す
+const evRank = e => (e.kind === 'split' ? 0 : e.kind === 'buyback' && e.score >= 2 ? 1 : e.kind === 'divup' ? 2 : e.kind === 'order' ? 2.5 : e.kind === 'buyback' && e.score === 1 ? 3 : 9)
 // 米国の下げ相場
 const gs = JSON.parse(readFileSync(new URL('../world/GSPC.json', import.meta.url), 'utf-8')).chart.result[0]
 const spx = gs.timestamp.map((t, i) => ({ date: new Date((t - 5 * 3600) * 1000).toISOString().slice(0, 10), c: gs.indicators.quote[0].close[i] })).filter(x => x.c != null)
@@ -338,7 +339,7 @@ function run(P) {
     if (P.tracks.events) {
       const LB = P.evLook ?? 20
       const r20 = e => { const B = stocks[e.code].bars; return e.i >= LB ? B[e.i].c / B[e.i - LB].c : 1 }
-      const evList = (EV.get(pd) || []).filter(x => (!x.small || (P.smallMin && stocks[x.code].turn[x.i] >= P.smallMin && (!P.smallKinds || P.smallKinds.includes(x.kind)))) && (P.evAll || evRank(x) < 9))
+      const evList = (EV.get(pd) || []).filter(x => (x.kind !== 'order' || P.orders) && (!x.small || (P.smallMin && stocks[x.code].turn[x.i] >= P.smallMin && (!P.smallKinds || P.smallKinds.includes(x.kind)))) && (P.evAll || evRank(x) < 9))
       if (P.evOrder === 'mom') evList.sort((a, b) => r20(b) - r20(a))
       else if (P.evOrder === 'rev') evList.sort((a, b) => r20(a) - r20(b))
       else if (P.evOrder === 'rankmom') evList.sort((a, b) => evRank(a) - evRank(b) || r20(b) - r20(a))
