@@ -349,7 +349,8 @@ function run(P) {
         if (P.bbSizeRule && e.kind === 'buyback' && bbScore(e) < 2) continue
         if (P.evMiss && rnd(`m|${e.code}|${d}`) < P.evMiss / 100) continue
         const x = barOf(e.code)
-        const lim = P.evLimit ? e.close * P.evLimit : e.limit
+        // bbLimit（11/25）：自社株買いだけ寄指の上限を変える（例 1.03＝終値×1.03まで）
+        const lim = e.kind === 'buyback' && P.bbLimit ? e.close * P.bbLimit : P.evLimit ? e.close * P.evLimit : e.limit
         if (!x || x.b.h === x.b.l || x.b.o > lim) continue
         if (P.evMinGap !== undefined && e.kind !== 'split' && x.b.o < e.close * (1 + P.evMinGap / 100)) continue
         const o = x.b.o
