@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { swingEntryVariants, eventExitVariants, liveStudyDay, mergeLiveStudy, below200, parseBuybackPdf, drawdownStop, nikkeiFutBrief, pickYutaiEnd, isPreHoliday, nextTradingDate, crashSignal, worldBrief, parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, pickSwingToSell, keepEventRow, paperSummary, paperInputOf, paperInputFromFive, paperReplay, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { orderPlan, swingEntryVariants, eventExitVariants, liveStudyDay, mergeLiveStudy, below200, parseBuybackPdf, drawdownStop, nikkeiFutBrief, pickYutaiEnd, isPreHoliday, nextTradingDate, crashSignal, worldBrief, parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, pickSwingToSell, keepEventRow, paperSummary, paperInputOf, paperInputFromFive, paperReplay, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -1552,5 +1552,49 @@ describe('cashNow の損の合計（11/25）', () => {
     expect(r.open_risk).toBe(3000)
     expect(r.risk_one).toBe(Math.round(r.capital * 0.005))
     expect(r.risk_room).toBe(Math.round(r.risk_one * 3) - 3000)
+  })
+})
+
+describe('orderPlan（夜の注文票の計算。11/25）', () => {
+  const cn = { cash: 300000, risk_one: 3000, pos_cap: 370000, risk_room: 6000, positions_risk: [{ id: 'p1', risk: 2000 }] }
+  const today = '2026-11-25'
+  const scan = { date: today, rows: [
+    { code: '1111', name: 'A', kind: 'PULLBACK', pass: true, date: today, close: 1000, stop: 990, target: 1060, score: 80 },
+    { code: '2222', name: 'B', kind: 'GAP', pass: true, date: today, close: 500, stop: 495, target: 530, score: 30 },
+    { code: '3333', name: 'C', kind: 'MOMENTUM', pass: true, date: today, close: 2000, stop: 1800, target: 2600, score: 90 },
+    { code: '4444', name: 'D', kind: 'PULLBACK', pass: false, date: today, close: 100, stop: 99, score: 99 }
+  ] }
+  it('スイング：GAP を先に、100株で上限内のものだけ。空きと現金を引いていく', () => {
+    const r = orderPlan({ cash: cn, settings: { dayTradeMax: 5 }, trades: [], events: [], scan, earnings: {}, today })
+    expect(r.swing.map(x => x.code)).toEqual(['2222', '1111'])
+    // B: limit 510、1株の損 15 → min(3000,6000)/15=200、A: limit 1020、損30 → min(3000, 6000-3000)/30=100
+    expect(r.swing[0].qty).toBe(200)
+    expect(r.swing[1].qty).toBe(100)
+    expect(r.room_left).toBe(0)
+    expect(r.stale).toEqual([])
+  })
+  it('明日が決算の候補は買わない', () => {
+    const r = orderPlan({ cash: cn, settings: {}, trades: [], events: [], scan, earnings: { 2222: { date: '2026-11-26' } }, today })
+    expect(r.swing.map(x => x.code)).toEqual(['1111'])
+    expect(r.swing_blocked_earnings[0].code).toBe('2222')
+  })
+  it('企業の行動の株数（1銘柄の上限・売買代金の1.5%・現金の小さいほう）と、終値が古いときの注意', () => {
+    const events = [{ code: '5555', name: 'E', kind: 'buyback', limit: 1000, skip: false, turnover_avg: 1e7, close_date: '2026-11-24', why: [] }, { code: '6666', name: 'F', kind: 'buyback', skip: true, why: ['取得の割合 1.2%（2%未満）'] }]
+    const r = orderPlan({ cash: cn, settings: {}, trades: [], events, scan: null, earnings: {}, today })
+    expect(r.events[0].qty).toBe(100) // 1e7×1.5%=15万 → 150株 → 100株
+    expect(r.events_skipped[0].code).toBe('6666')
+    expect(r.stale.length).toBe(2)
+  })
+  it('自社株買いの現金が足りなければ、含み益の小さいスイングをPTSで売る', () => {
+    const small = { ...cn, cash: 50000 }
+    const trades = [
+      { id: 'p1', code: '7777', name: 'G', status: 'open', style: 'swing', date: '2026-11-01', entry: 1000, last: 950, qty: 100 },
+      { id: 'p2', code: '8888', name: 'H', status: 'open', style: 'swing', date: '2026-11-01', entry: 1000, last: 1100, qty: 100 }
+    ]
+    const events = [{ code: '5555', name: 'E', kind: 'buyback', limit: 1000, skip: false, turnover_avg: 1e8, close_date: today, why: [] }]
+    const r = orderPlan({ cash: small, settings: {}, trades, events, scan: null, earnings: {}, today })
+    expect(r.pts_sells.map(x => x.code)).toEqual(['7777', '8888'])
+    expect(r.pts_sells[0].price).toBe(940)
+    expect(r.events[0].qty).toBe(200) // 現金 5万＋9.5万＋11万＝25.5万 → 200株
   })
 })

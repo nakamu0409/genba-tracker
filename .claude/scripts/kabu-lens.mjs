@@ -3077,6 +3077,79 @@ export function pickSwingToSell(positions, cash, need) {
   return out
 }
 
+/**
+ * 夜の注文票の計算（11/25：夜の点検が自分で計算すると間違えたので、ここで出す。決まりは ops/prompt-night.md の 3・3a・3a'・3b のとおり）
+ * cash: --cash-now の出力（cash, risk_one, pos_cap, risk_room, positions_risk）。settings: dayTradeMax。trades: 記録帳の trades の data（id 付き）
+ * events: --buyback の rows。scan: --scan-wide の出力（date, rows）。earnings: {code: {date, estimated}}（無い銘柄は未確認）。today: 'YYYY-MM-DD'
+ * 返り値の数をそのまま注文票に書く
+ */
+export function orderPlan({ cash: cn, settings = {}, trades = [], events = [], scan = null, earnings = {}, today }) {
+  const stale = []
+  const maxBuys = ok(settings.dayTradeMax) ? settings.dayTradeMax : 5
+  const lot = x => Math.floor(x / 100) * 100
+  let cash = cn.cash
+  let room = cn.risk_room
+  const riskOne = cn.risk_one
+  const posCap = cn.pos_cap
+  const held = new Set(trades.filter(t => t.status === 'open' || t.status === 'plan').map(t => String(t.code)))
+  const riskOf = new Map((cn.positions_risk || []).map(x => [x.id, x.risk || 0]))
+  // 企業の行動（3a）
+  const evRows = (events || []).filter(r => !r.skip && !held.has(String(r.code)) && !/訂正/.test(r.title || ''))
+  for (const r of evRows) if (r.close_date && r.close_date !== today) stale.push(`企業の行動 ${r.name}（${r.code}）の終値が ${r.close_date} の分（今日の分でない）。寄指の値段は今日の終値×1.02で出し直す`)
+  const evCap = r => Math.min(posCap, ok(r.turnover_avg) ? r.turnover_avg * 0.015 : posCap)
+  // 自社株買いの現金が足りなければ、含み益の小さいスイングを今夜のPTSで売る（3a'）
+  const need = evRows.filter(r => r.kind === 'buyback').reduce((a, r) => a + evCap(r), 0)
+  const swPos = trades.filter(t => t.status === 'open' && t.style === 'swing' && !t.frozen && t.date !== today).map(t => ({ ...t, track: 'swing' }))
+  const sells = pickSwingToSell(swPos, cash, need).map(t => {
+    cash += t.last * t.qty
+    room += riskOf.get(t.id) || 0
+    return { id: t.id, code: t.code, name: t.name, qty: t.qty, last: t.last, price: tickFloor(t.last * 0.99), gain_pct: round((t.last / t.entry - 1) * 100, 1) }
+  })
+  const evOrders = []
+  const evDropped = []
+  for (const r of evRows) {
+    if (evOrders.length >= maxBuys) { evDropped.push({ code: r.code, name: r.name, why: '1日の買いの回数の上限' }); continue }
+    const qty = ok(r.limit) && r.limit > 0 ? lot(Math.min(evCap(r), cash) / r.limit) : 0
+    if (qty < 100) { evDropped.push({ code: r.code, name: r.name, why: cash < r.limit * 100 ? '現金が足りず100株も買えない' : '100株では上限を超える' }); continue }
+    cash -= r.limit * qty
+    const o = { code: r.code, name: r.name, kind: r.kind, qty, limit: r.limit, small_hot: !!r.small_hot, small_company: !!r.small_company, score: r.score ?? null, why: r.why || [], cost: Math.round(r.limit * qty) }
+    if (r.kind === 'split') { const risk = Math.round(r.limit * 0.08 * qty); room -= risk; o.split_risk = risk }
+    evOrders.push(o)
+  }
+  const evSkipped = (events || []).filter(r => r.skip).map(r => ({ code: r.code, name: r.name, why: (r.why || []).slice(-1)[0] || '' }))
+  // スイング（3・3b）
+  let swRows = []
+  if (!scan?.rows) stale.push('スイングの候補（--scan-wide）が無い')
+  else if (scan.date !== today) stale.push(`スイングの候補の日付が ${scan.date}（今日の分でない）。約170銘柄のパケットで代わりにする`)
+  else swRows = scan.rows.filter(r => r.pass && r.date === today && !held.has(String(r.code)))
+  swRows.sort((a, b) => (a.kind === 'GAP' ? 0 : 1) - (b.kind === 'GAP' ? 0 : 1) || (b.score ?? 0) - (a.score ?? 0))
+  const next = nextTradingDate(today)
+  const swOrders = []
+  const blocked = []
+  let ref = null
+  let tooBig = 0
+  for (const r of swRows) {
+    const e = earnings[r.code]
+    if (e?.date && (e.date === today || e.date === next)) { blocked.push({ code: r.code, name: r.name, earnings: e.date }); continue }
+    const limit = tickFloor(r.close * 1.02)
+    const rps = limit - r.stop
+    if (!(rps > 0)) continue
+    if (swOrders.length + evOrders.length >= maxBuys) break
+    const qty = lot(Math.min(Math.min(riskOne, Math.max(0, room)) / rps, posCap / limit, cash / limit))
+    if (qty < 100) {
+      if (rps * 100 > riskOne) tooBig++
+      if (!ref) ref = { code: r.code, name: r.name, kind: r.kind, limit, stop: r.stop, loss_100: Math.round(rps * 100), why: rps * 100 > riskOne ? '100株で1回の損の上限を超える' : room < rps * 100 ? '損の合計の空きが足りない' : '現金が足りない' }
+      continue
+    }
+    room -= rps * qty
+    cash -= limit * qty
+    const days = e?.date ? businessDaysBetween(today, e.date) : null
+    swOrders.push({ code: r.code, name: r.name, kind: r.kind, score: r.score, qty, limit, stop: r.stop, target: r.target, loss_max: Math.round(rps * qty), earnings: e?.date || null, earnings_estimated: e?.estimated ?? null, earnings_note: days != null && days >= 2 && days <= 3 ? `${e.date.slice(5).replace('-', '/')}決算（またいで持つ）` : null })
+  }
+  const swNote = swRows.length === 0 ? 'スイングの候補なし' : swOrders.length ? null : tooBig === swRows.length - blocked.length ? 'どれも100株で1回の損の上限を超える' : room <= 0 ? '損の合計の空きが無い' : '現金・空きが足りない'
+  return { today, stale, cash_start: cn.cash, room_start: cn.risk_room, risk_one: riskOne, pos_cap: posCap, pts_sells: sells, events: evOrders, events_dropped: evDropped, events_skipped: evSkipped, swing: swOrders, swing_candidates: swRows.length, swing_blocked_earnings: blocked, swing_ref: swOrders.length ? null : ref, swing_note: swNote, room_left: Math.round(room), cash_left: Math.round(cash) }
+}
+
 export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], usBear = false }) {
   const st = JSON.parse(JSON.stringify(prev))
   const p = st.params
@@ -3997,6 +4070,33 @@ async function main() {
   const save = !args.includes('--no-save')
   const evalAt = args.indexOf('--evaluate')
   if (evalAt >= 0) return evaluateFile(args[evalAt + 1])
+  if (args.includes('--order-plan')) {
+    // --order-plan --cash cash.json --trades <trades のフォルダ> --settings main.json --events bb.json --scan scanw.json [--today YYYY-MM-DD]（上位20のスイング候補の決算日はここで取る）
+    const get = k => (args.indexOf(k) >= 0 ? args[args.indexOf(k) + 1] : null)
+    const rd = f => { try { return f ? JSON.parse(readFileSync(f, 'utf-8')) : null } catch { return null } }
+    const dataOf = x => x?.data ?? x
+    const tdir = get('--trades')
+    const trades = tdir ? readdirSync(tdir).filter(f => f.endsWith('.json') && !f.startsWith('.')).map(f => { const j = rd(`${tdir}/${f}`); return j ? { id: j.id || f.replace(/\.json$/, ''), ...dataOf(j) } : null }).filter(Boolean) : []
+    const today = get('--today') || new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10)
+    const cn = rd(get('--cash'))
+    if (!cn) { console.error('--cash（--cash-now の出力）が要ります'); process.exit(1) }
+    const bb = rd(get('--events'))
+    const scan = rd(get('--scan'))
+    const earnings = {}
+    const errs = []
+    if (bb?.error) errs.push(`企業の行動を確認できず（${bb.error}）`)
+    if (scan?.rows) {
+      const top = scan.rows.filter(r => r.pass && r.date === today).sort((a, b) => (a.kind === 'GAP' ? 0 : 1) - (b.kind === 'GAP' ? 0 : 1) || (b.score ?? 0) - (a.score ?? 0)).slice(0, 20)
+      for (const r of top) {
+        try { earnings[r.code] = await fetchNextEarnings(r.code) } catch (e) { errs.push(`${r.code} の決算日を確認できず`) }
+        await sleep(300)
+      }
+    }
+    const plan = orderPlan({ cash: cn, settings: dataOf(rd(get('--settings'))) || {}, trades, events: bb?.rows || [], scan, earnings, today })
+    plan.errors = errs
+    console.log(JSON.stringify(plan, null, 2))
+    return
+  }
   if (args.includes('--next-earnings')) {
     const codes = args.filter(a => isTseCode(a.toUpperCase())).map(a => a.toUpperCase())
     const out = []
@@ -4025,6 +4125,8 @@ async function main() {
     const wb = worldBrief(await fetchWorld(), /^\d{4}-\d{2}-\d{2}$/.test(d || '') ? d : undefined)
     // 日経平均先物（CME・円建て）の今の値と、日経平均の最後の終値との差（日付を指定したときは今の値なので付けない）
     if (!/^\d{4}-\d{2}-\d{2}$/.test(d || '')) wb.nkFut = await fetchNikkeiFut()
+    // 11/25：データが古いとき（米国の最後の日が3営業日以上前）は stale を立てる。夜の点検はそのとき「海外の動きは確認できず」と書く
+    wb.stale = wb.asOf && wb.date && businessDaysBetween(wb.asOf, wb.date) > 2 ? `海外のデータが ${wb.asOf} の分で古い` : null
     console.log(JSON.stringify(wb, null, 2))
     return
   }
