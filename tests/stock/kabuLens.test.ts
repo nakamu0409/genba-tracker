@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { expectCheck, orderPlan, swingEntryVariants, eventExitVariants, liveStudyDay, mergeLiveStudy, below200, parseBuybackPdf, drawdownStop, nikkeiFutBrief, pickYutaiEnd, isPreHoliday, nextTradingDate, crashSignal, worldBrief, parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, pickSwingToSell, keepEventRow, paperSummary, paperInputOf, paperInputFromFive, paperReplay, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { parseBunbaiPage, expectCheck, orderPlan, swingEntryVariants, eventExitVariants, liveStudyDay, mergeLiveStudy, below200, parseBuybackPdf, drawdownStop, nikkeiFutBrief, pickYutaiEnd, isPreHoliday, nextTradingDate, crashSignal, worldBrief, parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, pickSwingToSell, keepEventRow, paperSummary, paperInputOf, paperInputFromFive, paperReplay, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -1610,5 +1610,18 @@ describe('expectCheck（本番が検証の範囲に入っているか。11/25）
     expect(by.split.status).toMatch('下に外れ')
     expect(by.swing.status).toMatch('下に外れ')
     expect(by.buyback_s1.status).toBe('まだ無い')
+  })
+})
+
+describe('parseBunbaiPage（立会外分売。11/25）', () => {
+  it('申込受付中と今後の予定を読む', () => {
+    const html = `<h2>申込受付中</h2><table><tr><th>銘柄</th><th>信用/貸借</th><th>分売価格[円]</th><th>前営業日終値[円]</th><th>割引率</th><th>申込単位数量</th><th>申込上限数量</th><th>分売実施日</th><th>詳細</th></tr>
+<tr><td><a>テスト工業</a><br>9999 東証スタンダード</td><td>信用</td><td>1,940</td><td>2,000</td><td>3.00%</td><td>100株</td><td>500株</td><td>2026/12/1</td><td>詳細</td></tr>
+<tr><td><a>ズレ商事</a><br>8888 東証グロース</td><td>-</td><td>500</td><td>480</td><td>3.00%</td><td>100株</td><td>100株</td><td>2026/12/1</td><td>詳細</td></tr></table>
+<h2>今後の予定銘柄</h2><table><tr><td>クリエイト</td><td>3024 東証スタンダード</td><td>信用</td><td>2026/12/1～2026/12/3</td><td>100株</td><td>2,000株</td><td>詳細</td></tr></table>`
+    const r = parseBunbaiPage(html)
+    expect(r.open).toEqual([{ code: '9999', name: 'テスト工業', price: 1940, prev: 2000, disc: 3, unit: 100, max: 500, date: '2026-12-01' }])
+    expect(r.bad.map(x => x.code)).toEqual(['8888'])
+    expect(r.upcoming).toEqual([{ code: '3024', name: 'クリエイト', from: '2026-12-01', to: '2026-12-03', unit: 100, max: 2000 }])
   })
 })

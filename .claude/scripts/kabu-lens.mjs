@@ -2803,6 +2803,52 @@ export function mergeLiveStudy(prev, day) {
 }
 
 /**
+ * 楽天証券の「立会外分売」のページ（申込受付中・今後の予定銘柄）を読む（11/25 本人と決定：本番で買う前に、これからの分売を毎晩記録して割引と成績を確かめる）
+ * open[]：申込受付中（code、name、price＝分売価格、prev＝前営業日終値、disc＝割引率%、unit、max＝申込上限数量、date＝分売実施日）。値の並びが合わない行は bad に入れる
+ * upcoming[]：今後の予定（code、name、from、to、unit、max）
+ */
+export function parseBunbaiPage(html) {
+  const t = String(html).replace(/<[^>]+>/g, '|').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ')
+  const iOpen = t.indexOf('申込受付中')
+  const iUp = t.indexOf('今後の予定銘柄', iOpen)
+  const out = { open: [], upcoming: [], bad: [] }
+  const num = x => Number(String(x).replace(/,/g, ''))
+  const rows = (seg) => {
+    const re = /\|\s*([^|]*?[^|\s][^|]*?)\s*(?:\|\s*)+(\d[0-9A-Z]{3})\s+(?:東証|名証|札証|福証)[^|]*\|/g
+    const hits = []
+    let m
+    while ((m = re.exec(seg))) hits.push({ name: m[1].trim(), code: m[2], start: m.index, end: re.lastIndex })
+    return hits.map((h, k) => ({ ...h, body: seg.slice(h.end, k + 1 < hits.length ? hits[k + 1].start : seg.length) }))
+  }
+  if (iOpen >= 0) {
+    for (const h of rows(t.slice(iOpen, iUp > 0 ? iUp : undefined))) {
+      const d = h.body.match(/(\d{4})\/(\d{1,2})\/(\d{1,2})/)
+      const toks = (h.body.replace(/\d{4}\/\d{1,2}\/\d{1,2}/g, ' ').match(/[\d,]+(?:\.\d+)?/g) || []).map(num)
+      const [price, prev, disc, unit, max] = toks
+      const r = { code: h.code, name: h.name, price, prev, disc, unit, max, date: d ? `${d[1]}-${d[2].padStart(2, '0')}-${d[3].padStart(2, '0')}` : null }
+      const okRow = price > 0 && prev > price && ok(disc) && Math.abs(disc - (1 - price / prev) * 100) < 0.3 && r.date
+      ;(okRow ? out.open : out.bad).push(r)
+    }
+  }
+  if (iUp >= 0) {
+    for (const h of rows(t.slice(iUp))) {
+      const d = [...h.body.matchAll(/(\d{4})\/(\d{1,2})\/(\d{1,2})/g)].map(x => `${x[1]}-${x[2].padStart(2, '0')}-${x[3].padStart(2, '0')}`)
+      if (!d.length) continue
+      const q = (h.body.match(/([\d,]+)株/g) || []).map(x => num(x.replace('株', '')))
+      out.upcoming.push({ code: h.code, name: h.name, from: d[0], to: d[d.length - 1], unit: q[0] ?? null, max: q[1] ?? null })
+    }
+  }
+  return out
+}
+export async function fetchBunbai() {
+  try {
+    return { source: '楽天証券 立会外分売', ...parseBunbaiPage(await fetchText('https://www.rakuten-sec.co.jp/web/domestic/off_auction/')) }
+  } catch (e) {
+    return { source: '楽天証券 立会外分売', error: e.message, open: [], upcoming: [], bad: [] }
+  }
+}
+
+/**
  * ある日（rec.date）の後の、翌営業日の値動き。企業の行動（自社株買い・増配・株式分割）と夜のPTSの答え合わせに使う。
  * rec: {date, ref?: 基準の値段（無ければ date の日の終値）, ref2?: もう1つの基準（PTSの値段など）, limit?: 寄指の値段, limitPct?: limit が無いとき ref×(1+limitPct%) を呼値で切り下げて寄指とする, hold?: 何営業日目の大引けまで持つか（既定1）}
  * bench: 1306 の日足（全体との差を出す）。返り値の final が false なら、まだ日がそろっていない
@@ -4116,6 +4162,11 @@ async function main() {
   const save = !args.includes('--no-save')
   const evalAt = args.indexOf('--evaluate')
   if (evalAt >= 0) return evaluateFile(args[evalAt + 1])
+  if (args.includes('--bunbai')) {
+    // 立会外分売：楽天の申込受付中と今後の予定（毎晩の記録用。買う決まりではない）
+    console.log(JSON.stringify(await fetchBunbai(), null, 2))
+    return
+  }
   if (args.includes('--expect-check')) {
     // --expect-check nextday_stats.json cands_stats.json（記録帳の settings の data）
     const i = args.indexOf('--expect-check')
