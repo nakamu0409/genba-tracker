@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { below200, parseBuybackPdf, drawdownStop, nikkeiFutBrief, pickYutaiEnd, isPreHoliday, nextTradingDate, crashSignal, worldBrief, parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, pickSwingToSell, keepEventRow, paperSummary, paperInputOf, paperInputFromFive, paperReplay, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { swingEntryVariants, eventExitVariants, liveStudyDay, mergeLiveStudy, below200, parseBuybackPdf, drawdownStop, nikkeiFutBrief, pickYutaiEnd, isPreHoliday, nextTradingDate, crashSignal, worldBrief, parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, pickSwingToSell, keepEventRow, paperSummary, paperInputOf, paperInputFromFive, paperReplay, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -1477,5 +1477,52 @@ describe('isSmallHotBuyback', () => {
     expect(isSmallHotBuyback(3, 3e8)).toBe(false)
     expect(isSmallHotBuyback(null, 1e8)).toBe(false)
     expect(isSmallHotBuyback(3, null)).toBe(false)
+  })
+})
+
+describe('今ためているデータで確かめること（11/25〜）', () => {
+  // 終値1000・lim 1020。9:00 寄り1015、9:15 1018、10:00 以降に990まで下げる
+  const bars = [
+    [540, 1015, 1016, 1010, 1012, 1000],
+    [555, 1018, 1019, 1012, 1013, 1000],
+    [600, 1005, 1006, 995, 1000, 1000],
+    [700, 995, 996, 989, 992, 1000],
+    [870, 994, 1000, 993, 998, 1000],
+    [925, 998, 1003, 997, 1001, 1000]
+  ]
+  it('スイングの買い方ごとの値段', () => {
+    const r = swingEntryVariants(bars, { close: 1000, stop: 950 })
+    expect(r.lim).toBe(1020)
+    expect(r.v.open).toBe(1015)
+    expect(r.v.base).toBe(1018)
+    expect(r.v.pull1).toBe(990)
+    expect(r.v.late).toBe(994)
+    expect(r.v.vwap10).not.toBeNull()
+    expect(r.dayClose).toBe(1001)
+  })
+  it('寄りが lim より上なら open は買えない', () => {
+    const r = swingEntryVariants([[540, 1030, 1031, 1025, 1026, 100], [555, 1025, 1026, 1015, 1016, 100]], { close: 1000, stop: 950 })
+    expect(r.v.open).toBeNull()
+    expect(r.v.base).toBe(1020)
+  })
+  it('企業の行動の売る時ごとの%', () => {
+    const r = eventExitVariants(bars, { prevClose: 1000 })
+    expect(r.filled).toBe(true)
+    expect(r.gap).toBe(1.5)
+    expect(r.ret.close).toBeCloseTo((1001 / 1015 - 1) * 100, 2)
+    expect(r.ret.trail1).toBeCloseTo((1000 / 1015 - 1) * 100, 2)
+    expect(eventExitVariants([[540, 1050, 1050, 1040, 1045, 1]], { prevClose: 1000 }).filled).toBe(false)
+  })
+  it('liveStudyDay と累計（同じ日は2回足さない）', () => {
+    const five = { date: '2026-11-25', bars: { 1111: bars, 2222: bars }, paper: { date: '2026-11-25', prevDate: '2026-11-24', cands: [{ code: '1111', date: '2026-11-24', close: 1000, stop: 950 }, { code: '1111', date: '2026-11-20', close: 1000, stop: 950 }], buybacks: [{ code: '2222', kind: 'buyback' }], ctx: { 2222: { prevClose: 1000 } } } }
+    const d = liveStudyDay(five)
+    expect(d.swing.length).toBe(1)
+    expect(d.events.length).toBe(1)
+    const st = mergeLiveStudy(null, d)
+    expect(st.swing.n).toBe(1)
+    expect(st.swing.v.pull1.filled).toBe(1)
+    expect(st.swing.v.pull1.sumVsBaseR).toBeCloseTo((1018 - 990) / (1018 - 950), 3)
+    expect(st.events.filled).toBe(1)
+    expect(mergeLiveStudy(st, d).swing.n).toBe(1)
   })
 })

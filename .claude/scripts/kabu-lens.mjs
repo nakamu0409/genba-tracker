@@ -2692,6 +2692,103 @@ export function mergeMarks(prev, date, marks) {
 }
 
 /**
+ * 今ためているデータで確かめること（2026-11-25 本人と決定。先に一覧を決めてから数える。決まりを変える提案は60営業日たまってから）
+ * 1) スイングをいつ買うか：前の夜の候補（close, stop）を、その日の5分足で次の形で買ったときの値段。lim＝終値×1.02（呼値で切り下げ）
+ *    open＝寄りで（寄り≦lim のとき）／base＝今の決まり（9:15以降、lim の指値）／pull1＝9:15以降、終値×0.99 の指値／vwap10＝10:00 までの VWAP（と lim の低いほう）の指値を10:00以降／late＝14:30 に（lim 以下のとき）
+ * 2) 自社株買い・増配をいつ売るか：寄指（前の日の終値×1.02）で寄りに買えたとき、寄りからの%：9:30／10:00／前引け／後場の寄り（12:30）／14:00／大引け、trail1・trail2＝高値から1%・2%下げた5分足の終値で売る（無ければ大引け）
+ * bars は [[分, 始, 高, 安, 終, 出来高], ...]（分は 9:00＝540）
+ */
+const fillFrom = (bars, fromM, limit) => {
+  if (!ok(limit)) return null
+  const k = bars.findIndex(b => b[0] >= fromM)
+  if (k < 0) return null
+  if (bars[k][1] <= limit) return bars[k][1]
+  for (let j = k; j < bars.length; j++) if (bars[j][3] <= limit) return limit
+  return null
+}
+export function swingEntryVariants(bars, { close, stop } = {}) {
+  if (!bars?.length || !ok(close)) return null
+  const lim = tickFloor(close * 1.02)
+  let pv = 0, vv = 0
+  for (const b of bars) if (b[0] < 600) { pv += ((b[2] + b[3] + b[4]) / 3) * b[5]; vv += b[5] }
+  const vwap = vv > 0 ? pv / vv : null
+  const late = bars.find(b => b[0] >= 870)
+  const v = {
+    open: bars[0][1] <= lim ? bars[0][1] : null,
+    base: fillFrom(bars, 555, lim),
+    pull1: fillFrom(bars, 555, Math.min(lim, tickFloor(close * 0.99))),
+    vwap10: vwap ? fillFrom(bars, 600, Math.min(lim, tickFloor(vwap))) : null,
+    late: late && late[1] <= lim ? late[1] : null
+  }
+  return { lim, stop: ok(stop) ? stop : null, dayClose: bars[bars.length - 1][4], v }
+}
+export function eventExitVariants(bars, { prevClose } = {}) {
+  if (!bars?.length || !ok(prevClose)) return null
+  const lim = tickFloor(prevClose * 1.02)
+  const o = bars[0][1]
+  const gap = round((o / prevClose - 1) * 100, 2)
+  if (o > lim) return { filled: false, gap }
+  const at = m => { const b = bars.find(x => x[0] >= m); return b ? b[1] : bars[bars.length - 1][4] }
+  const amClose = [...bars].reverse().find(b => b[0] < 690)
+  const trail = pct => { let hi = o; for (const b of bars) { hi = Math.max(hi, b[2]); if (b[4] <= hi * (1 - pct / 100)) return b[4] } return bars[bars.length - 1][4] }
+  const px = { t0930: at(570), t1000: at(600), am_close: amClose ? amClose[4] : o, pm_open: at(750), t1400: at(840), close: bars[bars.length - 1][4], trail1: trail(1), trail2: trail(2) }
+  return { filled: true, gap, ret: Object.fromEntries(Object.entries(px).map(([k, p]) => [k, round((p / o - 1) * 100, 3)])) }
+}
+/** five（その日の5分足と paper＝前の夜の候補・企業の行動）から、その日の分を数える */
+export function liveStudyDay(five) {
+  const pin = five?.paper
+  if (!pin?.date || !five?.bars) return null
+  const swing = []
+  for (const c of pin.cands || []) {
+    if (pin.prevDate && c.date !== pin.prevDate) continue
+    const r = swingEntryVariants(five.bars[c.code], c)
+    if (r) swing.push({ code: c.code, date: c.date, close: c.close, ...r })
+  }
+  const events = []
+  for (const b of pin.buybacks || []) {
+    if (b.kind !== 'buyback' && b.kind !== 'divup') continue
+    const r = eventExitVariants(five.bars[b.code], { prevClose: pin.ctx?.[b.code]?.prevClose })
+    if (r) events.push({ code: b.code, kind: b.kind, ...r })
+  }
+  return { date: pin.date, swing, events }
+}
+/** liveStudyDay の結果を累計に足す（同じ日は2回足さない）。swing は買えた回数・値段の差（base との差%。マイナス＝安く買えた）・大引けまでの%、events は売る時ごとの合計と勝ち */
+export function mergeLiveStudy(prev, day) {
+  const st = prev?.days ? JSON.parse(JSON.stringify(prev)) : { days: [], swing: { n: 0, v: {} }, events: { n: 0, filled: 0, sumGap: 0, x: {} } }
+  if (!day?.date || st.days.includes(day.date)) return st
+  st.days.push(day.date)
+  st.days.sort()
+  for (const s of day.swing) {
+    st.swing.n++
+    const base = s.v.base
+    for (const [k, p] of Object.entries(s.v)) {
+      const g = (st.swing.v[k] ||= { filled: 0, sumToClose: 0, nVsBase: 0, sumVsBase: 0, sumVsBaseR: 0, missedBaseFilled: 0 })
+      if (p == null) { if (base != null) g.missedBaseFilled++; continue }
+      g.filled++
+      g.sumToClose = round(g.sumToClose + (s.dayClose / p - 1) * 100, 3)
+      if (base != null) {
+        g.nVsBase++
+        g.sumVsBase = round(g.sumVsBase + (p / base - 1) * 100, 3)
+        if (ok(s.stop) && base > s.stop) g.sumVsBaseR = round(g.sumVsBaseR + (base - p) / (base - s.stop), 4)
+      }
+    }
+  }
+  for (const e of day.events) {
+    st.events.n++
+    st.events.sumGap = round(st.events.sumGap + e.gap, 3)
+    if (!e.filled) continue
+    st.events.filled++
+    for (const [k, r] of Object.entries(e.ret)) {
+      const g = (st.events.x[k] ||= { n: 0, sum: 0, win: 0 })
+      g.n++
+      g.sum = round(g.sum + r, 3)
+      if (r > 0) g.win++
+    }
+  }
+  return st
+}
+
+/**
  * ある日（rec.date）の後の、翌営業日の値動き。企業の行動（自社株買い・増配・株式分割）と夜のPTSの答え合わせに使う。
  * rec: {date, ref?: 基準の値段（無ければ date の日の終値）, ref2?: もう1つの基準（PTSの値段など）, limit?: 寄指の値段, limitPct?: limit が無いとき ref×(1+limitPct%) を呼値で切り下げて寄指とする, hold?: 何営業日目の大引けまで持つか（既定1）}
  * bench: 1306 の日足（全体との差を出す）。返り値の final が false なら、まだ日がそろっていない
@@ -4374,7 +4471,26 @@ async function main() {
       }
     }
     const marks_stats = day.date && day.stocks > 0 ? mergeMarks(mprev, day.date, marks) : mprev
-    console.log(JSON.stringify({ day, stats: day.date && day.stocks > 0 ? mergeIntradayWide(prev, day) : prev, five, paper, marks, marks_stats }, null, 2))
+    // 今ためているデータで確かめること（11/25〜）：--live-stats 累計.json（無くてもよい）→ live_stats。その日の5分足と前の夜の候補・企業の行動から数える
+    let live_stats = null
+    const li = args.indexOf('--live-stats')
+    if (fo >= 0 && day.stocks > 0) {
+      let lprev = null
+      if (li >= 0) {
+        try {
+          lprev = JSON.parse(readFileSync(args[li + 1], 'utf-8'))
+        } catch {
+          lprev = null
+        }
+      }
+      try {
+        const lf = JSON.parse(readFileSync(args[fo + 1], 'utf-8'))
+        live_stats = mergeLiveStudy(lprev, liveStudyDay(lf))
+      } catch {
+        live_stats = lprev
+      }
+    }
+    console.log(JSON.stringify({ day, stats: day.date && day.stocks > 0 ? mergeIntradayWide(prev, day) : prev, five, paper, marks, marks_stats, live_stats }, null, 2))
     return
   }
   if (args.includes('--intraday-replay')) {
