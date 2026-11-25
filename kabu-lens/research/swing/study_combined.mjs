@@ -648,6 +648,39 @@ if (process.env.GRID) {
   console.log(JSON.stringify({ combos: combos.length, keys, out }, null, 1))
   process.exit(0)
 }
+if (process.env.REACH) {
+  // 目標の資金に何か月で届くか（11/25 本人の問い：200万などに早く届くのはどの決まりか）：REACH=<{target, seeds, every, list:[{id, name, cfg}]}> の JSON ファイル
+  // 始める日を every か月ごとにずらし（2016年〜）、でたらめな順番 seeds 回ずつ、資産が target 円以上になった最初の日までの月数を数える。届かないまま終わった回は「届かず」
+  const R = JSON.parse(readFileSync(process.env.REACH, 'utf-8'))
+  const allD = [...new Set(dates)].sort()
+  const starts = []
+  for (let y = 2016; y <= 2025; y++) for (let m = 1; m <= 12; m += (R.every || 6)) {
+    const ym = `${y}-${String(m).padStart(2, '0')}`
+    const d = allD.find(x => x >= ym)
+    if (d && d < allD[allD.length - 1] && !starts.includes(d)) starts.push(d)
+  }
+  const out = []
+  for (const w of R.list) {
+    const P0 = { ...BASE, ...w.cfg, tracks: w.cfg.tracks || BASE.tracks }
+    const rows = []
+    for (const st of starts) {
+      const ms = []
+      for (let k = 1; k <= (R.seeds || 3); k++) {
+        SEED = k
+        const { hist } = run({ ...P0, start: st, order: 'random' })
+        const hit = hist.find(h => h.equity >= R.target)
+        const avail = (new Date(hist[hist.length - 1].date) - new Date(st)) / 864e5 / 30.44
+        ms.push(hit ? (new Date(hit.date) - new Date(st)) / 864e5 / 30.44 : null)
+        if (k === 1) rows.avail = avail
+      }
+      const got = ms.filter(x => x !== null).sort((a, b) => a - b)
+      rows.push({ start: st, avail: Math.round(rows.avail), months: got.length * 2 > ms.length ? Math.round(got[Math.floor(ms.length / 2)] ?? got[got.length - 1]) : null })
+    }
+    out.push({ id: w.id, name: w.name, rows })
+  }
+  console.log(JSON.stringify(out))
+  process.exit(0)
+}
 if (process.env.WHATIF) {
   // もしもの試算（記録帳の whatif 用）：WHATIF=<[{id, name, cfg}] の JSON ファイル>。でたらめな順番20回の真ん中。10年の最後の資産・年率・一番下げ・期間ごとの年率・やり方ごとの回数
   const list = JSON.parse(readFileSync(process.env.WHATIF, 'utf-8'))
