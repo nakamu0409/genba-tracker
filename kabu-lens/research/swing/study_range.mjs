@@ -6,6 +6,9 @@
 // 結果（11/26。前半／後半／直近）：全銘柄（売買代金1億円以上）で12通りの決め方のどれも、「同じ日に買って同じ日数持つだけ」より 0.1〜0.4% 悪い（3つの期間とも）。
 //   例 N40・幅≦10%・買い0.25・売り0.65：−0.32／+0.57／+0.41%（勝率54〜64%）、持つだけ −0.01／+0.80／+0.56%。勝率は上がるが、箱を下に抜けたときの損切りで消える
 //   ヤクルト（2267）だけ：回数が1〜25回と少なく、決め方によって勝ち負けが変わる（偶然の範囲）。ここ数か月の 2,700〜3,000円 の箱がうまくいったのは、後から見て決めた値段だから → 採らない
+// 勝てる形を探した結果（11/26、GRID=1・2・3 の288通り。日数20/40/60・幅8/12%・買い15/30%・売り箱の70/95/130/180%・損切り3/8/15%/なし・上向きだけ/全部）：
+//   前半で選んだ一番良い形でも、持つだけより −0.08〜−0.2%（後半・直近も同じ向き）。3つの期間とも持つだけより良かった形は 0／288。
+//   損切りなしでも −0.2% ＝ 売り買いの手間（往復0.2%）の分だけ負ける。箱の下で買っても、引けで買うのと値段の得が無い（箱の下から跳ね返る力は平均では無い）
 import { loadAll, mean, fmt, SPLIT_DATE } from './lib_signals.mjs'
 const BB = '2025-11-14', per = d => (d < SPLIT_DATE ? 0 : d < BB ? 1 : 2)
 const only = process.argv[2]
@@ -16,7 +19,7 @@ const GRID = !!process.env.GRID
 for (const lookN of [40, 60]) for (const maxW of [10, 15]) for (const [buyAt, sellAt] of [[0.2, 0.8], [0.25, 0.65], [0.1, 0.6]]) for (const stopPct of [3]) CFG.push({ lookN, maxW, buyAt, sellAt, stopPct, maxDays: 40 })
 if (GRID) {
   CFG = []
-  for (const lookN of [20, 40, 60]) for (const maxW of [8, 12]) for (const buyAt of [0.15, 0.3]) for (const sellAt of [0.7, 0.95]) for (const stopPct of [3, 8]) for (const trend of ['any', 'up']) CFG.push({ lookN, maxW, buyAt, sellAt, stopPct, trend, maxDays: 40 })
+  for (const lookN of [20, 40, 60]) for (const maxW of [8, 12]) for (const buyAt of [0.15, 0.3]) for (const sellAt of (process.env.GRID === '2' || process.env.GRID === '3' ? [1.3, 1.8] : [0.7, 0.95])) for (const stopPct of (process.env.GRID === '3' ? [15, 99] : [3, 8])) for (const trend of ['any', 'up']) CFG.push({ lookN, maxW, buyAt, sellAt, stopPct, trend, maxDays: 40 })
 }
 const OUT = []
 const SL = 0.001
