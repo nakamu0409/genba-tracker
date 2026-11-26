@@ -1672,3 +1672,9 @@ describe('継続企業の前提（11/26）', () => {
     expect(parseGoingConcern(html, '2026-11-26').status).toBe('resolved')
   })
 })
+
+describe('自社株買いの PDF の割合（11/26）', () => {
+  it('「割合約 1.30％」も読む', () => {
+    expect(parseBuybackPdf('（発行済株式総数（自己株式を除く）に対する割合約 1.30％）').pct).toBe(1.3)
+  })
+})

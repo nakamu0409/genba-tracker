@@ -1481,7 +1481,7 @@ export function pickYutaiEnd(rows, universe = null) {
 export function parseBuybackPdf(text) {
   const t = String(text || '').replace(/[０-９．％]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xfee0)).replace(/[ \t\u3000]+/g, ' ')
   const r = { pct: null, days: null, method: null }
-  const pcts = [...t.matchAll(/割合\s*([0-9]+(?:\.[0-9]+)?)\s*[%％]/g)].map(m => +m[1])
+  const pcts = [...t.matchAll(/割合\s*約?\s*([0-9]+(?:\.[0-9]+)?)\s*[%％]/g)].map(m => +m[1])
   if (pcts.length) r.pct = pcts[pcts.length - 1]
   const per = t.match(/(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日\s*[～〜~から\-－]+\s*(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/)
   if (per) r.days = Math.round((new Date(+per[4], per[5] - 1, +per[6]) - new Date(+per[1], per[2] - 1, +per[3])) / 864e5)
