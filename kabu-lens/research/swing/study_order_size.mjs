@@ -2,16 +2,36 @@
 // データ：../order_pdfs.json（fetch_order_pdfs.mjs。受注の開示の PDF の文字）。月次の受注実績は除く
 // PDF から 受注金額（億円・百万円・千万円・万円）と、参考に載っている売上高（今期予想、無ければ前期実績。単位は百万円の表が多い）を読む
 // 受注金額 ÷ 売上 で分け、引け後の発表の翌朝の寄りで買う（寄りで必ず買う）：寄り→引け、5日（全体との差%）、寄りの窓。期間：前半／後半／直近
+// 結果（11/26。前半／後半／直近、回数）：IR BANK に PDF が残っていたのは 340件中128件（ほぼ2021年以降と一部）。金額と売上が読めたのは60件だけ。
+//  売上の10%以上（AIメカテックの形）：寄り→引け +1.60／−1.39／−2.96%（14／10／10）、5日 −0.37／−0.93／−6.52%。
+//    そのうち寄りが+2%超（今日のAIメカテックと同じ）は 寄り→引け −0.19／−1.39／−3.42%（9／3／9）、5日 −0.38／−13.29／−7.23% → 大きい受注で高く寄った日は、その後下げるほうが多い
+//  売上の3〜10%：寄り→引け +3.85／+0.43／+3.63%（2／8／4）、5日 +3.18／+2.11／+10.23% → 3つともプラスだが14回だけ。件数がたまるまで決まりにしない
+//  受注の開示の半分は「月次の受注実績」（毎月の報告）で、大きさに関係なく出ている（study_ir_events.mjs の order_monthly）
 // 使い方: node study_order_size.mjs [--show]（--show で読み取れなかったものを少し出す）
 import { readFileSync } from 'node:fs'
 import { loadAll, mean, fmt, SPLIT_DATE } from './lib_signals.mjs'
 const BB = '2025-11-14', per = d => (d < SPLIT_DATE ? 0 : d < BB ? 1 : 2)
 const P = JSON.parse(readFileSync(new URL('../order_pdfs.json', import.meta.url), 'utf-8'))
-const z2h = s => s.replace(/[０-９．，]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
+// PDF に売上が無いときは、今の売上（株探の実績・円。fetch_order_sales で ../order_sales.json）で割る。開示の年が古いと会社の大きさがずれる点に注意
+let SALES = {}
+try { SALES = JSON.parse(readFileSync(new URL('../order_sales.json', import.meta.url), 'utf-8')) } catch {}
+// 開示の年に近い決算期の売上（実績。無ければ直近4四半期の合計）。百万円 → 円
+const salesOf = (c, date) => {
+  const L = SALES[c]
+  if (!L) return null
+  const y = Number(date.slice(0, 4))
+  const ann = L.filter(a => a.period && !a.forecast && a.sales).map(a => ({ y: Number(String(a.period).slice(0, 4)), s: a.sales }))
+  const best = ann.sort((a, b) => Math.abs(a.y - y) - Math.abs(b.y - y))[0]
+  const v = best && Math.abs(best.y - y) <= 1 ? best.s : L[0]?.q
+  return v ? v * 1e6 : null
+}
+const z2h = s => s.replace(/[０-９．，％]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
 const num = s => Number(s.replace(/[,，]/g, ''))
 // 受注金額（円）
+// 字と字の間の空白（「受 注 金 額」）を詰める
+const squeeze = t => t.replace(/([^\x00-\x7F]) +(?=[^\x00-\x7F])/g, '$1').replace(/[ \t]+/g, ' ')
 export function orderAmount(text) {
-  const t = z2h(text).replace(/[ \t]+/g, ' ')
+  const t = squeeze(z2h(text))
   const m = t.match(/(?:受注金額|受注額|契約金額|受注総額|受注高|金額)[^0-9\n]{0,20}?([0-9][0-9,]*(?:\.[0-9]+)?) ?(億|千万|百万|万)?円/)
   if (!m) return null
   const unit = { 億: 1e8, 千万: 1e7, 百万: 1e6, 万: 1e4 }[m[2]] || 1
@@ -19,7 +39,7 @@ export function orderAmount(text) {
 }
 // 売上高（円）：「単位：百万円」などの表で、売上高の列の最初の数字
 export function sales(text) {
-  const t = z2h(text)
+  const t = squeeze(z2h(text))
   const u = t.match(/単位[:：]\s*(百万円|千円|億円|円)/)
   const unit = u ? { 百万円: 1e6, 千円: 1e3, 億円: 1e8, 円: 1 }[u[1]] : 1e6
   const i = t.indexOf('売上高')
@@ -39,7 +59,10 @@ if (process.argv[1] && process.argv[1].endsWith('study_order_size.mjs')) {
     if (!v.text) continue
     const [c, date] = key.split('|')
     const st = stocks[c]; if (!st) continue
-    const amt = orderAmount(v.text), sl = sales(v.text)
+    // 「売上高の10%以上」とだけ書く開示（金額は非開示）は、その割合をそのまま使う
+    const direct = squeeze(z2h(v.text)).match(/売上高?の([0-9.]+)%以上/)
+    let amt = orderAmount(v.text), sl = sales(v.text) || (amt ? salesOf(c, date) : null)
+    if (!amt && direct) { amt = Number(direct[1]); sl = 100 }
     if (!amt) { noAmt++; if (bad.length < 8) bad.push(['金額なし', key]); continue }
     if (!sl) { noSales++; if (bad.length < 8) bad.push(['売上なし', key, amt]); continue }
     read++
