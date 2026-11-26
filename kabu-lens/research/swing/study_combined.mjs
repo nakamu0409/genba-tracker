@@ -542,6 +542,15 @@ function run(P) {
       }
     }
     pos = keep
+    // holidayPct（11/26 本人の案：検証済みの候補を余った現金で）：連休の前の引けで TOPIX ETF を資金の holidayPct% まで（空いている現金だけ）買い、明けの日の引けで売る。次の営業日まで4日以上あく日・12/20〜1/7 は除く（練習口座の holidayEtfPct と同じ）
+    if (P.holidayPct && bi.get(d) !== undefined) {
+      const di = dates.indexOf(d), nx = dates[di + 1], md = d.slice(5)
+      if (nx && (new Date(nx) - new Date(d)) / 864e5 >= 4 && md < '12-20' && md > '01-07' && !pos.some(q => q.code === 'ETF')) {
+        const c = bench[bi.get(d)].c, o = c * (1 + SL)
+        const qty = Math.floor(Math.min(equityPrev * P.holidayPct / 100, cash) / o)
+        if (qty >= 1) { cash -= qty * o; pos.push({ track: 'holiday', code: 'ETF', entryDate: d, entry: o, qty, stop: 0, target: Infinity, maxDays: 1, held: 0, last: c }) }
+      }
+    }
     const kd = bi.get(d)
     if (P.parkEtf && kd !== undefined) {
       const amt = cash - equityPrev * (P.parkBuffer ?? 0) / 100
