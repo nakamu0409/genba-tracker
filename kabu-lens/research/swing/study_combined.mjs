@@ -330,6 +330,17 @@ function run(P) {
         if (held.has(r.code)) continue
         if (rnd(`bn|${r.code}|${d}`) >= (P.bunbaiWin ?? 100) / 100) continue
         const qty = P.bunbaiQty ?? 100
+        // swSellForBn（11/26 本人の問い：現金が塞がったときは PTS で売る、を分売にも）：分売の現金が足りなければ、スイングを前の夜の PTS で含み益の小さい順に売る
+        if (P.swSellForBn && cash < r.price * qty) {
+          const sw = pos.filter(q => q.track === 'swing' && q.entryDate !== d).sort((a, b) => (a.last / a.entry) - (b.last / b.entry))
+          for (const q of sw) {
+            if (cash >= r.price * qty) break
+            const st0 = stocks[q.code], pk = st0.idx.get(pd)
+            if (pk === undefined) continue
+            close(q, st0.bars[pk].c * (1 - (P.swSellPtsCost ?? 0.3) / 100), '分売のために売る')
+            pos = pos.filter(z => z !== q)
+          }
+        }
         if (cash < r.price * qty) continue
         cash -= r.price * qty
         bnHold.push({ r, qty })
