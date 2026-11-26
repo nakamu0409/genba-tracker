@@ -508,6 +508,10 @@ function run(P) {
       if (P.streakMin) list = list.filter(s => streakOf(s) >= P.streakMin)
       if (P.avoid) list = list.filter(s => !avoid(stocks[s.code], s.i))
       if (P.maxPrice) list = list.filter(s => stocks[s.code].bars[s.i].c < P.maxPrice)
+      // swMkt5Max（11/26 study_loser_model：相場全体が5日で大きく上げた直後の候補は悪い）：合図の日の 1306 の5日の騰落が swMkt5Max% 以上なら、その日はスイングを買わない
+      if (P.swMkt5Max !== undefined) { const k5 = bi.get(pd); if (k5 >= 5 && (bench[k5].c / bench[k5 - 5].c - 1) * 100 >= P.swMkt5Max) list = [] }
+      // swVolMax（同じ）：合図の日の出来高が20日平均の exp(swVolMax) 倍以上の候補は買わない（0.4 ≒ 1.5倍）
+      if (P.swVolMax !== undefined) list = list.filter(s => { const B = stocks[s.code].bars; if (s.i < 20) return true; let v = 0; for (let j = s.i - 20; j < s.i; j++) v += B[j].v; return Math.log((B[s.i].v + 1) / (v / 20 + 1)) < P.swVolMax })
       // swKinds：スイングの形をしぼる（['GAP','PULLBACK','BREAKOUT','MOMENTUM'] の一部）
       if (P.swKinds) list = list.filter(s => P.swKinds.includes(s.kind))
       // swCodes：スイングを見る銘柄をしぼる（本番の夜の点検が見ている約170銘柄だけ、など）
