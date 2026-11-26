@@ -1886,7 +1886,7 @@ export function summarizeDilution(rows, today) {
 }
 
 /**
- * 継続企業の前提（11/26 本人の指摘：楽天の「注意」の印や疑義注記がこちらの仕組みに無かった）：IR BANK の開示一覧の表題から、
+ * 継続企業の前提（11/26 本人の指摘：疑義注記がこちらの仕組みに無かった）：IR BANK の開示一覧の表題から、
  * 直近2年の「継続企業の前提に関する（重要事象等・注記）」の開示を拾う。その後に「解消」の開示があれば解消とみる。
  * 返す値：{ status: 'note'（疑義注記・重要事象あり）| 'resolved' | null, date, title }
  */
@@ -4185,7 +4185,7 @@ export function preTradeCheck(a) {
     if (dl.series_5y >= 2) warnings.push(`MSワラントなどを5年で ${dl.series_5y}回 出している会社。資金が足りなくなるたびに株を増やす傾向`)
   } else if (dl === null) warnings.push('株が増える資金調達（MSワラント等）は確認できず')
   // 継続企業の前提（11/26〜）：会社が続くかどうかに注意が要る状態。上がったところで株を増やす資金調達が出やすい
-  if (dl?.going_concern?.status === 'note') warnings.push(`継続企業の前提に注意（${dl.going_concern.date}「${dl.going_concern.title}」）：会社が続くかに注意が要る状態。急騰のあとに増資が出て崩れやすい。楽天の画面の「注意」の印も確かめて`)
+  if (dl?.going_concern?.status === 'note') warnings.push(`継続企業の前提に注意（${dl.going_concern.date}「${dl.going_concern.title}」）：会社が続くかに注意が要る状態。急騰のあとに増資が出て崩れやすい`)
 
   const shares = lots2 || 0
   return {
