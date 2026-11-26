@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { isOrderTitle, parseBunbaiPage, expectCheck, orderPlan, swingEntryVariants, eventExitVariants, liveStudyDay, mergeLiveStudy, below200, parseBuybackPdf, drawdownStop, nikkeiFutBrief, pickYutaiEnd, isPreHoliday, nextTradingDate, crashSignal, worldBrief, parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, pickSwingToSell, keepEventRow, paperSummary, paperInputOf, paperInputFromFive, paperReplay, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { isOrderTitle, parseOrderPdf, orderSizeNote, isMonthlyOrderTitle, parseBunbaiPage, expectCheck, orderPlan, swingEntryVariants, eventExitVariants, liveStudyDay, mergeLiveStudy, below200, parseBuybackPdf, drawdownStop, nikkeiFutBrief, pickYutaiEnd, isPreHoliday, nextTradingDate, crashSignal, worldBrief, parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, pickSwingToSell, keepEventRow, paperSummary, paperInputOf, paperInputFromFive, paperReplay, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -1643,5 +1643,18 @@ describe('受注の開示（11/25）', () => {
     expect(isOrderTitle('受注損失引当金の計上に関するお知らせ')).toBe(false)
     const rows = [{ code: '1111', name: 'A', time: '15:35', title: '大口受注のお知らせ' }, { code: '2222', name: 'B', time: '15:30', title: '大口受注のお知らせ' }, { code: '2222', name: 'B', time: '15:30', title: '2027年3月期 第2四半期決算短信' }]
     expect(pickEvents(rows).map(r => [r.code, r.kind])).toEqual([['1111', 'order']])
+  })
+  it('受注の PDF の中身（11/26）：金額・売上・月次', () => {
+    const t = '２． 受注内容\n 受 注 金 額      約 12 億円\n（参考）当期業績予想 （単位：百万円）\n          売上高   営業利益\n 当期業績予想  20,000   1,500\n'
+    const r = parseOrderPdf(t)
+    expect(r.amount).toBe(12e8)
+    expect(r.sales).toBe(20000e6)
+    expect(parseOrderPdf('受注金額 取引先との守秘義務により非開示 ※2025年3月期連結売上高の10％以上').ratio_direct).toBe(10)
+    expect(parseOrderPdf('受注金額 約 360 百万円').amount).toBe(360e6)
+    expect(orderSizeNote(15)).toContain('大きい受注')
+    expect(orderSizeNote(5)).toContain('3〜10%')
+    expect(orderSizeNote(null)).toBe(null)
+    expect(isMonthlyOrderTitle('月次受注実績のお知らせ')).toBe(true)
+    expect(isMonthlyOrderTitle('大口受注に関するお知らせ')).toBe(false)
   })
 })

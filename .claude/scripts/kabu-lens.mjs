@@ -1497,6 +1497,42 @@ export function fetchBuybackPdf(url) {
   return parseBuybackPdf(r.stdout)
 }
 
+/**
+ * 受注の開示 PDF の中身（11/26 本人と決定：寄りの%だけでなく内容も注文票に出す。買い方の決まりは変えない）
+ * amount＝受注金額（円）、sales＝PDF の参考の表の売上高（円。今期予想が先）、ratio_direct＝「売上高の10%以上」とだけ書く開示の割合、monthly＝月次の受注実績
+ * 検証（swing/study_order_size.mjs、60件）：売上の10%以上で寄りが+2%超は 寄り→引け −0.19／−1.39／−3.42%（負け）、売上の3〜10%は3つともプラス（14回）
+ */
+export function parseOrderPdf(text) {
+  const z = String(text || '').replace(/[０-９．，％]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xfee0)).replace(/\u3000/g, ' ')
+  const t = z.replace(/([^\x00-\x7F]) +(?=[^\x00-\x7F])/g, '$1').replace(/[ \t]+/g, ' ')
+  const r = { amount: null, sales: null, ratio_direct: null }
+  const m = t.match(/(?:受注金額|受注額|契約金額|受注総額|受注高|金額)[^0-9\n]{0,20}?([0-9][0-9,]*(?:\.[0-9]+)?) ?(億|千万|百万|万)?円/)
+  if (m) r.amount = Number(m[1].replace(/,/g, '')) * ({ 億: 1e8, 千万: 1e7, 百万: 1e6, 万: 1e4 }[m[2]] || 1)
+  const d = t.match(/売上高?の([0-9.]+)%以上/)
+  if (d) r.ratio_direct = Number(d[1])
+  const i = t.indexOf('売上高')
+  if (i >= 0) {
+    const u = t.match(/単位[:：]\s*(百万円|千円|億円|円)/)
+    const unit = u ? { 百万円: 1e6, 千円: 1e3, 億円: 1e8, 円: 1 }[u[1]] : 1e6
+    const nums = [...t.slice(i, i + 1200).matchAll(/([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{3,})(?![0-9.%年月])/g)].map(x => Number(x[1].replace(/,/g, ''))).filter(x => x >= 100)
+    if (nums.length) r.sales = nums[0] * unit
+  }
+  return r
+}
+
+/** 受注の開示の題名が「月次の受注実績」か（毎月の定例の報告。受注の大きさとは関係なく出る） */
+export function isMonthlyOrderTitle(t) {
+  return /(月次|月度|受注実績|受注高|受注状況|受注残)/.test(String(t || ''))
+}
+
+/** 受注の大きさの一言（売上の何%か）と、検証の結果の注意 */
+export function orderSizeNote(ratio) {
+  if (!Number.isFinite(ratio)) return null
+  if (ratio >= 10) return `売上の${round(ratio, 1)}%の大きい受注（検証：寄りが+2%を超えて始まった日は、その日のうちに平均で負け。寄指+2%のまま）`
+  if (ratio >= 3) return `売上の${round(ratio, 1)}%の受注（検証：3〜10%は3つの期間ともプラス。ただし14回だけ）`
+  return `売上の${round(ratio, 1)}%の小さい受注`
+}
+
 /** 自社株買いの良い条件の数（0〜3）。repeat＝1年以内にも自社株買いの決定があった、dev25＝25日線からの位置（%）、time＝発表の時刻 */
 export function buybackScore({ time, dev25, repeat }) {
   const why = []
@@ -3221,7 +3257,7 @@ export function orderPlan({ cash: cn, settings = {}, trades = [], events = [], s
     const qty = ok(r.limit) && r.limit > 0 ? lot(Math.min(evCap(r), cash) / r.limit) : 0
     if (qty < 100) { evDropped.push({ code: r.code, name: r.name, why: cash < r.limit * 100 ? '現金が足りず100株も買えない' : '100株では上限を超える' }); continue }
     cash -= r.limit * qty
-    const o = { code: r.code, name: r.name, kind: r.kind, qty, limit: r.limit, small_hot: !!r.small_hot, small_company: !!r.small_company, score: r.score ?? null, why: r.why || [], cost: Math.round(r.limit * qty) }
+    const o = { code: r.code, name: r.name, kind: r.kind, qty, limit: r.limit, small_hot: !!r.small_hot, small_company: !!r.small_company, score: r.score ?? null, why: r.why || [], cost: Math.round(r.limit * qty), ...(r.kind === 'order' ? { order_monthly: !!r.order_monthly, order_amount_oku: r.order_amount_oku ?? null, order_sales_pct: r.order_sales_pct ?? null } : {}) }
     if (r.kind === 'split') { const risk = Math.round(r.limit * 0.08 * qty); room -= risk; o.split_risk = risk }
     evOrders.push(o)
   }
@@ -4504,6 +4540,24 @@ async function main() {
       } else if (r.kind === 'order') {
         // 受注（11/25 本人と決定）：いつもの銘柄（売買代金1億円以上）だけ。検証どおり寄指は終値×1.02
         r.skip = false
+        // 中身（11/26 本人と決定：注文票に受注金額と売上の割合を出す。買い方は変えない）
+        r.order_monthly = isMonthlyOrderTitle(r.title)
+        if (r.order_monthly) r.why = [...(r.why || []), '月次の受注実績（毎月の定例の報告。受注の大きさは分からない）']
+        else if (r.pdf) {
+          const pr = spawnSync('bash', ['-c', 'curl -sSL --fail --max-time 30 "$1" | pdftotext -layout -l 2 - -', '_', r.pdf], { encoding: 'utf-8', maxBuffer: 16 * 1024 * 1024 })
+          const op = pr.status === 0 ? parseOrderPdf(pr.stdout) : {}
+          let sales = op.sales
+          if (op.amount && !sales) {
+            try {
+              const q = ((await fetchFinance(r.code)).quarterly || []).filter(x => x.sales != null).slice(-4)
+              if (q.length === 4) sales = q.reduce((a, x) => a + x.sales, 0) * 1e6
+            } catch { /* 売上が取れなかった */ }
+          }
+          r.order_amount_oku = op.amount ? round(op.amount / 1e8, 1) : null
+          r.order_sales_pct = op.amount && sales ? round(op.amount / sales * 100, 1) : op.ratio_direct ?? null
+          const note = orderSizeNote(r.order_sales_pct)
+          r.why = [...(r.why || []), r.order_amount_oku ? `受注 約${r.order_amount_oku}億円` : '受注金額は書いていない', ...(note ? [note] : [])]
+        }
         r.expect_pct = 0.36
         r.sell = '同じ日の引成'
       } else {
