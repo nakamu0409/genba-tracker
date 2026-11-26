@@ -22,7 +22,7 @@ const curl = (url, outPath) => new Promise(res => {
 })
 const byCode = {}
 for (const [c, rows] of Object.entries(ev)) for (const r of rows || []) if (isOrder(r.title)) (byCode[c] ||= []).push(r)
-const todo = Object.keys(byCode).filter(c => byCode[c].some(r => !(`${c}|${r.date}|${r.title}` in out)))
+const todo = Object.keys(byCode).filter(c => byCode[c].some(r => !out[`${c}|${r.date}|${r.title}`]?.text))
 console.error('銘柄', todo.length, '件', Object.values(byCode).flat().length)
 const tmp = mkdtempSync(join(tmpdir(), 'opdf-'))
 let n = 0
@@ -33,14 +33,14 @@ const worker = async w => {
     if (!html) continue
     for (const r of byCode[c]) {
       const key = `${c}|${r.date}|${r.title}`
-      if (key in out) continue
+      if (key in out && out[key].text) continue
       const [y, m, d] = r.date.split('-')
       const esc = r.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/&/g, '&(?:amp;)?')
       const mm = html.match(new RegExp(`title="[^"|]*\\| ${esc}（${y}/${m}/${d} [0-9:]+提出）" href="(/${c}/(\\d+))"`))
       if (!mm) { out[key] = { url: null, text: null }; continue }
-      // PDF は f.irbank.net/pdf/<提出日>/<番号>.pdf（提出日の8桁は番号の5〜12文字目）
+      // PDF は f.irbank.net/pdf/<提出日>/<番号>.pdf（11/26 直した：番号の中の日付ではなく、表題の提出日。前は番号の日付を使い、6割が取れなかった）
       const id = mm[2]
-      const url = `https://f.irbank.net/pdf/${id.slice(4, 12)}/${id}.pdf`
+      const url = `https://f.irbank.net/pdf/${y}${m}${d}/${id}.pdf`
       const pp = join(tmp, `${w}.pdf`)
       const ok = await curl(url, pp)
       let text = null

@@ -1885,12 +1885,57 @@ export function summarizeDilution(rows, today) {
   }
 }
 
+/**
+ * 継続企業の前提（11/26 本人の指摘：楽天の「注意」の印や疑義注記がこちらの仕組みに無かった）：IR BANK の開示一覧の表題から、
+ * 直近2年の「継続企業の前提に関する（重要事象等・注記）」の開示を拾う。その後に「解消」の開示があれば解消とみる。
+ * 返す値：{ status: 'note'（疑義注記・重要事象あり）| 'resolved' | null, date, title }
+ */
+export function parseGoingConcern(html, today) {
+  const from = new Date(new Date(today + 'T00:00:00Z').getTime() - 730 * 864e5).toISOString().slice(0, 10)
+  const rows = []
+  for (const m of String(html).matchAll(/title="[^"|]*\| ([^"]*?)（(\d{4})\/(\d{2})\/(\d{2}) (\d{2}:\d{2})提出）"/g)) {
+    const title = m[1].replace(/&amp;/g, '&'), date = `${m[2]}-${m[3]}-${m[4]}`
+    if (date < from || date > today || !/継続企業の前提/.test(title) || /^\(訂正\)|^（訂正）/.test(title)) continue
+    rows.push({ date, title, resolved: /解消/.test(title) })
+  }
+  rows.sort((a, b) => b.date.localeCompare(a.date))
+  if (!rows.length) return { status: null, date: null, title: null }
+  return { status: rows[0].resolved ? 'resolved' : 'note', date: rows[0].date, title: rows[0].title }
+}
+
+/**
+ * 直近の決算短信の PDF の本文から、継続企業の前提（重要事象等・疑義注記）と債務超過を読む（題名には出ないことが多いため）。
+ * IR BANK の開示一覧から一番新しい「決算短信」を探し、PDF（f.irbank.net/pdf/<提出日>/<番号>.pdf）を pdftotext で読む
+ */
+export function goingConcernFromText(text) {
+  // 改行もつなげる（PDF は文の途中で改行が入る）。「認められない」「認められる場合は」（監査の決まり文句）「存在しておりません」は除く
+  const t = String(text || '').replace(/[ \t\u3000\r\n]+/g, '')
+  const note = /継続企業の前提に重要な疑義を生じさせるような事象又は状況が存在して(おります|います)/.test(t) || /継続企業の前提に関する重要な不確実性が認められ(ます|る。|るため)/.test(t)
+  return { note, insolvent: /債務超過(である|となって|の状態)/.test(t) }
+}
+export function latestTanshinPdf(html) {
+  const m = String(html).match(/title="[^"|]*\| ([^"]*?決算短信[^"]*?)（(\d{4})\/(\d{2})\/(\d{2}) [0-9:]+提出）" href="\/[0-9A-Z]+\/(\d+)"/)
+  return m ? { title: m[1], date: `${m[2]}-${m[3]}-${m[4]}`, url: `https://f.irbank.net/pdf/${m[2]}${m[3]}${m[4]}/${m[5]}.pdf` } : null
+}
+
 /** 株が増える資金調達の開示（IR BANK）。取れなければ null */
 export async function fetchDilution(code, today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10)) {
   try {
     // 途中のキャッシュが古いページを返すことがあるので、毎回ちがう URL にする
-    const rows = parseDilution(await fetchText(`https://irbank.net/${code}/ir?_=${Date.now()}`))
-    return { ...summarizeDilution(rows, today), source: 'IR BANK の適時開示一覧' }
+    const html = await fetchText(`https://irbank.net/${code}/ir?_=${Date.now()}`)
+    const rows = parseDilution(html)
+    const gc = parseGoingConcern(html, today)
+    // 題名に出ていなければ、直近の決算短信の本文を読む
+    const tp = latestTanshinPdf(html)
+    if (gc.status !== 'note' && tp) {
+      const r = spawnSync('bash', ['-c', 'curl -sSL --fail --max-time 30 -A "Mozilla/5.0" "$1" | pdftotext -layout - -', '_', tp.url], { encoding: 'utf-8', maxBuffer: 32 * 1024 * 1024 })
+      if (r.status === 0 && r.stdout) {
+        const g = goingConcernFromText(r.stdout)
+        if (g.note) Object.assign(gc, { status: 'note', date: tp.date, title: `${tp.title}（本文に継続企業の前提の記載${g.insolvent ? '・債務超過' : ''}）` })
+        gc.insolvent = g.insolvent
+      }
+    }
+    return { ...summarizeDilution(rows, today), going_concern: gc, source: 'IR BANK の適時開示一覧' }
   } catch {
     return null
   }
@@ -4139,6 +4184,8 @@ export function preTradeCheck(a) {
     if (dl.third_party_1y?.length) warnings.push(`第三者割当の新株発行：直近1年に ${dl.third_party_1y.join('、')}`)
     if (dl.series_5y >= 2) warnings.push(`MSワラントなどを5年で ${dl.series_5y}回 出している会社。資金が足りなくなるたびに株を増やす傾向`)
   } else if (dl === null) warnings.push('株が増える資金調達（MSワラント等）は確認できず')
+  // 継続企業の前提（11/26〜）：会社が続くかどうかに注意が要る状態。上がったところで株を増やす資金調達が出やすい
+  if (dl?.going_concern?.status === 'note') warnings.push(`継続企業の前提に注意（${dl.going_concern.date}「${dl.going_concern.title}」）：会社が続くかに注意が要る状態。急騰のあとに増資が出て崩れやすい。楽天の画面の「注意」の印も確かめて`)
 
   const shares = lots2 || 0
   return {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { isOrderTitle, parseOrderPdf, orderSizeNote, isMonthlyOrderTitle, parseBunbaiPage, expectCheck, orderPlan, swingEntryVariants, eventExitVariants, liveStudyDay, mergeLiveStudy, below200, parseBuybackPdf, drawdownStop, nikkeiFutBrief, pickYutaiEnd, isPreHoliday, nextTradingDate, crashSignal, worldBrief, parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, pickSwingToSell, keepEventRow, paperSummary, paperInputOf, paperInputFromFive, paperReplay, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { goingConcernFromText, latestTanshinPdf, parseGoingConcern, isOrderTitle, parseOrderPdf, orderSizeNote, isMonthlyOrderTitle, parseBunbaiPage, expectCheck, orderPlan, swingEntryVariants, eventExitVariants, liveStudyDay, mergeLiveStudy, below200, parseBuybackPdf, drawdownStop, nikkeiFutBrief, pickYutaiEnd, isPreHoliday, nextTradingDate, crashSignal, worldBrief, parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, pickSwingToSell, keepEventRow, paperSummary, paperInputOf, paperInputFromFive, paperReplay, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -1656,5 +1656,19 @@ describe('受注の開示（11/25）', () => {
     expect(orderSizeNote(null)).toBe(null)
     expect(isMonthlyOrderTitle('月次受注実績のお知らせ')).toBe(true)
     expect(isMonthlyOrderTitle('大口受注に関するお知らせ')).toBe(false)
+  })
+})
+
+describe('継続企業の前提（11/26）', () => {
+  it('決算短信の本文から読む（監査の決まり文句は拾わない）', () => {
+    expect(goingConcernFromText('当期末において債務超過であることから、継続企業の前提に重要な疑義を生じさせるような事象又は状況が\n存在しております。').note).toBe(true)
+    expect(goingConcernFromText('債務超過であることから').insolvent).toBe(true)
+    expect(goingConcernFromText('また、継続企業の前提に関する重要な不確実性が認められる場合は、報告書において注意を喚起する').note).toBe(false)
+    expect(goingConcernFromText('継続企業の前提に関する注記 該当事項はありません。').note).toBe(false)
+  })
+  it('表題と一番新しい決算短信の PDF', () => {
+    const html = '<a class="nxq" title="9999 さくら | 2026年12月期第3四半期決算短信〔日本基準〕(連結)（2026/10/29 15:30提出）" href="/9999/140120261023555339"><a class="nxq" title="9999 さくら | 継続企業の前提に関する重要事象等の解消に関するお知らせ（2026/05/10 15:00提出）" href="/9999/1">'
+    expect(latestTanshinPdf(html)?.url).toBe('https://f.irbank.net/pdf/20261029/140120261023555339.pdf')
+    expect(parseGoingConcern(html, '2026-11-26').status).toBe('resolved')
   })
 })
