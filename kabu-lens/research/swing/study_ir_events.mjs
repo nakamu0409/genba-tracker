@@ -24,6 +24,10 @@ const KINDS = {
   divpolicy: t => /(累進配当|配当方針)/.test(t) && !/訂正/.test(t),
   alliance: t => /(業務提携|資本提携)/.test(t) && !/(解消|訂正|終了)/.test(t),
   order: t => /受注/.test(t) && !/(訂正|損失|取消)/.test(t),
+  // 受注の中身で分ける（11/26 本人の希望：寄りの%だけでなく内容を見る）：月次の受注実績／大口・大型と題名にあるもの／それ以外の1件ごとの受注
+  order_monthly: t => /受注/.test(t) && !/(訂正|損失|取消)/.test(t) && /(月次|月度|受注実績|受注高|受注状況|受注残)/.test(t),
+  order_big: t => /受注/.test(t) && !/(訂正|損失|取消|月次|月度|受注実績|受注高|受注状況|受注残|経過|進捗)/.test(t) && /(大型|大口|過去最大|最大規模)/.test(t),
+  order_single: t => /受注/.test(t) && !/(訂正|損失|取消|月次|月度|受注実績|受注高|受注状況|受注残|経過|進捗|大型|大口|過去最大|最大規模)/.test(t),
   midplan: t => /中期経営計画/.test(t) && !/(訂正|取り下げ|撤回)/.test(t),
   uprev: t => /上方修正/.test(t) && !/訂正/.test(t),
   tob: t => /当社株式.*公開買付/.test(t) && /(賛同|意見表明)/.test(t) && !/(結果|訂正|撤回)/.test(t)
@@ -55,6 +59,14 @@ for (const k of want) {
       const p = per(r.date), tag = (after ? '引け後' : '場中') + (kessanDay.has(key) ? '・決算と同じ日' : '')
       push(tag + '・寄りの窓%', p, (x.o / prev.c - 1) * 100)
       const filled = process.env.NOLIM ? true : x.o <= prev.c * 1.02
+      // GAPS=1：寄りの窓で3つに分けて数える（+2%以下／+2〜5%／+5%超）。寄りで必ず買ったとみる
+      if (process.env.GAPS) {
+        const g = (x.o / prev.c - 1) * 100, gb = g <= 2 ? '窓+2%以下' : g <= 5 ? '窓+2〜5%' : '窓+5%超'
+        push(tag + '・' + gb + '・A 寄り→引け', p, (x.c / x.o - 1) * 100 - (bench[k0].c / bench[k0].o - 1) * 100)
+        const y2 = B[i + 4], k2 = y2 && bi.get(y2.date)
+        if (y2 && k2 !== undefined) push(tag + '・' + gb + '・B 5日', p, (y2.c / x.o - 1) * 100 - (bench[k2].c / bench[k0].o - 1) * 100)
+        continue
+      }
       push(tag + '・買えた割合%', p, filled ? 100 : 0)
       if (!filled) continue
       push(tag + '・A 寄り→引け', p, (x.c / x.o - 1) * 100 - (bench[k0].c / bench[k0].o - 1) * 100)
