@@ -693,12 +693,15 @@ if (process.env.REACH) {
         SEED = k
         const { hist } = run({ ...P0, start: st, order: 'random' })
         const hit = hist.find(h => h.equity >= R.target)
+        // oneYear（11/26 本人の問い：1年だけで見ると金額でどうか）：始めてから12か月後の資産を控える
+        if (R.oneYear) { const end = new Date(new Date(st).getTime() + 365 * 864e5).toISOString().slice(0, 10); const h1 = hist.filter(h => h.date <= end).pop(); (rows.y1 ||= {})[st] = [...((rows.y1 || {})[st] || []), end <= hist[hist.length - 1].date ? h1.equity : null] }
         const avail = (new Date(hist[hist.length - 1].date) - new Date(st)) / 864e5 / 30.44
         ms.push(hit ? (new Date(hit.date) - new Date(st)) / 864e5 / 30.44 : null)
         if (k === 1) rows.avail = avail
       }
       const got = ms.filter(x => x !== null).sort((a, b) => a - b)
-      rows.push({ start: st, avail: Math.round(rows.avail), months: got.length * 2 > ms.length ? Math.round(got[Math.floor(ms.length / 2)] ?? got[got.length - 1]) : null })
+      const y1a = (rows.y1?.[st] || []).filter(x => x != null).sort((a, b) => a - b)
+      rows.push({ y1: y1a.length ? Math.round(y1a[Math.floor(y1a.length / 2)]) : null, start: st, avail: Math.round(rows.avail), months: got.length * 2 > ms.length ? Math.round(got[Math.floor(ms.length / 2)] ?? got[got.length - 1]) : null })
     }
     out.push({ id: w.id, name: w.name, rows })
   }
