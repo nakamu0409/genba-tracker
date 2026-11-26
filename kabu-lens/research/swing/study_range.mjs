@@ -10,8 +10,15 @@ import { loadAll, mean, fmt, SPLIT_DATE } from './lib_signals.mjs'
 const BB = '2025-11-14', per = d => (d < SPLIT_DATE ? 0 : d < BB ? 1 : 2)
 const only = process.argv[2]
 const { stocks } = loadAll({ withSwing: false })
-const CFG = []
+let CFG = []
+// GRID=1（11/26 本人の希望：だめな案も勝てる形を探す）：決め方を広く振り、前半だけで選んで後半・直近で確かめる。trend：'up'＝終値が200日線の上で200日線が20日前より上の銘柄だけ
+const GRID = !!process.env.GRID
 for (const lookN of [40, 60]) for (const maxW of [10, 15]) for (const [buyAt, sellAt] of [[0.2, 0.8], [0.25, 0.65], [0.1, 0.6]]) for (const stopPct of [3]) CFG.push({ lookN, maxW, buyAt, sellAt, stopPct, maxDays: 40 })
+if (GRID) {
+  CFG = []
+  for (const lookN of [20, 40, 60]) for (const maxW of [8, 12]) for (const buyAt of [0.15, 0.3]) for (const sellAt of [0.7, 0.95]) for (const stopPct of [3, 8]) for (const trend of ['any', 'up']) CFG.push({ lookN, maxW, buyAt, sellAt, stopPct, trend, maxDays: 40 })
+}
+const OUT = []
 const SL = 0.001
 for (const c of CFG) {
   const R = [[], [], []], days = [[], [], []], base = [[], [], []]
@@ -27,6 +34,13 @@ for (const c of CFG) {
       const w = (hi - lo) / lo * 100
       const buyPx = lo + (hi - lo) * c.buyAt
       if (w > c.maxW || B[i].l > buyPx) { i++; continue }
+      if (c.trend === 'up') {
+        if (i < 220) { i++; continue }
+        let m0 = 0, m1 = 0
+        for (let k = i - 200; k < i; k++) m0 += B[k].c
+        for (let k = i - 220; k < i - 20; k++) m1 += B[k].c
+        if (!(B[i - 1].c > m0 / 200 && m0 > m1)) { i++; continue }
+      }
       const entry = Math.min(B[i].o, buyPx) * (1 + SL)
       const sellPx = lo + (hi - lo) * c.sellAt, stop = lo * (1 - c.stopPct / 100)
       let j = i, exit = null
@@ -46,5 +60,16 @@ for (const c of CFG) {
       i = j + 1
     }
   }
+  const ex = R.map((x, p) => x.length ? mean(x) - mean(base[p]) : null)
+  OUT.push({ c, ex, n: R.map(x => x.length), avg: R.map(x => x.length ? mean(x) : null), win: R.map((x, p) => x.length ? Math.round(wins[p] / x.length * 100) : null) })
+  if (GRID) continue
   console.log(`N${c.lookN} 幅≦${c.maxW}% 買い${c.buyAt} 売り${c.sellAt} 損切り−${c.stopPct}%：` + R.map((x, p) => `${fmt(mean(x))}(${x.length}回・勝率${x.length ? Math.round(wins[p] / x.length * 100) : '-'}%・${x.length ? Math.round(mean(days[p])) : '-'}日、同じ日数持つだけ ${fmt(mean(base[p]))})`).join(' ／ '))
+}
+if (GRID) {
+  const ok = OUT.filter(o => o.n[0] >= 200).sort((a, b) => b.ex[0] - a.ex[0])
+  console.log('前半で選んだ上位10（持つだけとの差%、前半／後半／直近。回数。平均%。勝率%）')
+  for (const o of ok.slice(0, 10)) console.log(JSON.stringify(o.c), o.ex.map(v => fmt(v)).join(' ／ '), o.n.join('/'), o.avg.map(v => fmt(v)).join('/'), o.win.join('/'))
+  const all3 = OUT.filter(o => o.n[0] >= 200 && o.n[1] >= 200 && o.n[2] >= 30 && o.ex.every(v => v > 0))
+  console.log('3つの期間とも持つだけより良かった決め方：', all3.length, '／', OUT.length)
+  for (const o of all3.sort((a, b) => Math.min(...b.ex) - Math.min(...a.ex)).slice(0, 10)) console.log(JSON.stringify(o.c), o.ex.map(v => fmt(v)).join(' ／ '), o.n.join('/'), o.avg.map(v => fmt(v)).join('/'), o.win.join('/'))
 }
