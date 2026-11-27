@@ -148,6 +148,10 @@ try {
   BBD = {}
 }
 const bbScore = e => (e.score ?? 0) + ((BBD[`${e.code}|${e.date}|${e.time}`]?.pct ?? 0) >= 2 ? 1 : 0)
+// bbPurpose（11/27 本人の希望：取得の割合の2%より目的が大事）：自社株買いの PDF（../buyback_pdfs.json）の目的が 株主還元か M&A で、良い条件（e.score、割合を含まない）が1つ以上のものだけ買う（bbSizeRule の代わり）
+let BBP = {}
+try { const { buybackPurpose } = await import('../../../.claude/scripts/kabu-lens.mjs'); const J = JSON.parse(readFileSync(new URL('../buyback_pdfs.json', import.meta.url), 'utf-8')); for (const [k, v] of Object.entries(J)) if (v.text) BBP[k] = buybackPurpose(v.text) } catch { BBP = {} }
+const bbPurposeOk = e => { const pu = BBP[`${e.code}|${e.date}`]; return (pu === 'return' || pu === 'ma') && (e.score ?? 0) >= 1 }
 // order（受注。ORDERS=1 のときだけ読まれる。11/25 試算）は増配の次。cfg.orders が無ければ外す
 const evRank = e => (e.kind === 'split' ? 0 : e.kind === 'buyback' && e.score >= 2 ? 1 : e.kind === 'divup' ? 2 : e.kind === 'order' ? 2.5 : e.kind === 'buyback' && e.score === 1 ? 3 : 9)
 // 米国の下げ相場
@@ -363,7 +367,7 @@ function run(P) {
       else evList.sort((a, b) => evRank(a) - evRank(b))
       for (const e of evList) {
         if (buys >= P.dayMax || held.has(e.code)) continue
-        if (P.bbSizeRule && e.kind === 'buyback' && bbScore(e) < 2) continue
+        if (P.bbPurpose && e.kind === 'buyback') { if (!bbPurposeOk(e)) continue } else if (P.bbSizeRule && e.kind === 'buyback' && bbScore(e) < 2) continue
         if (P.evMiss && rnd(`m|${e.code}|${d}`) < P.evMiss / 100) continue
         const x = barOf(e.code)
         // bbLimit（11/25）：自社株買いだけ寄指の上限を変える（例 1.03＝終値×1.03まで）
