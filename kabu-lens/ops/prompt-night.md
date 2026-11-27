@@ -82,6 +82,7 @@
    - settings の movers_stats：手順8の stats をそのまま set（日数が増えたときだけ）
    - archive：「まとめる」の movers-<今日>
    - settings の main：手順9b の cash・capital・capitalAt・capitalPeak だけ（update、if_version）
+   - settings の order_plan：手順3 の /tmp/plan.json の中身に for_date（明日＝次の営業日の YYYY-MM-DD）と made_at を足して set（既にあれば if_version）。朝の株ウォッチがこれをそのまま出す（11/27 本人の希望：朝と夜の注文をそろえる）
    ほかの項目・記録は変えない。消すのは「まとめる」の (d) で、まとめの保存に成功した movers だけ。失敗したら1回だけやり直し、だめなら「記録帳の更新に失敗」と書く。
 9b. 現金・資金・上限の計算（毎晩。手順3の前に行う）：trades の last を今日の終値に書き戻したあと、trades を action "list"、query {"limit": 300}、out_dir "/tmp/trades_now" で保存し、settings/main を out_dir "/tmp/settings_now" で保存する。`node <保存先> --cash-now /tmp/settings_now/settings/main.json /tmp/trades_now/trades > /tmp/cash.json`。出力：cash、capital（放置の保有を数えない）、capitalPeak（資金の一番高いとき）、drawdown_pct（一番高いときからの下げ%）、dd_stop（true なら下げの歯止め）、risk_one（1回の損失の上限）、pos_cap（1銘柄の上限）、risk_cap（損の合計の上限）、open_risk（損の合計）、risk_room（空き）、positions_risk（銘柄ごと）。cash・capital・capitalPeak を settings/main に、capitalAt を今日の日付にして update する。ほかの数は「判断の決まり」と手順3a〜3bでそのまま使う。unknown（値段か株数が無い記録）があれば書かずに、通知の最後に「◯◯の約定の値段が記録に無いので現金を計算できず」と1行（このときは歯止めの判定もしない）。前の晩の cash と10万円以上違えば、その理由（moves の今日の分。settings の deposits に今日の入金があればそれ）を1行。
 
@@ -105,6 +106,7 @@
    - 最初に1行：「空き：損の合計 あと約◯円・現金 約◯円 → 明日の買い ◯件」（手順3 の room_start・cash_start と、events と swing の件数。手順3a' で売るなら「今夜PTSで売る分を含む」と添える）。usBear が true なら、この行のすぐ後に米国の下げ相場の1行（判断の決まり）。資金の下げが −15% 以下なら、その1行も（判断の決まり）。
    - 買い候補（手順3b で注文票に入れたもの）1つにつき1行：「◯◯（コード）：明日9:15以降、◯円以下なら指値で◯株。買えたらすぐ『◯円以下で成行売り』の逆指値。目標◯円／最長◯営業日。損失は最大約◯円」。◯円以下は「今日の終値 × 1.02」。最長は40営業日。株数・値段は手順3の swing の値をそのまま。同じ日に複数約定しても、損の合計の上限と現金の中に収まるように計算してある、と1行添える。swing が0件なら「スイングの候補：◯件（約1,150銘柄から。swing_note）」と1行、swing_ref があれば「参考：◯◯（100株で損失 約◯円）」を添える。
    - 手順5c の候補があれば1行：「参考・決算後のドリフト（練習口座で試し中。注文票には入れない）：◯◯（+◯%上方修正）」。
+   - trades の status が plan の記録（本人が決めた予定。rule が no のものも）は、1件1行で「【本人の予定】◯◯（コード）◯株：note のとおり」と書く（11/27〜。朝の株ウォッチも同じ1行を出す）。
    - 最後に1行「注文票の銘柄はチェック済み。ほかの銘柄を買うなら /mite 銘柄（株数・損切り・場中の判定まで1つで出る）。明日の買いは dayTradeMax 回まで」。
 3. 保有銘柄ごとに1行：終値、含み損益（円と%）、PTS、次の決算日（見込みなら「見込み」）、点検結果。
 4. 今日の売買の振り返り（手順6）と、計算し直した現金・資金（手順9b）、一番高いときからの下げ%を1行。
