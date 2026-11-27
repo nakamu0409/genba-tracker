@@ -1485,8 +1485,24 @@ export function parseBuybackPdf(text) {
   if (pcts.length) r.pct = pcts[pcts.length - 1]
   const per = t.match(/(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日\s*[～〜~から\-－]+\s*(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日/)
   if (per) r.days = Math.round((new Date(+per[4], per[5] - 1, +per[6]) - new Date(+per[1], per[2] - 1, +per[3])) / 864e5)
+  // 目的（11/27 本人の希望：取得の割合より目的が大事）：「取得を行う理由」の段落から。comp＝株式報酬・従業員持株など、ma＝株式交換・M&A、return＝株主還元・資本効率、flex＝「機動的な資本政策」だけ、other＝それ以外
+  r.purpose = buybackPurpose(t)
+  const amt = t.replace(/([^\x00-\x7F]) (?=[^\x00-\x7F])/g, '$1').match(/取得価額の総額[^0-9\n]{0,20}([0-9][0-9,]*(?:\.[0-9]+)?)\s*(億|百万|千万|万)?円/)
+  r.amount_oku = amt ? Math.round(Number(amt[1].replace(/,/g, '')) * ({ 億: 1e8, 千万: 1e7, 百万: 1e6, 万: 1e4 }[amt[2]] || 1) / 1e6) / 100 : null
   r.method = /公開買付/.test(t) ? 'TOB' : /ToSTNeT|立会外/.test(t) ? 'ToSTNeT' : /信託/.test(t) ? '信託' : /市場買付|市場における|取引所における/.test(t) ? '市場' : 'その他'
   return r
+}
+
+/** 自社株買いの目的（「取得を行う理由」の段落）。comp・ma・return・flex・other。段落が見つからなければ全体から */
+export function buybackPurpose(text) {
+  const t = String(text || '').replace(/[ \t\u3000\r\n]+/g, '')
+  const m = t.match(/(取得を行う理由|取得する理由|取得の理由|取得理由)(.{0,300}?)(２．|2\.|（２）|\(2\)|取得に係る事項)/)
+  const r = m ? m[2] : t.slice(0, 600)
+  if (/株式報酬|譲渡制限付株式|ストック・?オプション|株式給付|従業員持株|持株会|ESOP|役員報酬|インセンティブ|新株予約権の行使に(備|充)/.test(r)) return 'comp'
+  if (/株式交換|M&A|Ｍ＆Ａ|企業買収|代用/.test(r)) return 'ma'
+  if (/株主還元|株主への(利益)?還元|資本効率|ROE|ＲＯＥ|総還元|株主価値|１株当たり|1株当たり/.test(r)) return 'return'
+  if (/機動的な資本政策/.test(r)) return 'flex'
+  return 'other'
 }
 
 /** 自社株買いの開示 PDF を読んで parseBuybackPdf の結果を返す。読めなければ { error } */
@@ -4561,6 +4577,10 @@ async function main() {
         // 取得の割合（開示 PDF）
         const bp = fetchBuybackPdf(r.pdf)
         r.size_pct = bp.pct ?? null
+        // 目的と金額（11/27〜。判定にはまだ使わない。目的ごとの10年の成績を確かめてから本人が決める）
+        r.purpose = bp.purpose ?? null
+        r.amount_oku = bp.amount_oku ?? null
+        const PL = { comp: '目的：株式報酬・従業員持株など（還元ではない）', ma: '目的：株式交換・M&A', return: '目的：株主還元・資本効率', flex: '目的：機動的な資本政策（とだけ）', other: '目的：その他' }
         r.score_base = r.score
         r.score_with_size = r.score + (bp.pct >= 2 ? 1 : 0)
         // score は割合を足した数にする（夜の注文票の「良い条件◯つ」と、答え合わせの組 buyback_s0〜s2 が新しい決まりの数になるように。11/21〜。もとの数は score_base）
@@ -4572,6 +4592,7 @@ async function main() {
         r.expect_pct = r.score_with_size >= 2 ? 0.7 : r.score_with_size === 1 ? 0.36 : -0.06
         // 2026-11-22 本人と決定（本番）：取得の割合2%以上で、20日平均の売買代金が3億円未満の自社株買いは、注文票の一番上に置く（同じ日にいくつも出たら先に買う）
         r.small_hot = !r.skip && isSmallHotBuyback(r.size_pct, r.turnover_avg)
+        if (r.purpose) r.why = [...(r.why || []), PL[r.purpose] + (r.amount_oku ? `・総額 約${r.amount_oku}億円` : '')]
         if (r.small_hot) r.why = [...(r.why || []), '小さめの会社の大きい自社株買い（先に買う）']
         r.sell = '同じ日の引成'
       } else if (r.kind === 'yutai_end') {

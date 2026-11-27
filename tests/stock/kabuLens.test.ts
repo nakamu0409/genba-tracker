@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { goingConcernFromText, latestTanshinPdf, parseGoingConcern, isOrderTitle, parseOrderPdf, orderSizeNote, isMonthlyOrderTitle, parseBunbaiPage, expectCheck, orderPlan, swingEntryVariants, eventExitVariants, liveStudyDay, mergeLiveStudy, below200, parseBuybackPdf, drawdownStop, nikkeiFutBrief, pickYutaiEnd, isPreHoliday, nextTradingDate, crashSignal, worldBrief, parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, pickSwingToSell, keepEventRow, paperSummary, paperInputOf, paperInputFromFive, paperReplay, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { buybackPurpose, goingConcernFromText, latestTanshinPdf, parseGoingConcern, isOrderTitle, parseOrderPdf, orderSizeNote, isMonthlyOrderTitle, parseBunbaiPage, expectCheck, orderPlan, swingEntryVariants, eventExitVariants, liveStudyDay, mergeLiveStudy, below200, parseBuybackPdf, drawdownStop, nikkeiFutBrief, pickYutaiEnd, isPreHoliday, nextTradingDate, crashSignal, worldBrief, parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, pickSwingToSell, keepEventRow, paperSummary, paperInputOf, paperInputFromFive, paperReplay, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -1099,7 +1099,7 @@ describe('企業の行動の開示（自社株買い・増配・株式分割）'
   })
   it('parseBuybackPdf：取得の割合（変更後）・期間・方法を取り出す', () => {
     const txt = '（２）取得しうる株式の総数 500 百万株（上限） 610 百万株（上限）\n（発行済株式総数（自己株式を除く）に対する割合 4.22％） に対する割合 5.18％）\n（４）取得期間 2026 年８月５日～2027 年８月４日\n（５）取得方法 市場買付'
-    expect(parseBuybackPdf(txt)).toEqual({ pct: 5.18, days: 364, method: '市場' })
+    expect(parseBuybackPdf(txt)).toMatchObject({ pct: 5.18, days: 364, method: '市場' })
     expect(parseBuybackPdf('何もない').pct).toBe(null)
   })
   it('練習口座：bbSizeRule なら、自社株買いは良い条件＋割合2%以上で2つ以上だけ買う', () => {
@@ -1677,5 +1677,14 @@ describe('自社株買いの PDF の割合（11/26）', () => {
   it('「割合約 1.30％」も読む', () => {
     expect(parseBuybackPdf('（発行済株式総数（自己株式を除く）に対する割合約 1.30％）').pct).toBe(1.3)
     expect(parseBuybackPdf('（発行済株式総数（自己株式を除く）に対する割合：2.16％）').pct).toBe(2.16)
+  })
+})
+
+describe('自社株買いの目的（11/27）', () => {
+  it('理由の段落から分ける', () => {
+    expect(buybackPurpose('１．自己株式の取得を行う理由\n 譲渡制限付株式報酬制度において交付する株式に充当するため\n２．取得に係る事項')).toBe('comp')
+    expect(buybackPurpose('１．取得を行う理由 株主還元の充実及び資本効率の向上を図るため ２．取得')).toBe('return')
+    expect(buybackPurpose('１．自己株式の取得を行う理由\n 経営環境の変化に対応した機動的な資本政策を遂行するため。\n２．取得')).toBe('flex')
+    expect(buybackPurpose('１．取得を行う理由 株式交換に充当するため ２．')).toBe('ma')
   })
 })
