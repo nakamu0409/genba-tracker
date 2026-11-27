@@ -371,6 +371,8 @@ function run(P) {
         if (P.bbPurpose === true && e.kind === 'buyback') { if (!bbPurposeOk(e)) continue }
         else if (P.bbPurpose === 'add' && e.kind === 'buyback') { if (!(bbScore(e) >= 2 || bbPurposeOk(e))) continue }
         // 'nosize'（11/27 本人の案：割合2%の条件を外す）：良い条件（割合を数えない）2つ以上、または還元かM&Aで良い条件1つ以上。'nosize2'＝良い条件2つ以上だけ（割合も目的も見ない）
+        // 'addexcl'＝add に加えて、株式報酬・その他で割合2%未満を外す
+        else if (P.bbPurpose === 'addexcl' && e.kind === 'buyback') { const pu = BBP[`${e.code}|${e.date}`]; const pct = BBD[`${e.code}|${e.date}|${e.time}`]?.pct ?? 0; if (!(bbScore(e) >= 2 || bbPurposeOk(e)) || ((pu === 'comp' || pu === 'other') && pct < 2)) continue }
         else if (P.bbPurpose === 'nosize' && e.kind === 'buyback') { if (!((e.score ?? 0) >= 2 || bbPurposeOk(e))) continue }
         else if (P.bbPurpose === 'nosize2' && e.kind === 'buyback') { if ((e.score ?? 0) < 2) continue }
         else if (P.bbPurpose === 'excl' && e.kind === 'buyback') { const pu = BBP[`${e.code}|${e.date}`]; const pct = BBD[`${e.code}|${e.date}|${e.time}`]?.pct ?? 0; if (bbScore(e) < 2 || ((pu === 'comp' || pu === 'other') && pct < 2)) continue }
@@ -378,7 +380,9 @@ function run(P) {
         if (P.evMiss && rnd(`m|${e.code}|${d}`) < P.evMiss / 100) continue
         const x = barOf(e.code)
         // bbLimit（11/25）：自社株買いだけ寄指の上限を変える（例 1.03＝終値×1.03まで）
-        const lim = e.kind === 'buyback' && P.bbLimit ? e.close * P.bbLimit : P.evLimit ? e.close * P.evLimit : e.limit
+        // bbLimitBig・bbLimitAt（11/27 本人の考え：回数による）：資金が bbLimitAt 円以上になったら自社株買いの寄指を bbLimitBig に
+        const bbL = P.bbLimitBig && equityPrev >= (P.bbLimitAt || Infinity) ? P.bbLimitBig : P.bbLimit
+        const lim = e.kind === 'buyback' && bbL ? e.close * bbL : P.evLimit ? e.close * P.evLimit : e.limit
         if (!x || x.b.h === x.b.l || x.b.o > lim) continue
         if (P.evMinGap !== undefined && e.kind !== 'split' && x.b.o < e.close * (1 + P.evMinGap / 100)) continue
         const o = x.b.o
