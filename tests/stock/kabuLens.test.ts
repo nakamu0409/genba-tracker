@@ -1573,6 +1573,12 @@ describe('orderPlan（夜の注文票の計算。11/25）', () => {
     expect(r.room_left).toBe(0)
     expect(r.stale).toEqual([])
   })
+  it('スイングのしぼり（11/27）：値段の上限と出来高の倍率', () => {
+    const sc = { date: today, rows: scan.rows.map(r => r.code === '2222' ? { ...r, volRel: 2.0 } : r) }
+    const r = orderPlan({ cash: cn, settings: { dayTradeMax: 5, swingMaxPrice: 1400, swingMaxVolRel: 1.5 }, trades: [], events: [], scan: sc, earnings: {}, today })
+    expect(r.swing.map(x => x.code)).toEqual(['1111'])
+    expect(r.swing_cut_by_filter).toBe(2)
+  })
   it('明日が決算の候補は買わない', () => {
     const r = orderPlan({ cash: cn, settings: {}, trades: [], events: [], scan, earnings: { 2222: { date: '2026-11-26' } }, today })
     expect(r.swing.map(x => x.code)).toEqual(['1111'])

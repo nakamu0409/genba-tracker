@@ -2200,7 +2200,7 @@ export function candidateRow(pk, info = {}) {
     code: info.code, name: info.name || '', date: pk.date_jst, kind, pass: !!bc.pass, reason: bc.pass ? 'NONE' : (bc.why_not || 'NONE'),
     close, stop: bc.stop ?? (ok(close) && ok(pk.volatility?.atr) ? tick(close - 2 * pk.volatility.atr) : null), target: bc.target ?? null,
     score: pk.scores?.long ?? null, overheat: pk.overheat?.score ?? null, regime: pk.regime || null,
-    turnover: pk.volume?.turnover_avg ?? null, atrPct: pk.volatility?.atr_pct_of_price ?? null, dev25: pk.trend?.dev_fast_pct ?? null, rs: pk.relative_strength?.diff_pct ?? null
+    turnover: pk.volume?.turnover_avg ?? null, atrPct: pk.volatility?.atr_pct_of_price ?? null, dev25: pk.trend?.dev_fast_pct ?? null, rs: pk.relative_strength?.diff_pct ?? null, volRel: pk.volume?.relative ?? null
   }
 }
 
@@ -3328,6 +3328,10 @@ export function orderPlan({ cash: cn, settings = {}, trades = [], events = [], s
   if (!scan?.rows) stale.push('スイングの候補（--scan-wide）が無い')
   else if (scan.date !== today) stale.push(`スイングの候補の日付が ${scan.date}（今日の分でない）。約170銘柄のパケットで代わりにする`)
   else swRows = scan.rows.filter(r => r.pass && r.date === today && !held.has(String(r.code)))
+  // 11/27 本人と決定（本番）：スイングは値段が swingMaxPrice 円未満で、合図の日の出来高が20日平均の swingMaxVolRel 倍未満の候補だけ（10年の口座全体で3つの期間そろって良い。study_loser_model.mjs）
+  const swMaxP = Number(settings.swingMaxPrice) || 0, swMaxV = Number(settings.swingMaxVolRel) || 0
+  const swCut = []
+  if (swMaxP || swMaxV) swRows = swRows.filter(r => { const bad = (swMaxP && r.close >= swMaxP) || (swMaxV && r.volRel != null && r.volRel >= swMaxV); if (bad) swCut.push(r.code); return !bad })
   swRows.sort((a, b) => (a.kind === 'GAP' ? 0 : 1) - (b.kind === 'GAP' ? 0 : 1) || (b.score ?? 0) - (a.score ?? 0))
   const next = nextTradingDate(today)
   const swOrders = []
@@ -3353,7 +3357,7 @@ export function orderPlan({ cash: cn, settings = {}, trades = [], events = [], s
     swOrders.push({ code: r.code, name: r.name, kind: r.kind, score: r.score, qty, limit, stop: r.stop, target: r.target, loss_max: Math.round(rps * qty), earnings: e?.date || null, earnings_estimated: e?.estimated ?? null, earnings_note: days != null && days >= 2 && days <= 3 ? `${e.date.slice(5).replace('-', '/')}決算（またいで持つ）` : null })
   }
   const swNote = swRows.length === 0 ? 'スイングの候補なし' : swOrders.length ? null : tooBig === swRows.length - blocked.length ? 'どれも100株で1回の損の上限を超える' : room <= 0 ? '損の合計の空きが無い' : '現金・空きが足りない'
-  return { today, stale, cash_start: cn.cash, room_start: cn.risk_room, risk_one: riskOne, pos_cap: posCap, bunbai: bnOrders, bunbai_dropped: bnDropped, pts_sells: sells, events: evOrders, events_dropped: evDropped, events_skipped: evSkipped, swing: swOrders, swing_candidates: swRows.length, swing_blocked_earnings: blocked, swing_ref: swOrders.length ? null : ref, swing_note: swNote, room_left: Math.round(room), cash_left: Math.round(cash) }
+  return { today, stale, cash_start: cn.cash, room_start: cn.risk_room, risk_one: riskOne, pos_cap: posCap, bunbai: bnOrders, bunbai_dropped: bnDropped, pts_sells: sells, events: evOrders, events_dropped: evDropped, events_skipped: evSkipped, swing: swOrders, swing_candidates: swRows.length, swing_cut_by_filter: swCut.length, swing_blocked_earnings: blocked, swing_ref: swOrders.length ? null : ref, swing_note: swNote, room_left: Math.round(room), cash_left: Math.round(cash) }
 }
 
 export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], usBear = false }) {
@@ -4559,7 +4563,8 @@ async function main() {
         r.close_date = last.date
         r.close = last.c
         // 11/25 本人と決定：自社株買いだけ寄指を終値×1.03まで（10年の口座全体で前半・後半が上、年ごとプラス8/10年。12/15 に見直す）。増配・株式分割は×1.02のまま
-        r.limit = tickFloor(last.c * (r.kind === 'buyback' ? 1.03 : 1.02))
+        // 11/27 本人と決定：自社株買いの寄指は終値×1.04まで（10年の口座全体で×1.03・×1.05より3つの期間がそろう）
+        r.limit = tickFloor(last.c * (r.kind === 'buyback' ? 1.04 : 1.02))
         const b20 = y.bars.slice(-20)
         r.turnover_avg = b20.length ? Math.round(b20.reduce((a, b) => a + b.c * b.v, 0) / b20.length) : null
         const c25 = y.bars.slice(-25).map(b => b.c)
@@ -4586,10 +4591,13 @@ async function main() {
         // score は割合を足した数にする（夜の注文票の「良い条件◯つ」と、答え合わせの組 buyback_s0〜s2 が新しい決まりの数になるように。11/21〜。もとの数は score_base）
         r.score = r.score_with_size
         // 2026-11-21 本人と決定（本番）：取得の割合2%以上を良い条件の1つに数え、2つ以上のものだけ買う。PDF が読めず割合が分からないときは、もとの良い条件だけで数える
-        r.skip = r.score_with_size < 2
+        // 11/27 本人と決定（本番）：これまでの条件（割合を含めて良い条件2つ以上）に加えて、目的が株主還元かM&Aで、良い条件（割合を数えない）が1つ以上なら買う
+        r.purpose_add = r.score_with_size < 2 && (r.purpose === 'return' || r.purpose === 'ma') && (r.score_base ?? 0) >= 1
+        r.skip = r.score_with_size < 2 && !r.purpose_add
+        if (r.purpose_add) r.why = [...(r.why || []), '目的が株主還元（11/27〜：良い条件1つでも買う）']
         if (r.skip) r.why = [...(r.why || []), r.size_pct === null ? '取得の割合は読めず' : `取得の割合 ${r.size_pct}%（2%未満）`]
         else if (bp.pct >= 2) r.why = [...(r.why || []), `取得の割合 ${bp.pct}%（2%以上）`]
-        r.expect_pct = r.score_with_size >= 2 ? 0.7 : r.score_with_size === 1 ? 0.36 : -0.06
+        r.expect_pct = r.score_with_size >= 2 ? 0.7 : r.purpose_add ? 0.3 : r.score_with_size === 1 ? 0.36 : -0.06
         // 2026-11-22 本人と決定（本番）：取得の割合2%以上で、20日平均の売買代金が3億円未満の自社株買いは、注文票の一番上に置く（同じ日にいくつも出たら先に買う）
         r.small_hot = !r.skip && isSmallHotBuyback(r.size_pct, r.turnover_avg)
         if (r.purpose) r.why = [...(r.why || []), PL[r.purpose] + (r.amount_oku ? `・総額 約${r.amount_oku}億円` : '')]
