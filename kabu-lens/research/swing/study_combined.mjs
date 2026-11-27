@@ -367,7 +367,11 @@ function run(P) {
       else evList.sort((a, b) => evRank(a) - evRank(b))
       for (const e of evList) {
         if (buys >= P.dayMax || held.has(e.code)) continue
-        if (P.bbPurpose && e.kind === 'buyback') { if (!bbPurposeOk(e)) continue } else if (P.bbSizeRule && e.kind === 'buyback' && bbScore(e) < 2) continue
+        // bbPurpose：true＝目的で選ぶ（置き換え）、'add'＝今の決まり（bbScore 2以上）に「還元かM&Aで良い条件1つ以上」を足す、'excl'＝今の決まりから株式報酬・その他で割合2%未満を外す
+        if (P.bbPurpose === true && e.kind === 'buyback') { if (!bbPurposeOk(e)) continue }
+        else if (P.bbPurpose === 'add' && e.kind === 'buyback') { if (!(bbScore(e) >= 2 || bbPurposeOk(e))) continue }
+        else if (P.bbPurpose === 'excl' && e.kind === 'buyback') { const pu = BBP[`${e.code}|${e.date}`]; const pct = BBD[`${e.code}|${e.date}|${e.time}`]?.pct ?? 0; if (bbScore(e) < 2 || ((pu === 'comp' || pu === 'other') && pct < 2)) continue }
+        else if (P.bbSizeRule && e.kind === 'buyback' && bbScore(e) < 2) continue
         if (P.evMiss && rnd(`m|${e.code}|${d}`) < P.evMiss / 100) continue
         const x = barOf(e.code)
         // bbLimit（11/25）：自社株買いだけ寄指の上限を変える（例 1.03＝終値×1.03まで）
