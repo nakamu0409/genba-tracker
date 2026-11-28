@@ -3396,7 +3396,8 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], 
     let n0 = 0
     for (const b of buybacks) {
       if (b.kind !== 'buyback' || n0 >= (p.bbMax ?? 2)) continue
-      if (p.bbSizeRule && (b.score ?? 0) + (b.pct >= 2 ? 1 : 0) < 2) continue
+      // 11/27〜 bbPurpose：目的が株主還元かM&Aなら良い条件1つでも買う（本番と同じ）
+      if (p.bbSizeRule && (b.score ?? 0) + (b.pct >= 2 ? 1 : 0) < 2 && !(p.bbPurpose && (b.purpose === 'return' || b.purpose === 'ma') && (b.score ?? 0) >= 1)) continue
       if (st.positions.some(x => x.code === b.code)) continue
       const s0 = stocks[b.code]
       const turnCap0 = p.evTurnCap && s0?.turnover > 0 ? s0.turnover * p.evTurnCap / 100 : Infinity
@@ -3499,6 +3500,8 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], 
     if (!bars?.length || !(c.close > 0) || !(c.stop > 0)) continue
     // swingMaxPrice があれば、終値がその値段以上の候補は買わない（2026-11-21 本人と決定。10年の検証で1,500円未満の候補が約+0.2R良い。まず練習口座で試す）
     if (p.swingMaxPrice && c.close >= p.swingMaxPrice) continue
+    // 11/27〜 swingMaxVolRel：合図の日の出来高が20日平均のこの倍以上の候補は買わない（本番と同じ。cands に volRel がある行だけ）
+    if (p.swingMaxVolRel && c.volRel != null && c.volRel >= p.swingMaxVolRel) continue
     const x = ohlcOf(bars)
     if (x.o > c.close * (1 + p.swingGapPct / 100) || x.o <= c.stop) continue
     const entry = x.o * (1 + slip)
@@ -3533,7 +3536,8 @@ export function paperStep(prev, { date, stocks = {}, cands = [], buybacks = [], 
     if (b.kind === 'order' && !p.orders) continue
     const isPead = b.kind === 'pead'
     // bbSizeRule：自社株買いは、取得の割合2%以上を良い条件の1つに数え、2つ以上のものだけ買う（2026-11-21 本人と決定。まず練習口座で試す）
-    if (p.bbSizeRule && b.kind === 'buyback' && (b.score ?? 0) + (b.pct >= 2 ? 1 : 0) < 2) continue
+    // 11/27〜 bbPurpose：目的が株主還元かM&Aなら良い条件1つでも買う（本番と同じ）
+    if (p.bbSizeRule && b.kind === 'buyback' && (b.score ?? 0) + (b.pct >= 2 ? 1 : 0) < 2 && !(p.bbPurpose && (b.purpose === 'return' || b.purpose === 'ma') && (b.score ?? 0) >= 1)) continue
     if (isPead ? peadCount >= (p.peadMax ?? 2) : bbCount >= (p.bbMax ?? 2)) continue
     if (st.positions.some(x => x.code === b.code)) continue
     const s = stocks[b.code]
@@ -4747,7 +4751,9 @@ async function main() {
               b.repeat = null
             }
             Object.assign(b, buybackScore(b))
-            b.pct = fetchBuybackPdf(b.pdf).pct ?? null
+            const bpd = fetchBuybackPdf(b.pdf)
+            b.pct = bpd.pct ?? null
+            b.purpose = bpd.purpose ?? null
             b.expect = b.score >= 2 ? 0.7 : b.score === 1 ? 0.36 : -0.06
           }
           buybacks = buybacks.filter(b => b.kind !== 'buyback' || b.score > 0).sort((a, b) => b.expect - a.expect)
