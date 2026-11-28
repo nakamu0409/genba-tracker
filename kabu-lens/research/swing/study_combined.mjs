@@ -154,6 +154,9 @@ try { const { buybackPurpose } = await import('../../../.claude/scripts/kabu-len
 // orderNoMonthly（11/28）：受注の開示のうち「月次の受注実績」（毎月の定例の報告）の日は買わない
 const ORDM = new Set()
 try { const J = JSON.parse(readFileSync(new URL('../irevents_more.json', import.meta.url), 'utf-8')); for (const [c, l] of Object.entries(J)) for (const r of l || []) if (/受注/.test(r.title) && /(月次|月度|受注実績|受注高|受注状況|受注残)/.test(r.title)) ORDM.add(`${c}|${r.date}`) } catch {}
+// divStrict（11/28 study_divup_kind.mjs）：増配は「記念・特別配当」か「累進・方針も一緒」か「週末をはさむ日」だけ買う（平日の普通の増配は、1回あたり +0.17／+0.08／−0.00% と弱い）
+const DIVT = {}
+for (const f of ['../irevents.json', '../irevents2.json']) { try { for (const [c, l] of Object.entries(JSON.parse(readFileSync(new URL(f, import.meta.url), 'utf-8')))) for (const r of l || []) DIVT[`${c}|${r.date}`] = (DIVT[`${c}|${r.date}`] || '') + ' ' + r.title } catch {} }
 const bbPurposeOk = e => { const pu = BBP[`${e.code}|${e.date}`]; return (pu === 'return' || pu === 'ma') && (e.score ?? 0) >= 1 }
 // order（受注。ORDERS=1 のときだけ読まれる。11/25 試算）は増配の次。cfg.orders が無ければ外す
 const evRank = e => (e.kind === 'split' ? 0 : e.kind === 'buyback' && e.score >= 2 ? 1 : e.kind === 'divup' ? 2 : e.kind === 'order' ? 2.5 : e.kind === 'buyback' && e.score === 1 ? 3 : 9)
@@ -372,6 +375,7 @@ function run(P) {
         if (buys >= P.dayMax || held.has(e.code)) continue
         // bbPurpose：true＝目的で選ぶ（置き換え）、'add'＝今の決まり（bbScore 2以上）に「還元かM&Aで良い条件1つ以上」を足す、'excl'＝今の決まりから株式報酬・その他で割合2%未満を外す
         if (P.orderNoMonthly && e.kind === 'order' && ORDM.has(`${e.code}|${e.date}`)) continue
+        if (P.divStrict && e.kind === 'divup' && !/記念|特別|累進|配当方針|株主還元方針/.test(DIVT[`${e.code}|${e.date}`] || '') && (new Date(d) - new Date(pd)) / 864e5 < 3) continue
         if (P.bbPurpose === true && e.kind === 'buyback') { if (!bbPurposeOk(e)) continue }
         else if (P.bbPurpose === 'add' && e.kind === 'buyback') { if (!(bbScore(e) >= 2 || bbPurposeOk(e))) continue }
         // 'nosize'（11/27 本人の案：割合2%の条件を外す）：良い条件（割合を数えない）2つ以上、または還元かM&Aで良い条件1つ以上。'nosize2'＝良い条件2つ以上だけ（割合も目的も見ない）
