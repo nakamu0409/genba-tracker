@@ -1493,6 +1493,28 @@ export function parseBuybackPdf(text) {
   return r
 }
 
+/**
+ * 楽天証券の「現在取扱中の IPO」（11/28 本人と決定：IPO の抽選を注文票に出す。12/15 に続けるか決める）。
+ * ページの「IPO申込(ブックビルディング申込・購入申込)」の段落から、銘柄名（コード）と、近くにある日付（ブックビルディング期間・抽選日・上場日）・仮条件を読む。
+ * 取り扱いが無ければ { none: true }。形が変わって読めなければ { error }
+ */
+export function parseRakutenIpo(html) {
+  const x = String(html || '').replace(/<!--[\s\S]*?-->/g, ' ').replace(/<[^>]+>/g, ' | ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ')
+  const i = x.indexOf('IPO申込')
+  if (i < 0) return { error: 'IPO申込の段落が見つからない' }
+  const seg = x.slice(i, i + 20000)
+  if (/現在取り扱いはございません/.test(seg.slice(0, 400))) return { none: true, rows: [] }
+  const rows = []
+  for (const m of seg.matchAll(/([^|（(]{2,40})[（(]([0-9]{3}[0-9A-Z])[）)]/g)) {
+    const code = m[2]
+    if (rows.some(r => r.code === code)) continue
+    const near = seg.slice(m.index, m.index + 800)
+    const pick = re => ((near.match(re) || [])[1] || '').trim() || null
+    rows.push({ code, name: m[1].replace(/[|]/g, '').trim(), bb: pick(/ブックビルディング[^|]*?[|\s]+([0-9/月日（）()~～ 　:：年-]{6,40})/), lottery: pick(/抽選日[^|]*?[|\s]+([0-9/月日（）() 年]{3,20})/), listing: pick(/上場日[^|]*?[|\s]+([0-9/月日（）() 年]{3,20})/), range: pick(/仮条件[^|]*?[|\s]+([0-9,～~〜円 ]{3,30})/) })
+  }
+  return { none: rows.length === 0, rows }
+}
+
 /** 自社株買いの目的（「取得を行う理由」の段落）。comp・ma・return・flex・other。段落が見つからなければ全体から */
 export function buybackPurpose(text) {
   const t = String(text || '').replace(/[ \t\u3000\r\n]+/g, '')
@@ -4289,6 +4311,10 @@ async function main() {
   const save = !args.includes('--no-save')
   const evalAt = args.indexOf('--evaluate')
   if (evalAt >= 0) return evaluateFile(args[evalAt + 1])
+  if (args.includes('--ipo')) {
+    try { console.log(JSON.stringify({ source: '楽天証券 IPO（現在取扱中）', ...parseRakutenIpo(await fetchText('https://www.rakuten-sec.co.jp/web/domestic/ipo/')) }, null, 2)) } catch (e) { console.log(JSON.stringify({ error: e.message })) }
+    return
+  }
   if (args.includes('--bunbai')) {
     // 立会外分売：楽天の申込受付中と今後の予定（毎晩の記録用。買う決まりではない）
     console.log(JSON.stringify(await fetchBunbai(), null, 2))

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error 型定義のない .mjs スクリプト
-import { buybackPurpose, goingConcernFromText, latestTanshinPdf, parseGoingConcern, isOrderTitle, parseOrderPdf, orderSizeNote, isMonthlyOrderTitle, parseBunbaiPage, expectCheck, orderPlan, swingEntryVariants, eventExitVariants, liveStudyDay, mergeLiveStudy, below200, parseBuybackPdf, drawdownStop, nikkeiFutBrief, pickYutaiEnd, isPreHoliday, nextTradingDate, crashSignal, worldBrief, parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, pickSwingToSell, keepEventRow, paperSummary, paperInputOf, paperInputFromFive, paperReplay, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
+import { parseRakutenIpo, buybackPurpose, goingConcernFromText, latestTanshinPdf, parseGoingConcern, isOrderTitle, parseOrderPdf, orderSizeNote, isMonthlyOrderTitle, parseBunbaiPage, expectCheck, orderPlan, swingEntryVariants, eventExitVariants, liveStudyDay, mergeLiveStudy, below200, parseBuybackPdf, drawdownStop, nikkeiFutBrief, pickYutaiEnd, isPreHoliday, nextTradingDate, crashSignal, worldBrief, parseTanshin, cashNow, surgePullback, archiveMerge, lowExit, marksOutcomes, mergeMarks, nextDayOutcome, mergeNextDay, parseKabutanFinance, splitFiveMin, paperNew, paperStep, pickSwingToSell, keepEventRow, paperSummary, paperInputOf, paperInputFromFive, paperReplay, isBuybackTitle, tickFloor, pickBuybacks, buybackScore, pickEvents, isDividendUpTitle, isSplitTitle, earningsMomentum, intradayWideDay, mergeIntradayWide, intradayReplay, intradayView, intradayContext, intradayOutcome, mergeIntradayStats, parseDilution, summarizeDilution, afternoonResult, returnCorrelation, candidateRow, signalsReport, consideredOutcome, mergeConsideredStats, summarizeConsideredStats, estimateNextEarnings, parseIrbankHistory, parseMatsuiRanking, parseTdnetList, tagTdnet, kessanOutcome, mergeKessanStats, summarizeKessanStats, classifyKessan, parseKabutanKessanList, businessDaysBetween, parseKabutanEarningsDate, preTradeCheck, analyze, atr, backtest, chaseFeatures, chaseRisk, dipRisk, mergeMoverStats, parseKabutanNews, summarizeMoverStats, ema, evaluateSignal, isTseCode, parseKabutanMovers, parseKabutanRanking, parseKabutanStock, parseYahoo, parseYahooNow, percentRank, rma, rsi, sma, summarize } from '../../.claude/scripts/kabu-lens.mjs'
 
 type Bar = { date: string, o: number, h: number, l: number, c: number, v: number }
 
@@ -1692,5 +1692,14 @@ describe('自社株買いの目的（11/27）', () => {
     expect(buybackPurpose('１．取得を行う理由 株主還元の充実及び資本効率の向上を図るため ２．取得')).toBe('return')
     expect(buybackPurpose('１．自己株式の取得を行う理由\n 経営環境の変化に対応した機動的な資本政策を遂行するため。\n２．取得')).toBe('flex')
     expect(buybackPurpose('１．取得を行う理由 株式交換に充当するため ２．')).toBe('ma')
+  })
+})
+
+describe('楽天の IPO（11/28）', () => {
+  it('取り扱い無し・あり', () => {
+    expect(parseRakutenIpo('<p>IPO申込(ブックビルディング申込・購入申込)</p><p>現在取り扱いはございません。</p>').none).toBe(true)
+    const r = parseRakutenIpo('<h3>IPO申込(ブックビルディング申込・購入申込)</h3><table><tr><td>さくら技研（999A）</td></tr><tr><th>ブックビルディング期間</th><td>12/2～12/8</td></tr><tr><th>抽選日</th><td>12/9</td></tr><tr><th>上場日</th><td>12/17</td></tr><tr><th>仮条件</th><td>1,000～1,100円</td></tr></table>')
+    expect(r.rows[0]).toMatchObject({ code: '999A', name: 'さくら技研', lottery: '12/9', listing: '12/17' })
+    expect(parseRakutenIpo('なにもない').error).toBeTruthy()
   })
 })
