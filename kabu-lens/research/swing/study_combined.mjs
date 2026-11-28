@@ -151,6 +151,9 @@ const bbScore = e => (e.score ?? 0) + ((BBD[`${e.code}|${e.date}|${e.time}`]?.pc
 // bbPurpose（11/27 本人の希望：取得の割合の2%より目的が大事）：自社株買いの PDF（../buyback_pdfs.json）の目的が 株主還元か M&A で、良い条件（e.score、割合を含まない）が1つ以上のものだけ買う（bbSizeRule の代わり）
 let BBP = {}
 try { const { buybackPurpose } = await import('../../../.claude/scripts/kabu-lens.mjs'); const J = JSON.parse(readFileSync(new URL('../buyback_pdfs.json', import.meta.url), 'utf-8')); for (const [k, v] of Object.entries(J)) if (v.text) BBP[k] = buybackPurpose(v.text) } catch { BBP = {} }
+// orderNoMonthly（11/28）：受注の開示のうち「月次の受注実績」（毎月の定例の報告）の日は買わない
+const ORDM = new Set()
+try { const J = JSON.parse(readFileSync(new URL('../irevents_more.json', import.meta.url), 'utf-8')); for (const [c, l] of Object.entries(J)) for (const r of l || []) if (/受注/.test(r.title) && /(月次|月度|受注実績|受注高|受注状況|受注残)/.test(r.title)) ORDM.add(`${c}|${r.date}`) } catch {}
 const bbPurposeOk = e => { const pu = BBP[`${e.code}|${e.date}`]; return (pu === 'return' || pu === 'ma') && (e.score ?? 0) >= 1 }
 // order（受注。ORDERS=1 のときだけ読まれる。11/25 試算）は増配の次。cfg.orders が無ければ外す
 const evRank = e => (e.kind === 'split' ? 0 : e.kind === 'buyback' && e.score >= 2 ? 1 : e.kind === 'divup' ? 2 : e.kind === 'order' ? 2.5 : e.kind === 'buyback' && e.score === 1 ? 3 : 9)
@@ -368,6 +371,7 @@ function run(P) {
       for (const e of evList) {
         if (buys >= P.dayMax || held.has(e.code)) continue
         // bbPurpose：true＝目的で選ぶ（置き換え）、'add'＝今の決まり（bbScore 2以上）に「還元かM&Aで良い条件1つ以上」を足す、'excl'＝今の決まりから株式報酬・その他で割合2%未満を外す
+        if (P.orderNoMonthly && e.kind === 'order' && ORDM.has(`${e.code}|${e.date}`)) continue
         if (P.bbPurpose === true && e.kind === 'buyback') { if (!bbPurposeOk(e)) continue }
         else if (P.bbPurpose === 'add' && e.kind === 'buyback') { if (!(bbScore(e) >= 2 || bbPurposeOk(e))) continue }
         // 'nosize'（11/27 本人の案：割合2%の条件を外す）：良い条件（割合を数えない）2つ以上、または還元かM&Aで良い条件1つ以上。'nosize2'＝良い条件2つ以上だけ（割合も目的も見ない）
@@ -383,9 +387,11 @@ function run(P) {
         // bbLimitBig・bbLimitAt（11/27 本人の考え：回数による）：資金が bbLimitAt 円以上になったら自社株買いの寄指を bbLimitBig に
         const bbL = P.bbLimitBig && equityPrev >= (P.bbLimitAt || Infinity) ? P.bbLimitBig : P.bbLimit
         const lim = e.kind === 'buyback' && bbL ? e.close * bbL : P.evLimit ? e.close * P.evLimit : e.limit
-        if (!x || x.b.h === x.b.l || x.b.o > lim) continue
+        if (!x || x.b.h === x.b.l || (x.b.o > lim && !(P.evPts !== undefined && e.kind === 'buyback'))) continue
         if (P.evMinGap !== undefined && e.kind !== 'split' && x.b.o < e.close * (1 + P.evMinGap / 100)) continue
-        const o = x.b.o
+        // evPts（11/28）：自社株買いを発表の夜の PTS で買う（終値×(1+evPts%) で必ず買えたとみる。寄指の上限は見ない）。売りは翌日の引け
+        const ptsBuy = P.evPts !== undefined && e.kind === 'buyback'
+        const o = ptsBuy ? e.close * (1 + P.evPts / 100) * (1 + SL) : x.b.o
         // evTurnCap：1銘柄の金額を、前の日までの20日平均の売買代金の evTurnCap% までにする（寄りで値段を押し上げないため）
         const cap = P.evTurnCap ? stocks[e.code].turn[e.i] * P.evTurnCap / 100 : Infinity
         // swSellForEv：企業の行動を買う現金が足りない日は、スイングの株を寄りで売って現金を作る（'weak'＝含み益の小さい順／'old'＝長く持っている順）。swSellOnlyZero なら100株も買えないときだけ。swSellMaxGain なら含み益がその%未満のスイングだけ売る
@@ -498,7 +504,8 @@ function run(P) {
         n++
         held.add(s.code)
         cash -= qty * entry
-        pos.push({ track, code: s.code, entryDate: d, entry, qty, stop: s.stop, target: rMult ? entry + rMult * rps : Infinity, maxDays, held: 0, last: entry })
+        // swTrail（11/28）：スイングは利確なし、+swTrailArm R を超えたら損切りを直近 swTrail 日の安値に上げていく
+        pos.push({ track, code: s.code, entryDate: d, entry, qty, stop: s.stop, target: P.swTrail && track === 'swing' ? Infinity : rMult ? entry + rMult * rps : Infinity, maxDays, held: 0, last: entry, risk0: entry - s.stop })
       }
     }
     if (P.tracks.surge) {
@@ -534,6 +541,8 @@ function run(P) {
       if (P.streakMin) list = list.filter(s => streakOf(s) >= P.streakMin)
       if (P.avoid) list = list.filter(s => !avoid(stocks[s.code], s.i))
       if (P.maxPrice) list = list.filter(s => stocks[s.code].bars[s.i].c < P.maxPrice)
+      // swNoFri（11/28）：週末をはさむ（合図の日から3日以上あく）日はスイングを買わない
+      if (P.swNoFri && (new Date(d) - new Date(pd)) / 864e5 >= 3) list = []
       // swMkt5Max（11/26 study_loser_model：相場全体が5日で大きく上げた直後の候補は悪い）：合図の日の 1306 の5日の騰落が swMkt5Max% 以上なら、その日はスイングを買わない
       if (P.swMkt5Max !== undefined) { const k5 = bi.get(pd); if (k5 >= 5 && (bench[k5].c / bench[k5 - 5].c - 1) * 100 >= P.swMkt5Max) list = [] }
       // swVolMax（同じ）：合図の日の出来高が20日平均の exp(swVolMax) 倍以上の候補は買わない（0.4 ≒ 1.5倍）
@@ -566,6 +575,10 @@ function run(P) {
       const first = p.entryDate === d
       let done = false
       if (p.stop && !first && b.o <= p.stop) { close(p, b.o * (1 - SL), '損切り（寄り）'); done = true } else if (p.stop && b.l <= p.stop) { close(p, p.stop * (1 - SL), '損切り'); done = true } else if (!first && b.o >= p.target) { close(p, b.o, '目標（寄り）'); done = true } else if (b.h >= p.target) { close(p, p.target, '目標'); done = true } else if (p.held >= p.maxDays) { close(p, b.c * (1 - SL), '期間切れ'); done = true }
+      if (!done && P.swTrail && p.track === 'swing') {
+        if (b.c >= p.entry + (p.risk0 || 0) * (P.swTrailArm ?? 1)) p.armed = true
+        if (p.armed) { const B = x.st.bars; let lo = Infinity; for (let j = Math.max(0, x.k - P.swTrail + 1); j <= x.k; j++) lo = Math.min(lo, B[j].l); p.stop = Math.max(p.stop, lo) }
+      }
       if (!done) {
         p.last = b.c
         keep.push(p)
