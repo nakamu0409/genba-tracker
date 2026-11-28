@@ -4648,6 +4648,13 @@ async function main() {
     }
     // 小さい会社まで（11/24 本人と決定）：universe に無い会社は、自社株買い・増配で20日平均の売買代金が smallMin 以上のものだけ残す
     rows = rows.filter(r => keepEventRow(r, !uniSet || uniSet.has(r.code), smallMin))
+    // 11/28〜：発表の夜の PTS の値段を記録する（自社株買いを PTS で買う形を本番の数字で確かめるため。昔の PTS の値段は取れないので、ここからためる）
+    if (args.includes('--with-pts') && rows.length) {
+      try {
+        const pt = await fetchPts(rows.map(r => r.code).slice(0, 20), { ranking: false })
+        for (const r of rows) { const x = (pt.stocks || []).find(z => z.code === r.code); if (x && x.pts_price) { r.pts_price = x.pts_price; r.pts_time = x.pts_time; r.pts_pct = x.pts_vs_price_pct } }
+      } catch { /* PTS が取れなくても続ける */ }
+    }
     for (const r of rows) if (uniSet && !uniSet.has(r.code)) { r.small_company = Number(r.turnover_avg) < 1e8; r.why = [...(r.why || []), r.small_company ? '小さい会社（売買代金5,000万〜1億円。11/24から買う）' : 'いつもの銘柄の一覧に無い会社（11/24から買う）'] }
     rows.sort((a, b) => (a.skip - b.skip) || (!!b.small_hot - !!a.small_hot) || (b.skip ? -1 : b.expect_pct) - (a.skip ? -1 : a.expect_pct))
     console.log(JSON.stringify({ date: td.date, total_disclosures: td.total, error: td.error || null, rule: '翌営業日に寄指（limit 以下なら寄りで買う。limit は自社株買い＝終値×1.03（11/25〜）、増配・株式分割・受注＝終値×1.02）。order＝受注（11/25〜。同じ日の引成。いつもの銘柄だけ）。kind: buyback＝自社株買い（同じ日の引成で売る。良い条件＋取得の割合2%以上で2つ以上だけ買い、ほかは skip）、divup＝増配（同じ日の引成）、split＝株式分割（5営業日後の引成）、yutai_end＝株主優待の廃止（記録だけ。skip。11/21〜）。決算と同じ日の発表・立会外の取得は除く。expect_pct＝10年の検証での1回の平均（全体比の%）。small_hot（取得の割合2%以上・20日平均の売買代金3億円未満の自社株買い）を一番上に、あとは expect_pct の大きい順', rows }, null, 2))
